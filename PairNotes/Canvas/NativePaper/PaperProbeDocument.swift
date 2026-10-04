@@ -61,8 +61,15 @@ enum PaperProbeDocument {
         let frame = CGRect(x: 0, y: 0, width: side, height: side)
         context.setFillColor(gray: 1, alpha: 1)
         context.fill(frame)
+        let canvas = markup.bounds
+        guard canvas.width > 0, canvas.height > 0 else { throw ProbeError.renderFailed }
+        // Paper coordinates use a top-left origin. Render in model coordinates
+        // with an explicit scale; the output bitmap is only the destination.
+        context.translateBy(x: 0, y: CGFloat(side))
+        context.scaleBy(x: CGFloat(side) / canvas.width, y: -CGFloat(side) / canvas.height)
+        context.translateBy(x: -canvas.minX, y: -canvas.minY)
         // Dedicated context survives suspension; no UIKit drawing closure spans await.
-        await markup.draw(in: context, frame: frame)
+        await markup.draw(in: context, frame: canvas)
         guard let image = context.makeImage(), let png = UIImage(cgImage: image).pngData() else {
             throw ProbeError.renderFailed
         }
