@@ -63,7 +63,7 @@ Estos comandos son instrucciones pendientes; no se ejecutaron en Linux. Una comp
 
 ## Prueba del editor y widget local
 
-En **Crear**, el ejemplo contiene texto, una ilustración sintética y un trazo. Se puede dibujar con el dedo, seleccionar objetos, usar la paleta nativa y elegir una foto mediante PhotosPicker. La app no pide acceso general a la fototeca. **Guardar y renderizar** captura una revisión y guarda fuente más tres imágenes; **Reabrir** restaura el borrador. Cerrar y volver a abrir verifica persistencia real. El editor no tiene autosave en este corte.
+En **Crear**, el ejemplo contiene texto, una ilustración sintética y un trazo. Se puede dibujar con el dedo, seleccionar objetos, agregar texto desde la paleta y elegir una foto mediante PhotosPicker. La app no pide acceso general a la fototeca. **Guardar y renderizar** captura una revisión y guarda fuente más tres imágenes; **Reabrir** restaura el borrador. Cerrar y volver a abrir verifica persistencia real. El editor no tiene autosave en este corte.
 
 Para compartir el render con el widget se necesita configuración propia:
 

@@ -31,7 +31,7 @@ final class PaperProbeController: UIViewController {
         picker.addObserver(canvas)
         pencilKitResponderState.activeToolPicker = picker
         pencilKitResponderState.toolPickerVisibility = .visible
-        picker.accessoryItem = UIBarButtonItem(barButtonSystemItem: .add, target: self, action: #selector(insertElements(_:)))
+        picker.accessoryItem = UIBarButtonItem(title: "Texto", style: .plain, target: self, action: #selector(insertText))
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -52,13 +52,24 @@ final class PaperProbeController: UIViewController {
         resignFirstResponder()
     }
 
-    @objc private func insertElements(_ button: UIBarButtonItem) {
+    @objc private func insertText() {
         guard canvas.isEditable else { return }
-        let insertion = MarkupEditViewController(supportedFeatureSet: PaperProbeDocument.supportedFeatures)
-        insertion.delegate = canvas
-        insertion.modalPresentationStyle = .popover
-        insertion.popoverPresentationController?.barButtonItem = button
-        present(insertion, animated: true)
+        // The SDK 26.0 compiler does not expose the controller's conformance to
+        // MarkupEditViewController.Delegate. Insert using the stable model API.
+        let prompt = UIAlertController(title: "Agregar texto", message: nil, preferredStyle: .alert)
+        prompt.addTextField { $0.placeholder = "Tu nota" }
+        prompt.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
+        prompt.addAction(UIAlertAction(title: "Agregar", style: .default) { [weak self, weak prompt] _ in
+            guard let self, self.canvas.isEditable,
+                  let text = prompt?.textFields?.first?.text,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  var markup = self.canvas.markup else { return }
+            markup.insertNewTextbox(attributedText: NSAttributedString(string: text, attributes: [
+                .font: UIFont.systemFont(ofSize: 64), .foregroundColor: UIColor.black
+            ]), frame: CGRect(x: 150, y: 1120, width: 1200, height: 150))
+            self.canvas.markup = markup
+        })
+        present(prompt, animated: true)
     }
 }
 

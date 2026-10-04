@@ -153,7 +153,7 @@ struct NativePaperProbeView: View {
                 PhotosPicker(selection: $selectedPhoto, matching: .images) {
                     Label("Agregar foto", systemImage: "photo.badge.plus")
                 }
-                Text("Dibujá con el dedo. Usá + en la paleta para agregar elementos.")
+                Text("Dibujá con el dedo. Usá Texto en la paleta para agregar una caja de texto.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {

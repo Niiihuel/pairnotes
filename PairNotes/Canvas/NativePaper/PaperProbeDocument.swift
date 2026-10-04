@@ -34,10 +34,14 @@ enum PaperProbeDocument {
         if let image = illustration.cgImage {
             markup.insertNewImage(image, frame: CGRect(x: 300, y: 400, width: 900, height: 675))
         }
-        let points = (0...20).map { index in
-            PKStrokePoint(location: CGPoint(x: 150 + index * 60, y: 1250 + (index % 3) * 30),
-                          timeOffset: Double(index) * 0.02, size: CGSize(width: 18, height: 18),
-                          opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        let points: [PKStrokePoint] = (0...20).map { index -> PKStrokePoint in
+            let x = CGFloat(150 + index * 60)
+            let y = CGFloat(1250 + (index % 3) * 30)
+            let location = CGPoint(x: x, y: y)
+            let size = CGSize(width: 18, height: 18)
+            return PKStrokePoint(location: location, timeOffset: Double(index) * 0.02,
+                                 size: size, opacity: 1, force: 1, azimuth: 0,
+                                 altitude: CGFloat.pi / 2)
         }
         let path = PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSince1970: 0))
         let stroke = PKStroke(ink: PKInk(.pen, color: .systemPink), path: path)
