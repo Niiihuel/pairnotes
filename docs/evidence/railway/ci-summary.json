@@ -1,0 +1,36 @@
+{
+  "runId": 37227694583,
+  "commit": "7d53d0258d384fe2ae2c043d90bbecc0cb89089f",
+  "minimumSDK": "26.0",
+  "runtime": "26.2",
+  "native": {
+    "passed": 17,
+    "failed": 0,
+    "suites": {
+      "NativeEditorPersistenceTests": 1,
+      "PaperRoundTripTests": 2,
+      "ServiceConfigurationTests": 10,
+      "WidgetRemoteClientTests": 4
+    }
+  },
+  "portable": {
+    "passed": 36,
+    "failed": 0
+  },
+  "limitations": [
+    "OAuth real pendiente",
+    "APNs real pendiente",
+    "Keychain/App Groups con firma real pendientes"
+  ],
+  "backend": {
+    "passed": 52,
+    "failed": 0,
+    "skipped": 0
+  },
+  "simulatorSelector": {
+    "passed": 15,
+    "failed": 0
+  },
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37227694583",
+  "productionReadiness": false
+}

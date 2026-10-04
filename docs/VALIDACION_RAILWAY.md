@@ -4,6 +4,9 @@ Fecha: 4 de octubre de 2026. Plataforma de trabajo: Linux/NixOS; Xcode y simulad
 
 ## Resultados observados
 
+- CI final: [37227694583](https://github.com/Niiihuel/pairnotes/actions/runs/37227694583), commit `7d53d0258d384fe2ae2c043d90bbecc0cb89089f`, tres jobs aprobados. [Resumen conservado](evidence/railway/ci-summary.json).
+- iOS: app, extensión y tests compilaron con Xcode 26.0.1/SDK 26.0; **17 tests nativos aprobados**, cero fallos u omisiones, en iPhone 16e simulado con iOS 26.2/Xcode 26.2. Incluyen editor/persistencia (1), PaperKit (2), configuración/sesión (10) y caché/autorización del widget (4). [Resumen original de xcresult](evidence/railway/native-test-summary.json). Los logs iOS no contienen advertencias ni errores del compilador.
+- Selector de simulador: 15 tests Python aprobados en CI.
 - Core: 36 XCTest, cero fallos, en contenedor Swift 6.2.4 fijado por digest. Incluye separación de cuentas, persistencia, captura inmutable, reintentos, cancelación selectiva y orden por día/cursor. No verifica frameworks Apple.
 - Backend: compilación TypeScript y pruebas con PostgreSQL 17.6, MinIO/S3 y HTTP reales. 52 pruebas/subpruebas aprobadas, cero fallos ni omisiones. Verifican invitaciones, tercero/anónimo, generaciones, imágenes y hashes, idempotencia, sesiones JWT/OIDC y rotación, widget acotado y worker con transporte APNs de prueba. La regresión de limpieza/publicación usa PostgreSQL real y una barrera de almacenamiento controlada.
 - Dockerfile Node 22.23.1: build local aprobado.
@@ -20,6 +23,8 @@ Segunda ejecución iOS: [37226403788](https://github.com/Niiihuel/pairnotes/acti
 Además se separó explícitamente el grupo Keychain privado del compartido, se cercaron callbacks del editor con la cuenta/pareja capturadas, se rechazaron redirects HTTP del widget y se corrigieron carreras de cola y paginación detectadas por revisión.
 
 Tercera ejecución: [37226921423](https://github.com/Niiihuel/pairnotes/actions/runs/37226921423), commit `e2a78bb`. Pasaron Linux y backend; la compilación detectó una combinación inválida de inicializadores `Section` con título y footer. Se corrigieron ambos casos con header explícito. El lockfile de SwiftPM conserva las versiones y revisiones resueltas realmente por Xcode; no se reconstruyó con valores supuestos.
+
+Cuarta ejecución: [37227694583](https://github.com/Niiihuel/pairnotes/actions/runs/37227694583), commit `7d53d02`. Compilación completa de app, extensión y tests aprobada con Xcode 26.0.1/SDK iOS 26.0. Los jobs Linux y backend también aprobaron. La ejecución final aprobó los 17 tests nativos en iOS 26.2. Los tres PNG exportados del roundtrip se inspeccionaron y son idénticos por SHA-256 a los conservados en M0; [procedencia de esta ejecución](evidence/railway/render-provenance.json). Son renders de pruebas, no capturas de un widget instalado. Ambos lockfiles producidos por Xcode coinciden byte a byte con el versionado.
 
 ## Comandos ejecutados
 

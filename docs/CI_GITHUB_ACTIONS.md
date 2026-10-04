@@ -4,6 +4,8 @@ El workflow `PairNotes CI` se activa al subir cambios a `main`, abrir/actualizar
 
 **Resultado histórico de M0 verificado el 4 de octubre de 2026:** [ejecución 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f870cb6542e92611ebd85275801a8e441055`, ambos jobs aprobados. Pasaron 15 tests Python del selector y 15 XCTest Swift en Linux; `build-for-testing` de app, extensión y tests con Xcode 26.0.1/SDK 26.0; y los 2 tests PaperKit en iPhone 16e simulado con iOS 26.2/Xcode 26.2. Incluye el icono oscuro. Los [PNG exportados e inspeccionados](evidence/m0/README.md) se conservan en el repositorio.
 
+**Resultado vigente:** [37227694583](https://github.com/Niiihuel/pairnotes/actions/runs/37227694583), commit `7d53d02`: tres jobs aprobados, 15 tests Python, 36 Core, 52 backend y 17 nativos. Compilación SDK 26.0 y ejecución de tests iOS 26.2. Evidencia y límites en [VALIDACION_RAILWAY.md](VALIDACION_RAILWAY.md).
+
 ## Qué comprueba
 
 1. En Ubuntu, ejecuta tests del selector de simulador y la suite XCTest portable en la imagen Swift fijada por digest. El selector se prueba con inventarios sintéticos; no simula haber ejecutado Xcode.

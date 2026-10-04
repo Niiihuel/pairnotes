@@ -1,0 +1,25 @@
+{
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37227694583",
+  "commit": "7d53d0258d384fe2ae2c043d90bbecc0cb89089f",
+  "artifact": "paperkit-renders-1",
+  "testIdentifier": "PaperRoundTripTests/testMixedCompositionSurvivesNativeRoundTrip()",
+  "deviceName": "iPhone 16e",
+  "attachments": [
+    {
+      "exportedFileName": "2163FC71-0C58-4A2F-A7B5-413CD0156A78.png",
+      "sha256": "a3171c67d6d72642338372df5ff4a0b855e461df5ea1917cf1dcf274db1edc84",
+      "identicalPreservedFile": "../m0/mixed-note-restored-again.png"
+    },
+    {
+      "exportedFileName": "34E35583-081E-41E6-BD32-59FA5142464E.png",
+      "sha256": "a3171c67d6d72642338372df5ff4a0b855e461df5ea1917cf1dcf274db1edc84",
+      "identicalPreservedFile": "../m0/mixed-note-restored.png"
+    },
+    {
+      "exportedFileName": "95E49826-1F8E-46A2-97C4-CE85E094B144.png",
+      "sha256": "1e46437beb6e9b3a3b521715b3fc1928a5b9fb141ed2faa81029178795b67192",
+      "identicalPreservedFile": "../m0/mixed-note-before.png"
+    }
+  ],
+  "visualInspection": "Texto, imagen sintética y trazo completos y orientados correctamente. Renders de tests, no captura de interacción ni widget instalado."
+}

@@ -1,0 +1,46 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "A3615395-EDA9-4A60-982A-D428BCC5719B",
+        "deviceName" : "iPhone 16e",
+        "modelName" : "iPhone 16e",
+        "osBuildNumber" : "23C54",
+        "osVersion" : "26.2",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 0,
+      "passedTests" : 17,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Test Scheme Action"
+      }
+    }
+  ],
+  "environmentDescription" : "PairNotes · Built with macOS 26.6.2",
+  "expectedFailures" : 0,
+  "failedTests" : 0,
+  "finishTime" : 1791141899.061,
+  "passedTests" : 17,
+  "result" : "Passed",
+  "skippedTests" : 0,
+  "startTime" : 1791141843.336,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+
+  ],
+  "title" : "Test - PairNotes",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "82% of duration",
+      "text" : "1 longest test run with outlier durations exceeding 2.77s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 17
+}
