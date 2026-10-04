@@ -1,0 +1,6 @@
+// Copiar a Local.xcconfig (ignorado). Completar sólo con valores propios.
+// PAIRNOTES_BUNDLE_ID = <bundle identifier registrado de la app>
+// DEVELOPMENT_TEAM = <Team ID propio>
+// PAIRNOTES_APP_GROUP = <App Group registrado y habilitado en ambos targets>
+// APP_ENTITLEMENTS = Config/App.local.entitlements
+// WIDGET_ENTITLEMENTS = Config/Widget.local.entitlements

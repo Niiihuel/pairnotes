@@ -1,0 +1,79 @@
+name: PairNotes CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  portable:
+    name: Portable tests (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test simulator selection logic
+        run: |
+          mkdir -p artifacts/linux
+          python3 -m unittest discover -s scripts/ci/tests -v 2>&1 | tee artifacts/linux/ci-tests.log
+      - name: Compile and test the portable Swift module
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
+            swift@sha256:eccc7a97f9b9881d9659e2e788081fd7675f86d39793b51200bfb178398b3784 \
+            bash -c 'swift --version && swift test --scratch-path /tmp/pairnotes-build' \
+            2>&1 | tee artifacts/linux/swift-tests.log
+      - name: Save portable test logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-tests-${{ github.run_attempt }}
+          path: artifacts/linux/
+          if-no-files-found: warn
+          retention-days: 14
+
+  ios:
+    name: iOS 26 build and native tests
+    needs: portable
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile app, widget and tests with the minimum SDK
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+        run: bash scripts/ci/ios.sh minimum
+      - name: Run PaperKit tests on an available iOS 26.2 simulator
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+        run: bash scripts/ci/ios.sh test
+      - name: Package build evidence, preserving file permissions
+        if: always()
+        run: |
+          if [ -d artifacts ]; then
+            tar -czf ios-evidence.tar.gz artifacts
+          fi
+      - name: Save logs, results, screenshots and simulator app
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-evidence-${{ github.run_attempt }}
+          path: ios-evidence.tar.gz
+          if-no-files-found: warn
+          retention-days: 14
