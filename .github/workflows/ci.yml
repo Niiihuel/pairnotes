@@ -55,6 +55,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Prepare the iOS 26.0 runtime required by the asset compiler
+        timeout-minutes: 20
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
+        run: |
+          mkdir -p artifacts/ios-minimum
+          sudo xcode-select --switch "$DEVELOPER_DIR"
+          xcrun simctl list runtimes --json > artifacts/ios-minimum/runtimes-before.json
+          df -h . | tee artifacts/ios-minimum/disk-before.log
+          xcodebuild -downloadPlatform iOS -buildVersion 26.0 -architectureVariant arm64 \
+            2>&1 | tee artifacts/ios-minimum/runtime-install.log
+          xcrun simctl list runtimes --json > artifacts/ios-minimum/runtimes-after.json
       - name: Compile app, widget and tests with the minimum SDK
         env:
           DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
@@ -62,7 +74,10 @@ jobs:
       - name: Run PaperKit tests on an available iOS 26.2 simulator
         env:
           DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
-        run: bash scripts/ci/ios.sh test
+        run: |
+          sudo xcode-select --switch "$DEVELOPER_DIR"
+          xcrun simctl list > /dev/null
+          bash scripts/ci/ios.sh test
       - name: Package build evidence, preserving file permissions
         if: always()
         run: |

@@ -5,11 +5,13 @@ Alcance: continuar M0/M1 sin Mac propio. El workflow `PairNotes CI` se activa al
 ## Qué comprueba
 
 1. En Ubuntu, ejecuta tests del selector de simulador y la suite XCTest portable en la imagen Swift fijada por digest. El selector se prueba con inventarios sintéticos; no simula haber ejecutado Xcode.
-2. En `macos-26`, usa `/Applications/Xcode_26.0.1.app/Contents/Developer` y verifica que el SDK sea exactamente **iOS 26.0**. `build-for-testing` compila app, extensión y tests nativos con ese SDK.
+2. En `macos-26`, selecciona `/Applications/Xcode_26.0.1.app/Contents/Developer`, instala explícitamente el runtime **iOS 26.0 arm64** que requiere el compilador de catálogos y verifica que el SDK sea exactamente **iOS 26.0**. `build-for-testing` compila app, extensión y tests nativos con ese SDK.
 3. Con Xcode **26.2**, descubre un iPhone disponible con runtime **iOS 26.2**, lo inicia y ejecuta `PaperRoundTripTests`. No sustituye silenciosamente un runtime ausente por otro más nuevo.
 4. Conserva logs, versiones reales del runner/Xcode/SDK, inventario del simulador, `.xcresult`, PNG adjuntos del roundtrip y la aplicación de simulador con su extensión. Un fallo de `xcodebuild` conserva su código de salida aunque la salida pase por `tee`.
 
-El [inventario oficial de la imagen macOS](https://github.com/actions/runner-images/blob/6d942e630479cd99a93dadfc766af11242bfa402/images/macos/macos-26-arm64-Readme.md) consultado incluye SDK 26.0 y runtimes 26.2/26.4/26.5, pero no runtime 26.0. Por eso compilación contra el SDK mínimo y ejecución sobre 26.2 son evidencias distintas. Ejecutar sobre iOS **26.0 exacto** continúa pendiente. Las rutas de Xcode fallan explícitamente si GitHub retira esas versiones; se deberán actualizar contra el inventario real, manteniendo el mínimo del producto.
+El [inventario oficial de la imagen macOS](https://github.com/actions/runner-images/blob/6d942e630479cd99a93dadfc766af11242bfa402/images/macos/macos-26-arm64-Readme.md) consultado incluye SDK 26.0 y runtimes 26.2/26.4/26.5, pero no runtime 26.0. La [ejecución 37222127785](https://github.com/Niiihuel/pairnotes/actions/runs/37222127785) acreditó que agregar el catálogo de iconos hace fallar `actool` sin un runtime compatible con el SDK mínimo. Por eso se incorporó `xcodebuild -downloadPlatform iOS -buildVersion 26.0 -architectureVariant arm64`, sin `sudo` para la descarga, siguiendo [Apple](https://developer.apple.com/documentation/xcode/downloading-and-installing-additional-xcode-components) y la [indicación de los mantenedores del runner](https://github.com/actions/runner-images/issues/13570). Se guardan inventarios antes/después y el log de instalación. Este paso añade tiempo y dependencia de red; si Apple no ofrece el runtime, falla explícitamente.
+
+Compilación contra el SDK mínimo y ejecución sobre 26.2 son evidencias distintas. Ejecutar los tests sobre iOS **26.0 exacto** continúa pendiente aunque el runtime se instale para compilar recursos. Las rutas de Xcode fallan explícitamente si GitHub retira esas versiones; se deberán actualizar contra el inventario real, manteniendo el mínimo del producto.
 
 ## Revisar una ejecución desde Linux
 
@@ -49,6 +51,27 @@ El repositorio privado [Niiihuel/pairnotes](https://github.com/Niiihuel/pairnote
 La inspección de los PNG confirmó los tres elementos completos y orientados correctamente. Imagen y trazo son idénticos. El texto conserva sus 1287 píxeles de tinta con desplazamiento vertical uniforme de un píxel tras la primera restauración. El test refinado exige igualdad exacta fuera del texto, permite únicamente esa traslación vertical de hasta un píxel, compara el texto indexable y exige que una segunda restauración sea estable. El guardado ahora genera los derivados desde la fuente serializada y restaurada. Su ejecución y la compilación del nuevo icono se registrarán al terminar el siguiente run; aún no se dan por aprobadas.
 
 El próximo corte de producto es **M2: identidad y vinculación segura**, empezando por contratos y Firebase Emulator Suite sin credenciales de producción, con tests negativos de invitaciones, pertenencia y acceso de un tercer usuario. El login Google/Apple real requiere configuración autorizada y se distinguirá de la prueba emulada. No se implementó M2 en este corte ni se avanzó a M3/Studio.
+
+## Archivos y comandos de la continuación
+
+- CI nuevo: `.github/workflows/ci.yml`, `scripts/ci/ios.sh`, `scripts/ci/select_simulator.py`, `scripts/ci/tests/test_select_simulator.py`, `scripts/ci/validate_project.rb` y este documento.
+- Proyecto corregido: `PairNotes.xcodeproj/project.pbxproj` y `scripts/generate_project.rb` (referencia Foundation por SDK y recursos del icono).
+- Editor corregido: `PaperProbeController.swift`, `PaperProbeDocument.swift`, `NativePaperProbe.swift` y `PaperRoundTripTests.swift` (inserción compatible con SDK 26, fixture, coordenadas de render, derivados de la fuente persistida y evidencia del roundtrip).
+- Icono: original `icon.png` conservado; `PairNotes/App/Assets.xcassets/Contents.json` y `AppIcon.appiconset/{Contents.json,AppIcon.png}` agregados.
+- Registro y exclusiones: `README.md`, `docs/VALIDACION_INICIAL.md`, `docs/REFERENCIAS_M0.md` y `.gitignore` actualizados. El plan recibido permanece intacto.
+
+Comandos efectivamente utilizados en Linux, además de los de inspección y pruebas de la entrega inicial:
+
+```bash
+rtk python3 -m unittest discover -s scripts/ci/tests -v
+rtk nix shell nixpkgs#actionlint nixpkgs#shellcheck -c actionlint .github/workflows/ci.yml
+rtk nix shell nixpkgs#shellcheck -c shellcheck scripts/ci/ios.sh
+rtk env GEM_HOME=/tmp/pairnotes-gems GEM_PATH=/tmp/pairnotes-gems nix shell nixpkgs#ruby -c ruby scripts/ci/validate_project.rb
+rtk nix shell nixpkgs#imagemagick -c magick icon.png -background '#111118' -alpha remove -alpha off -resize 1024x1024 -strip PNG24:PairNotes/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+rtk git diff --check
+```
+
+Se ejecutaron `gh run list`, `gh run view --log-failed`, `gh run download` y `git push` usando la autenticación existente de `Niiihuel`, seleccionada sólo para cada proceso mediante un helper temporal. No se cambió la cuenta global activa ni se guardaron tokens en el repositorio. En macOS, el workflow ejecuta los comandos `xcodebuild`, `simctl` y `xcresulttool` que contiene `scripts/ci/ios.sh`; sus logs constituyen la evidencia, no el parse de Swift realizado en Linux.
 
 ## Configuración del workflow
 
