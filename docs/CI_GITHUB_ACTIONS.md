@@ -4,7 +4,7 @@ El workflow `PairNotes CI` se activa al subir cambios a `main`, abrir/actualizar
 
 **Resultado histórico de M0 verificado el 4 de octubre de 2026:** [ejecución 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f870cb6542e92611ebd85275801a8e441055`, ambos jobs aprobados. Pasaron 15 tests Python del selector y 15 XCTest Swift en Linux; `build-for-testing` de app, extensión y tests con Xcode 26.0.1/SDK 26.0; y los 2 tests PaperKit en iPhone 16e simulado con iOS 26.2/Xcode 26.2. Incluye el icono oscuro. Los [PNG exportados e inspeccionados](evidence/m0/README.md) se conservan en el repositorio.
 
-**Resultado vigente:** [37227694583](https://github.com/Niiihuel/pairnotes/actions/runs/37227694583), commit `7d53d02`: tres jobs aprobados, 15 tests Python, 36 Core, 52 backend y 17 nativos. Compilación SDK 26.0 y ejecución de tests iOS 26.2. Evidencia y límites en [VALIDACION_RAILWAY.md](VALIDACION_RAILWAY.md).
+**Resultado vigente de la suite ordinaria:** [37236154698](https://github.com/Niiihuel/pairnotes/actions/runs/37236154698), commit `6bc5200`: tres jobs aprobados, 15 tests Python, 36 Core, 52 backend y 17 nativos; cero fallos y sin reintentos. Compilación SDK 26.0 y ejecución de tests iOS 26.2. El alcance y los límites de estas pruebas están en [VALIDACION_RAILWAY.md](VALIDACION_RAILWAY.md).
 
 ## Qué comprueba
 
@@ -30,7 +30,7 @@ En la página **Actions**, abrir el run del commit correspondiente. Los tres job
 
 Los adjuntos se intentan exportar también cuando el test falla. El artefacto pequeño `paperkit-renders-<intento>` permite descargar las imágenes y la fuente nativa sin bajar el paquete completo. Si la compilación falla antes de producir el bundle, no habrá imágenes ni resultados de tests. No se generan imágenes ficticias para suplirlos. Los artefactos se retienen 14 días.
 
-La `.app` de este flujo **sólo sirve para simulador**. Instalar en iPhone/TestFlight requerirá un flujo posterior con bundle IDs, App Group, firma y provisioning propios. Este workflow no registra capacidades, no publica una IPA y no despliega Firebase. Tampoco valida App Groups reales, push, batería, GPS ni la apariencia de un widget en pantalla de inicio.
+La `.app` de este flujo **sólo sirve para simulador**. La [compilación firmada manual](#compilación-firmada-manual) usa los bundle IDs, App Group, certificado y perfiles del propietario para generar la IPA destinada a distribución. La suite ordinaria no registra capacidades, no publica una IPA ni modifica servicios. Tampoco valida App Groups reales, push, batería, GPS ni la apariencia de un widget en pantalla de inicio.
 
 ## Comandos locales de validación
 
@@ -52,7 +52,7 @@ El flujo separado `.github/workflows/distribute.yml` prepara un archive Release 
 
 **Archive/export firmado aprobado:** [ejecución 37236188455](https://github.com/Niiihuel/pairnotes/actions/runs/37236188455), commit `6cf5c90`, Xcode 26.2 (17C52), versión `1.0`, build `2.1`, mínimo iOS 26.0. La importación del P12 en Keychain, las firmas de app/widget, los perfiles embebidos, permisos de producción, grupos Keychain, manifiestos y configuración de API/Google pasaron. Logs sin warnings ni errores de compilación; limpieza temporal aprobada. [Evidencia pública](evidence/signing/signed-archive.json). La IPA y sus símbolos se conservan fuera de Git en el directorio local de builds y como artefactos privados de ese run durante 7 días. **No se subió a Apple.**
 
-El repositorio tiene cinco secretos de Actions: `PAIRNOTES_DISTRIBUTION_P12_BASE64`, `PAIRNOTES_DISTRIBUTION_P12_PASSWORD`, `PAIRNOTES_APP_PROFILE_BASE64`, `PAIRNOTES_WIDGET_PROFILE_BASE64` y `PAIRNOTES_IOS_CONFIG`. Se cargaron con la CLI por stdin. El workflow crea un Keychain temporal, instala cada perfil en su target y elimina el material temporal al terminar. El core estático no recibe un perfil de provisión. No se usa firma automática para crear o modificar recursos en Apple.
+La firma usa cinco secretos de Actions: `PAIRNOTES_DISTRIBUTION_P12_BASE64`, `PAIRNOTES_DISTRIBUTION_P12_PASSWORD`, `PAIRNOTES_APP_PROFILE_BASE64`, `PAIRNOTES_WIDGET_PROFILE_BASE64` y `PAIRNOTES_IOS_CONFIG`. Se cargaron con la CLI por stdin. El workflow crea un Keychain temporal, instala cada perfil en su target y elimina el material temporal al terminar. El core estático no recibe un perfil de provisión. No se usa firma automática para crear o modificar recursos en Apple.
 
 La subida opcional usa `scripts/ci/upload_testflight.sh`, verifica el hash y commit de la IPA exportada y recibe tres secretos separados: `PAIRNOTES_ASC_KEY_ID`, `PAIRNOTES_ASC_ISSUER_ID` y `PAIRNOTES_ASC_PRIVATE_KEY`. La clave se escribe en una carpeta temporal para `altool` y se elimina con trap y un paso `always`. No se cambian grupos, testers, declaración de cifrado ni publicación en App Store. El artefacto `upload-result.json` distingue recibo de upload de procesamiento y disponibilidad TestFlight; no conserva logs crudos de autenticación. Se verificaron linters, sintaxis y casos positivos/negativos del parser antes de ejecutarlo en macOS.
 
@@ -61,6 +61,18 @@ Los perfiles descargados se verificaron en Linux mediante firma CMS y cadena App
 Validación local del corte de firma: 148 comprobaciones estructurales sobre el proyecto incluido y otro regenerado en una copia temporal, 15 tests Python del selector, actionlint, ShellCheck, sintaxis Bash/Ruby y rechazo explícito de distribución desde Linux. La app declara UserDefaults privado con razón `CA92.1`; la extensión no usa APIs propias que requieran razón. Ambos manifiestos se incluyen en Resources. Se añadieron las cuatro orientaciones para iPad sin cambiar las de iPhone. [Apple: manifiesto de APIs con razón requerida](https://developer.apple.com/documentation/technotes/tn3183-adding-required-reason-api-entries-to-your-privacy-manifest).
 
 Referencias: [GitHub: certificados y perfiles en Actions](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications), [Apple: subida de builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/).
+
+## Primera build disponible en TestFlight
+
+El 4 de octubre de 2026, [Actions 37237940506](https://github.com/Niiihuel/pairnotes/actions/runs/37237940506) completó archive, export y upload de `1.0 (3.1)`, commit `350e6891205341af7a517947c03299cfcaf98702`. Xcode 26.2 (17C52), mínimo iOS 26.0; firmas, perfiles, configuración y declaración de cifrado aprobados, sin warnings ni errores de compilación. La limpieza de claves temporales también terminó correctamente.
+
+`altool` devolvió un recibo de éxito, sin errores, con Delivery UUID `da140206-e769-4109-a1b6-49000308f102`. La consulta autenticada posterior, a las `21:58:24 UTC`, confirmó procesamiento `VALID`, `usesNonExemptEncryption=false` y disponibilidad interna `IN_BETA_TESTING`. El único grupo asociado es `amorchi`, con tres cuentas de las dos personas autorizadas; no hay testers individuales adicionales. El grupo es interno y su campo `publicLinkEnabled` devuelve `null`, sin enlace público habilitado. No se pidió publicación en App Store ni distribución externa.
+
+La [evidencia persistente](evidence/testflight/build-3.1.json) separa la verificación al exportar, el recibo de carga y la lectura posterior de Apple. Los campos `uploaded_to_apple=false` del paso de exportación y `not_checked` del recibo describen esos pasos anteriores, no el estado final. SHA-256 de la IPA: `4509599bac185d925353c6c5f8269388bb92b1d5ffa4ee1242ae8128bdff1d04`. IPA y símbolos: artefacto privado `pairnotes-signed-ipa-3-1`, retenido siete días, y copia fuera de Git en `~/.local/share/pairnotes/builds/1.0-3.1/`.
+
+Comandos usados desde Linux para este corte: `rtk nix-shell -p shellcheck --run 'rtk shellcheck scripts/ci/distribute.sh scripts/ci/upload_testflight.sh'`, validación de plist y sintaxis Python embebida, `rtk git diff --check`, `gh workflow run distribute.yml --ref main --repo Niiihuel/pairnotes -f upload_to_testflight=true`, `gh run watch`, `gh run download` y consultas GET autenticadas de App Store Connect. Los comandos GitHub se ejecutaron con prefijo `rtk` y `GH_CONFIG_DIR` privado de PairNotes para seleccionar `Niiihuel`, sin cambiar la cuenta global. Se renovó su autorización con scope `workflow` para poder actualizar el workflow. En macOS, `distribute.sh` y `upload_testflight.sh` ejecutaron los comandos reales de Xcode, firma y `altool`.
+
+La suite ordinaria de 120 tests sigue aprobada en el run documentado arriba; no se volvió a ejecutar por los cambios de declaración, upload y documentación. Sí se compiló y verificó nuevamente la IPA. Quedan pendientes instalación, OAuth y entrega de notas/APNs/widget en dos iPhones, porque este entorno Linux no tiene acceso a esos dispositivos. El siguiente corte es realizar esa validación física y resolver los defectos observados antes de añadir funcionalidades.
 
 ## Registro histórico del corte M0
 

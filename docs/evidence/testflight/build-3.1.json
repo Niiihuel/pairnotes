@@ -1,0 +1,70 @@
+{
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37237940506",
+  "commit": "350e6891205341af7a517947c03299cfcaf98702",
+  "workflowConclusion": "success",
+  "marketingVersion": "1.0",
+  "buildNumber": "3.1",
+  "xcode": "26.2 (17C52)",
+  "minimumOS": "26.0",
+  "ipaSHA256": "4509599bac185d925353c6c5f8269388bb92b1d5ffa4ee1242ae8128bdff1d04",
+  "archiveAndExportSucceeded": true,
+  "compilationWarningCount": 0,
+  "compilationErrorCount": 0,
+  "exportStepVerification": {
+    "app_and_widget_signatures_verified": true,
+    "bundle_ids_and_versions_verified": true,
+    "embedded_profiles_verified": true,
+    "production_entitlements_verified": true,
+    "keychain_isolation_verified": true,
+    "privacy_manifests_present": true,
+    "api_and_google_configuration_present": true,
+    "uploaded_to_apple": false
+  },
+  "uploadReceipt": {
+    "upload_status": "upload_confirmed",
+    "command_exit_code": 0,
+    "success_receipt_observed": true,
+    "error_observed": false,
+    "delivery_uuid": "da140206-e769-4109-a1b6-49000308f102",
+    "error_codes": [],
+    "apple_processing_status": "not_checked",
+    "testflight_availability": "not_checked",
+    "tester_configuration_changed": false,
+    "store_submission_requested": false,
+    "encryption_declaration_changed": false
+  },
+  "appStoreConnectReadback": {
+    "appID": "6819083456",
+    "queriedAt": "2026-10-04T21:58:24.802Z",
+    "builds": [
+      {
+        "id": "da140206-e769-4109-a1b6-49000308f102",
+        "version": "3.1",
+        "processingState": "VALID",
+        "uploadedDate": "2026-10-04T14:56:34-07:00",
+        "usesNonExemptEncryption": false,
+        "beta": {
+          "autoNotifyEnabled": true,
+          "internalBuildState": "IN_BETA_TESTING",
+          "externalBuildState": "READY_FOR_BETA_SUBMISSION"
+        },
+        "groupIDs": [
+          "fd36449c-a82b-4c1d-aa50-d259a0c3649d"
+        ],
+        "individualTesterCount": 0
+      }
+    ],
+    "groups": [
+      {
+        "id": "fd36449c-a82b-4c1d-aa50-d259a0c3649d",
+        "name": "amorchi",
+        "isInternalGroup": true,
+        "hasAccessToAllBuilds": true,
+        "publicLinkEnabled": null,
+        "testerAccountCount": 3
+      }
+    ]
+  },
+  "physicalDeviceTestsExecuted": false,
+  "publicAppStoreSubmissionRequested": false
+}
