@@ -10,6 +10,13 @@ final class PaperRoundTripTests: XCTestCase {
         let bytes = try await original.dataRepresentation()
         XCTAssertFalse(bytes.isEmpty)
         let restored = try PaperMarkup(dataRepresentation: bytes)
+        print("Paper fixture bounds: original=\(original.bounds), restored=\(restored.bounds)")
+        print("Paper fixture contents: original=\(original.contentsRenderFrame), restored=\(restored.contentsRenderFrame)")
+        let nativeAttachment = XCTAttachment(data: bytes, uniformTypeIdentifier: "public.data")
+        nativeAttachment.name = "mixed-note-native-source"
+        nativeAttachment.lifetime = .keepAlways
+        add(nativeAttachment)
+        XCTAssertEqual(original.bounds, restored.bounds, "Native roundtrip must preserve canvas bounds")
         XCTAssertTrue(restored.featureSet.isSubset(of: PaperProbeDocument.supportedFeatures))
         let beforeData = try await PaperProbeDocument.render(original, side: 384)
         let afterData = try await PaperProbeDocument.render(restored, side: 384)
