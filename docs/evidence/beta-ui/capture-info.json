@@ -1,0 +1,9 @@
+{
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37239688732",
+  "commit": "872dc6c58d598a56b1d35cd2929a87d1f665f87d",
+  "test": "NativeEditorPersistenceTests/testEditorLayoutInLightAndDarkAppearance",
+  "device": "iPhone 16e simulator",
+  "runtime": "iOS 26.2",
+  "capture": "UIHostingController window.drawHierarchy; native tool palette windows are not present",
+  "visualReview": "White paper and top navigation actions visible in both appearances; physical palette interaction still pending"
+}

@@ -4,7 +4,7 @@ El workflow `PairNotes CI` se activa al subir cambios a `main`, abrir/actualizar
 
 **Resultado histórico de M0 verificado el 4 de octubre de 2026:** [ejecución 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f870cb6542e92611ebd85275801a8e441055`, ambos jobs aprobados. Pasaron 15 tests Python del selector y 15 XCTest Swift en Linux; `build-for-testing` de app, extensión y tests con Xcode 26.0.1/SDK 26.0; y los 2 tests PaperKit en iPhone 16e simulado con iOS 26.2/Xcode 26.2. Incluye el icono oscuro. Los [PNG exportados e inspeccionados](evidence/m0/README.md) se conservan en el repositorio.
 
-**Resultado vigente de la suite ordinaria:** [37236154698](https://github.com/Niiihuel/pairnotes/actions/runs/37236154698), commit `6bc5200`: tres jobs aprobados, 15 tests Python, 36 Core, 52 backend y 17 nativos; cero fallos y sin reintentos. Compilación SDK 26.0 y ejecución de tests iOS 26.2. El alcance y los límites de estas pruebas están en [VALIDACION_RAILWAY.md](VALIDACION_RAILWAY.md).
+**Resultado vigente de la suite ordinaria:** [37239688732](https://github.com/Niiihuel/pairnotes/actions/runs/37239688732), commit `872dc6c`: tres jobs aprobados, 15 tests Python, 40 Core, 52 backend y 21 nativos (128 en total); cero fallos y sin reintentos de esta ejecución. Compilación SDK 26.0 y ejecución de tests iOS 26.2. El [registro de mejoras de la beta](MEJORAS_BETA.md) incluye alcance, diagnósticos no bloqueantes y capturas reales.
 
 ## Qué comprueba
 
@@ -72,7 +72,11 @@ La [evidencia persistente](evidence/testflight/build-3.1.json) separa la verific
 
 Comandos usados desde Linux para este corte: `rtk nix-shell -p shellcheck --run 'rtk shellcheck scripts/ci/distribute.sh scripts/ci/upload_testflight.sh'`, validación de plist y sintaxis Python embebida, `rtk git diff --check`, `gh workflow run distribute.yml --ref main --repo Niiihuel/pairnotes -f upload_to_testflight=true`, `gh run watch`, `gh run download` y consultas GET autenticadas de App Store Connect. Los comandos GitHub se ejecutaron con prefijo `rtk` y `GH_CONFIG_DIR` privado de PairNotes para seleccionar `Niiihuel`, sin cambiar la cuenta global. Se renovó su autorización con scope `workflow` para poder actualizar el workflow. En macOS, `distribute.sh` y `upload_testflight.sh` ejecutaron los comandos reales de Xcode, firma y `altool`.
 
-La suite ordinaria de 120 tests sigue aprobada en el run documentado arriba; no se volvió a ejecutar por los cambios de declaración, upload y documentación. Sí se compiló y verificó nuevamente la IPA. Quedan pendientes instalación, OAuth y entrega de notas/APNs/widget en dos iPhones, porque este entorno Linux no tiene acceso a esos dispositivos. El siguiente corte es realizar esa validación física y resolver los defectos observados antes de añadir funcionalidades.
+Para esa primera subida se conservó la suite aprobada de 120 tests de [37236154698](https://github.com/Niiihuel/pairnotes/actions/runs/37236154698); no se volvió a ejecutar por los cambios de declaración, upload y documentación. Sí se compiló y verificó nuevamente la IPA. Quedaron pendientes instalación, OAuth y entrega de notas/APNs/widget en dos iPhones, porque este entorno Linux no tiene acceso a esos dispositivos. Las capturas posteriores del usuario permitieron identificar los ajustes de la siguiente actualización.
+
+## Actualización de invitaciones y editor
+
+La [build `1.0 (4.1)`](evidence/testflight/build-4.1.json), commit `b8a1f50`, se compiló, firmó y subió en [37240333996](https://github.com/Niiihuel/pairnotes/actions/runs/37240333996). Archive/export sin warnings ni errores; Apple confirmó `VALID` e `IN_BETA_TESTING`, acceso sólo para `amorchi` y cero testers individuales. Se conserva la IPA con símbolos fuera de Git en `~/.local/share/pairnotes/builds/1.0-4.1/`. Los [cambios, pruebas y capturas](MEJORAS_BETA.md) detallan el flujo de invitaciones, las acciones del editor y el color persistente de la hoja.
 
 ## Registro histórico del corte M0
 
@@ -112,4 +116,4 @@ Se ejecutaron `gh run list`, `gh run view --log-failed`, `gh run download` y `gi
 
 Las acciones oficiales están fijadas a commits publicados: [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1) y [upload-artifact v7.0.1](https://github.com/actions/upload-artifact/releases/tag/v7.0.1). El token sólo tiene `contents: read`, no se persisten credenciales en el checkout y no se usan secretos en pull requests. Los paquetes `.tar.gz` conservan permisos de los binarios, siguiendo la [documentación de artefactos de GitHub](https://github.com/actions/upload-artifact#permission-loss).
 
-La suite ordinaria del mismo proyecto (commit `6bc5200`) finalizó aprobada en [37236154698](https://github.com/Niiihuel/pairnotes/actions/runs/37236154698): 15 tests Python, 36 Swift Linux, 52 backend y 17 XCTest nativos; cero fallos. Compilación con Xcode 26.0.1/SDK 26.0 y tests en simulador iOS 26.2/Xcode 26.2. No hubo reintentos de esa suite.
+La suite anterior del corte de firma (commit `6bc5200`) finalizó aprobada en [37236154698](https://github.com/Niiihuel/pairnotes/actions/runs/37236154698): 15 tests Python, 36 Swift Linux, 52 backend y 17 XCTest nativos; cero fallos. Compilación con Xcode 26.0.1/SDK 26.0 y tests en simulador iOS 26.2/Xcode 26.2. No hubo reintentos de esa suite.

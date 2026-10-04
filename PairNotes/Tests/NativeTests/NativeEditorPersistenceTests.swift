@@ -147,8 +147,8 @@ final class NativeEditorPersistenceTests: XCTestCase {
         }
     }
 
-    /// The screenshots are evidence of navigation and palette layout; document
-    /// fidelity is checked independently against actual PaperKit raster output.
+    /// These capture the hosting window's navigation and paper layout, not any
+    /// floating tool-picker windows. Device interaction is checked separately.
     @MainActor
     func testEditorLayoutInLightAndDarkAppearance() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
