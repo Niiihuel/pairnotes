@@ -24,6 +24,7 @@ struct ServiceConfiguration {
     let googleClientID: String
     let googleServerClientID: String?
     let apnsEnvironment: String
+    let privateKeychainAccessGroup: String
 
     static func load(bundle: Bundle = .main) throws -> Self {
         try load(values: bundle.infoDictionary ?? [:])
@@ -47,8 +48,16 @@ struct ServiceConfiguration {
         guard ["development", "production"].contains(environment) else {
             throw ServiceError.setupRequired("Falta configurar el entorno APNs de la app firmada.")
         }
+        let privateGroup = value("PAIRNOTES_PRIVATE_KEYCHAIN_GROUP")
+        let sharedGroup = value("PAIRNOTES_KEYCHAIN_GROUP")
+        let bundleID = value("CFBundleIdentifier")
+        guard !bundleID.isEmpty, privateGroup.hasSuffix("." + bundleID), privateGroup != sharedGroup,
+              privateGroup.range(of: "^[A-Za-z0-9.-]+$", options: .regularExpression) != nil else {
+            throw ServiceError.setupRequired("Configurá la firma y el grupo privado de Keychain de la app.")
+        }
         let serverID = value("PAIRNOTES_GOOGLE_SERVER_CLIENT_ID")
         return Self(apiBaseURL: url, googleClientID: value("PAIRNOTES_GOOGLE_CLIENT_ID"),
-                    googleServerClientID: serverID.isEmpty ? nil : serverID, apnsEnvironment: environment)
+                    googleServerClientID: serverID.isEmpty ? nil : serverID, apnsEnvironment: environment,
+                    privateKeychainAccessGroup: privateGroup)
     }
 }

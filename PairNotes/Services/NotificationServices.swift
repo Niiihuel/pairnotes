@@ -67,7 +67,8 @@ extension AppServices: UNUserNotificationCenterDelegate {
         guard !token.isEmpty else { throw ServiceError.invalidResponse }
         let hex = token.map { String(format: "%02x", $0) }.joined()
         let environment = try requireClient().configuration.apnsEnvironment
-        _ = try await call("registerDevice", ["deviceId": deviceID, "widgetPushToken": hex, "apnsEnvironment": environment])
+        _ = try await call("registerDevice", ["deviceId": deviceID, "widgetPushToken": hex,
+                                              "apnsEnvironment": environment, "widgetPushEnvironment": environment])
     }
 
     func issueWidgetSession() async throws -> WidgetAuthorization {
@@ -114,7 +115,4 @@ final class PairNotesApplicationDelegate: NSObject, UIApplicationDelegate {
         AppServices.shared.recordError(error)
     }
 
-    func application(_ application: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        AppServices.shared.handle(url: url)
-    }
 }

@@ -16,6 +16,7 @@
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
     <key>PAIRNOTES_APP_GROUP</key><string>$(PAIRNOTES_APP_GROUP)</string>
     <key>PAIRNOTES_KEYCHAIN_GROUP</key><string>$(PAIRNOTES_KEYCHAIN_GROUP)</string>
+    <key>PAIRNOTES_PRIVATE_KEYCHAIN_GROUP</key><string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>PAIRNOTES_API_BASE_URL</key><string>$(PAIRNOTES_API_BASE_URL)</string>
     <key>PAIRNOTES_GOOGLE_CLIENT_ID</key><string>$(PAIRNOTES_GOOGLE_CLIENT_ID)</string>
     <key>PAIRNOTES_GOOGLE_SERVER_CLIENT_ID</key><string>$(PAIRNOTES_GOOGLE_SERVER_CLIENT_ID)</string>

@@ -275,4 +275,16 @@ final class DurableOutboxTests: XCTestCase {
         let stored = try await store.list()
         XCTAssertTrue(stored.isEmpty)
     }
+
+    func testCancellingAnObsoleteCaptureLeavesNewSessionWorkQueued() async throws {
+        let context = Fixtures.context()
+        let store = DurableOutbox(directory: directory(), accountUID: context.authorID)
+        let old = try await store.enqueue(archive: Fixtures.archive(), context: context)
+        let new = try await store.enqueue(archive: Fixtures.archive(), context: context)
+        try await store.cancel(id: old.id, context: context)
+        let queued = try await store.pending(context: context)
+        XCTAssertEqual(queued.map(\.id), [new.id])
+        let entries = try await store.list()
+        XCTAssertEqual(entries.first { $0.id == old.id }?.status, .cancelled)
+    }
 }

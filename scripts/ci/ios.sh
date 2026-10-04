@@ -35,6 +35,7 @@ if [[ "$sdk_version" != "$expected_sdk" ]]; then
 fi
 
 derived_data="DerivedData/ci-$mode"
+trap 'if [[ -f PairNotes.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved ]]; then cp PairNotes.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved "$evidence/Package.resolved"; fi' EXIT
 common=(
   -project PairNotes.xcodeproj -scheme PairNotes -configuration Debug
   -sdk iphonesimulator -derivedDataPath "$derived_data"

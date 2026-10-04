@@ -27,18 +27,24 @@ final class AppModel: ObservableObject {
     private var monitorStarted = false
     private var observedPath: Bool?
     private var queueStore: DurableOutbox?
+    private var catalogs: [String: DraftCatalogStore] = [:]
+    private var queueStores: [String: DurableOutbox] = [:]
+    private var recoveryTasks: [String: Task<Void, Error>] = [:]
+    private var recoveredQueueUIDs: Set<String> = []
     private var needsRecovery = false
     private var membershipResolved = false
     private var activeContext: PublicationContext?
     private var generation: UInt64 = 0
     private var timelineRequest: UInt64 = 0
     private var timelineLoaded = false
+    private var previousFirstPageIDs: Set<String> = []
     private var processor: Task<Void, Never>?
     private var processorID: UUID?
+    private var processingRequested = false
     private var foregroundInProgress = false
 
-    init(services: AppServices = .shared, storageDirectory: URL? = nil) {
-        self.services = services
+    init(services: AppServices? = nil, storageDirectory: URL? = nil) {
+        self.services = services ?? .shared
         self.storageDirectory = storageDirectory ?? FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PairNotes", isDirectory: true)
@@ -84,6 +90,7 @@ final class AppModel: ObservableObject {
                 latestReceived = nil
                 nextCursor = nil
                 timelineLoaded = false
+                previousFirstPageIDs = []
             }
             status = nil
         }
@@ -93,11 +100,21 @@ final class AppModel: ObservableObject {
         activeContext = newContext
         if accountChanged {
             let scope: DraftAccountScope = newIdentity.map { .user(uid: $0.uid) } ?? .guest
-            catalog = DraftCatalogStore(directory: storageDirectory.appendingPathComponent("Drafts"), account: scope)
-            queueStore = newIdentity.map {
-                DurableOutbox(directory: storageDirectory.appendingPathComponent("Outbox"), accountUID: $0.uid)
+            let catalogKey = newIdentity.map { "account:" + $0.uid } ?? "guest"
+            if catalogs[catalogKey] == nil {
+                catalogs[catalogKey] = DraftCatalogStore(directory: storageDirectory.appendingPathComponent("Drafts"), account: scope)
             }
-            needsRecovery = queueStore != nil
+            catalog = catalogs[catalogKey]
+            if let uid = newIdentity?.uid {
+                if queueStores[uid] == nil {
+                    queueStores[uid] = DurableOutbox(directory: storageDirectory.appendingPathComponent("Outbox"), accountUID: uid)
+                }
+                queueStore = queueStores[uid]
+                needsRecovery = !recoveredQueueUIDs.contains(uid)
+            } else {
+                queueStore = nil
+                needsRecovery = false
+            }
             drafts = []
             guestDrafts = []
             outbox = []
@@ -107,10 +124,21 @@ final class AppModel: ObservableObject {
             if accountChanged, let oldQueue { try await oldQueue.cancelPending(except: nil) }
             guard currentGeneration == generation else { return }
             if let queueStore {
-                if needsRecovery {
-                    needsRecovery = false
-                    do { try await queueStore.recoverInterrupted() }
+                if needsRecovery, let uid = newIdentity?.uid {
+                    let recovery: Task<Void, Error>
+                    if let existing = recoveryTasks[uid] { recovery = existing }
+                    else {
+                        recovery = Task { try await queueStore.recoverInterrupted() }
+                        recoveryTasks[uid] = recovery
+                    }
+                    do {
+                        try await recovery.value
+                        recoveredQueueUIDs.insert(uid)
+                        recoveryTasks[uid] = nil
+                        if currentGeneration == generation { needsRecovery = false }
+                    }
                     catch {
+                        recoveryTasks[uid] = nil
                         if currentGeneration == generation { needsRecovery = true }
                         throw error
                     }
@@ -213,7 +241,13 @@ final class AppModel: ObservableObject {
             guard request == timelineRequest, currentGeneration == generation else { return }
             notes = try NoteTimeline.merging(notes, page.notes)
             latestReceived = received
-            if !timelineLoaded { nextCursor = page.nextCursor }
+            let firstPageIDs = Set(page.notes.map(\.id))
+            // A whole new page may have arrived since the previous refresh.
+            // Restart at its boundary so older cursors cannot skip that gap.
+            if !timelineLoaded || previousFirstPageIDs.isDisjoint(with: firstPageIDs) {
+                nextCursor = page.nextCursor
+            }
+            previousFirstPageIDs = firstPageIDs
             timelineLoaded = true
         } catch is CancellationError {
             return
@@ -267,7 +301,7 @@ final class AppModel: ObservableObject {
                 operation = try await queueStore.enqueue(archive: archive, context: context)
             }
             guard currentGeneration == generation else {
-                try? await queueStore.cancelPending(except: nil)
+                try? await queueStore.cancel(id: operation.id, context: context)
                 return false
             }
             status = operation.status == .sent ? "Esta revisión ya fue enviada." : "En cola. El envío se confirmará cuando el servidor lo publique."
@@ -309,8 +343,10 @@ final class AppModel: ObservableObject {
     }
 
     private func startProcessor() {
-        guard processor == nil, isOnline, membershipResolved, let context = activeContext,
+        guard isOnline, membershipResolved, let context = activeContext,
               let queueStore, !needsRecovery else { return }
+        guard processor == nil else { processingRequested = true; return }
+        processingRequested = false
         let currentGeneration = generation
         let identifier = UUID()
         processorID = identifier
@@ -325,6 +361,7 @@ final class AppModel: ObservableObject {
         processor?.cancel()
         processor = nil
         processorID = nil
+        processingRequested = false
         isProcessing = false
     }
 
@@ -334,6 +371,7 @@ final class AppModel: ObservableObject {
                 processor = nil
                 processorID = nil
                 isProcessing = false
+                if processingRequested { startProcessor() }
             }
         }
         while !Task.isCancelled, capturedGeneration == generation, isOnline, context == activeContext {
@@ -398,10 +436,11 @@ final class AppModel: ObservableObject {
 
     private func failureCode(_ error: Error) -> String {
         if error is CancellationError { return "interrupted" }
-        let error = error as NSError
-        if error.domain == NSURLErrorDomain {
-            return error.code == NSURLErrorTimedOut ? "request-timeout" : "network-unavailable"
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return nsError.code == NSURLErrorTimedOut ? "request-timeout" : "network-unavailable"
         }
+        if let api = error as? APIError, (500...599).contains(api.status) { return "server-unavailable" }
         return "publication-failed"
     }
 }

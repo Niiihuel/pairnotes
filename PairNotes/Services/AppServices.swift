@@ -20,7 +20,6 @@ final class AppServices: NSObject, ObservableObject {
     var onOpenNote: ((String) -> Void)?
     var onSessionInvalidated: (() -> Void)?
     var onReceivedNote: (() -> Void)?
-    var isEmulator: Bool { false }
     var widgetBaseURL: URL? { client?.configuration.apiBaseURL }
     var isConfigured: Bool { client != nil }
     var authProvider: String? { client?.session?.provider }
@@ -35,7 +34,8 @@ final class AppServices: NSObject, ObservableObject {
 
     override init() {
         do {
-            client = try RailwayClient(configuration: ServiceConfiguration.load(), store: PrivateSessionStore())
+            let configuration = try ServiceConfiguration.load()
+            client = try RailwayClient(configuration: configuration, store: PrivateSessionStore(accessGroup: configuration.privateKeychainAccessGroup))
             identity = client?.session?.identity
         } catch {
             client = nil

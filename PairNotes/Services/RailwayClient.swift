@@ -25,8 +25,10 @@ struct AuthSession: Codable, Equatable {
     let providerUserID: String?
 
     static func decode(_ object: [String: Any], provider: String, providerUserID: String? = nil) throws -> Self {
-        guard let access = object["accessToken"] as? String, access.count >= 32,
-              let refresh = object["refreshToken"] as? String, refresh.count >= 32,
+        guard let access = object["accessToken"] as? String, access.count == 43,
+              access.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil,
+              let refresh = object["refreshToken"] as? String, refresh.count == 43,
+              refresh.range(of: "^[A-Za-z0-9_-]{43}$", options: .regularExpression) != nil,
               let expires = object["expiresAt"] as? NSNumber, expires.doubleValue.isFinite,
               let profile = object["identity"] as? [String: Any],
               let uid = profile["uid"] as? String, !uid.isEmpty,
@@ -45,18 +47,25 @@ protocol AuthSessionStore {
     func clear() throws
 }
 
-/// No access group: refresh and access tokens are private to the containing app.
-/// The widget uses a different, revocable read-only credential in its shared group.
+/// The explicit private group prevents refresh tokens from inheriting a shared
+/// first/default Keychain group in a provisioned app. The widget is not entitled to it.
 @MainActor
 final class PrivateSessionStore: AuthSessionStore {
     private struct Record: Codable { let baseURL: URL; let session: AuthSession }
     private let service = (Bundle.main.bundleIdentifier ?? "org.example.PairNotes") + ".auth.v1"
+    private let accessGroup: String
+    private var localSignOutKey: String { service + ".locallySignedOut" }
+    init(accessGroup: String) { self.accessGroup = accessGroup }
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-         kSecAttrAccount as String: "session", kSecAttrSynchronizable as String: false]
+         kSecAttrAccount as String: "session", kSecAttrSynchronizable as String: false,
+         kSecAttrAccessGroup as String: accessGroup]
     }
 
     func read(baseURL: URL) throws -> AuthSession? {
+        // If a protected Keychain deletion failed during sign-out, never restore
+        // that old session on the next launch. This flag contains no credential.
+        if UserDefaults.standard.bool(forKey: localSignOutKey) { return nil }
         var request = query
         request[kSecReturnData as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -81,9 +90,11 @@ final class PrivateSessionStore: AuthSessionStore {
             status = SecItemAdd(query.merging(values) { _, new in new } as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw ServiceError.keychain(status) }
+        UserDefaults.standard.removeObject(forKey: localSignOutKey)
     }
 
     func clear() throws {
+        UserDefaults.standard.set(true, forKey: localSignOutKey)
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw ServiceError.keychain(status) }
     }
@@ -185,6 +196,11 @@ final class RailwayClient {
         var request = try request(path: path, method: method, query: query, body: body, token: current.accessToken, headers: headers)
         var (data, response) = try await transport.execute(request)
         try checkSession(generation: expectedGeneration, uid: initial.identity.uid)
+        // A valid session can require a fresh provider ceremony for a sensitive
+        // operation. Refreshing that session cannot replace reauthentication.
+        if response.statusCode == 401, errorCode(data, status: 401) == "recent_login_required" {
+            throw APIError(status: 401, code: "recent_login_required")
+        }
         if response.statusCode == 401 {
             if session?.accessToken != current.accessToken, let newer = session { current = newer }
             else { current = try await refresh() }
@@ -193,7 +209,7 @@ final class RailwayClient {
             (data, response) = try await transport.execute(request)
             try checkSession(generation: expectedGeneration, uid: initial.identity.uid)
         }
-        if response.statusCode == 401 { clear() }
+        if response.statusCode == 401, errorCode(data, status: 401) != "recent_login_required" { clear() }
         try validate(data, response)
         return data
     }
@@ -261,13 +277,16 @@ final class RailwayClient {
 
     private func validate(_ data: Data, _ response: HTTPURLResponse) throws {
         guard (200..<300).contains(response.statusCode) else {
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let error = object?["error"] as? [String: Any]
-            let code = error?["message"] as? String ?? error?["code"] as? String ?? "http_\(response.statusCode)"
-            // Only accept compact error codes, never echo tokens or arbitrary server HTML.
-            let safe = code.range(of: "^[a-zA-Z0-9_-]{1,80}$", options: .regularExpression) != nil ? code : "http_\(response.statusCode)"
-            throw APIError(status: response.statusCode, code: safe)
+            throw APIError(status: response.statusCode, code: errorCode(data, status: response.statusCode))
         }
         guard data.count <= 24 * 1024 * 1024 else { throw ServiceError.invalidResponse }
+    }
+
+    private func errorCode(_ data: Data, status: Int) -> String {
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let error = object?["error"] as? [String: Any]
+        let code = error?["message"] as? String ?? error?["code"] as? String ?? object?["reason"] as? String ?? "http_\(status)"
+        // Never display an arbitrary HTML body, credential or server traceback.
+        return code.range(of: "^[a-zA-Z0-9_-]{1,80}$", options: .regularExpression) != nil ? code : "http_\(status)"
     }
 }

@@ -36,6 +36,13 @@ private struct AuthorizedWidgetCache: Codable {
     let snapshot: NoteWidgetSnapshot
 }
 
+private final class WidgetNoRedirects: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 /// The widget fetches the current recipient's snapshot before producing its
 /// timeline. This actor coalesces simultaneous small/medium widget requests.
 actor WidgetRemoteClient {
@@ -45,6 +52,7 @@ actor WidgetRemoteClient {
     private let directoryProvider: @Sendable () -> URL?
     private var inFlight: Task<WidgetRefreshResult, Never>?
     private var flightID: UUID?
+    private var flightAuthorization: WidgetAuthorization?
     private var generation = 0
     private let maximumImageBytes = 4 * 1024 * 1024
 
@@ -57,17 +65,21 @@ actor WidgetRemoteClient {
         configuration.timeoutIntervalForRequest = 8
         configuration.timeoutIntervalForResource = 15
         configuration.urlCache = nil
-        self.session = session ?? URLSession(configuration: configuration)
+        self.session = session ?? URLSession(configuration: configuration, delegate: WidgetNoRedirects(), delegateQueue: nil)
     }
 
     func refresh() async -> WidgetRefreshResult {
-        if let inFlight { return await inFlight.value }
+        let authorization = authorizationProvider()
+        if let inFlight, flightAuthorization == authorization { return await inFlight.value }
+        inFlight?.cancel()
+        generation += 1
+        flightAuthorization = authorization
         let task = Task { await performRefresh() }
         let id = UUID()
         flightID = id
         inFlight = task
         let result = await task.value
-        if flightID == id { inFlight = nil; flightID = nil }
+        if flightID == id { inFlight = nil; flightID = nil; flightAuthorization = nil }
         return result
     }
 
@@ -76,6 +88,7 @@ actor WidgetRemoteClient {
         inFlight?.cancel()
         inFlight = nil
         flightID = nil
+        flightAuthorization = nil
         removeCache()
     }
 

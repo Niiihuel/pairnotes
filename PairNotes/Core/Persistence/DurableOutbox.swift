@@ -125,6 +125,15 @@ public actor DurableOutbox {
         try write(operation)
     }
 
+    /// Cancel just the capture whose session became obsolete while it was being
+    /// persisted. Other operations may already belong to a new valid session.
+    public func cancel(id: UUID, context: PublicationContext) throws {
+        var operation = try require(id: id, context: context)
+        guard operation.status != .sent && operation.status != .cancelled else { return }
+        operation.transition(to: .cancelled)
+        try write(operation)
+    }
+
     public func markSent(id: UUID, context: PublicationContext, note: RemoteNote) throws {
         var operation = try require(id: id, context: context)
         try note.validate(for: context)

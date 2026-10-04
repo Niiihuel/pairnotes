@@ -27,6 +27,18 @@ final class ServiceConfigurationTests: XCTestCase {
         var bad = sessionJSON()
         bad["refreshToken"] = "short"
         XCTAssertThrowsError(try AuthSession.decode(bad, provider: "apple"))
+        bad = sessionJSON()
+        bad["accessToken"] = String(repeating: "a", count: 42) + "\n"
+        XCTAssertThrowsError(try AuthSession.decode(bad, provider: "google"))
+    }
+
+    func testPrivateSessionGroupCannotBeSharedWithWidget() throws {
+        var values = validConfigurationValues()
+        values["PAIRNOTES_KEYCHAIN_GROUP"] = values["PAIRNOTES_PRIVATE_KEYCHAIN_GROUP"]
+        XCTAssertThrowsError(try ServiceConfiguration.load(values: values))
+        values = validConfigurationValues()
+        values["PAIRNOTES_PRIVATE_KEYCHAIN_GROUP"] = "$(AppIdentifierPrefix)org.example.PairNotes"
+        XCTAssertThrowsError(try ServiceConfiguration.load(values: values))
     }
 
     @MainActor
@@ -72,10 +84,30 @@ final class ServiceConfigurationTests: XCTestCase {
         XCTAssertNil(client.session)
         XCTAssertNil(store.value)
     }
+
+    @MainActor
+    func testRecentLoginRequiredPreservesValidSessionForReauthentication() async throws {
+        let saved = try AuthSession.decode(sessionJSON(), provider: "google")
+        let store = MemoryAuthStore(saved)
+        let transport = SessionTransportFixture(recentLoginRequired: true)
+        let client = try RailwayClient(configuration: configuration(), store: store, transport: transport)
+        do { _ = try await client.authenticatedJSON(path: "closePair"); XCTFail("Sensitive operation must require reauthentication") }
+        catch { XCTAssertEqual((error as? APIError)?.code, "recent_login_required") }
+        let stats = await transport.stats()
+        XCTAssertEqual(stats.refreshes, 0)
+        XCTAssertEqual(client.session, saved)
+        XCTAssertEqual(store.value, saved)
+    }
 }
 
 private func configuration() throws -> ServiceConfiguration {
-    try ServiceConfiguration.load(values: ["PAIRNOTES_API_BASE_URL": "https://api.example.test/v1", "PAIRNOTES_APNS_ENVIRONMENT": "development"])
+    try ServiceConfiguration.load(values: validConfigurationValues())
+}
+
+private func validConfigurationValues() -> [String: Any] {
+    ["PAIRNOTES_API_BASE_URL": "https://api.example.test/v1", "PAIRNOTES_APNS_ENVIRONMENT": "development",
+     "CFBundleIdentifier": "org.example.PairNotes", "PAIRNOTES_PRIVATE_KEYCHAIN_GROUP": "FICTITIOUS.org.example.PairNotes",
+     "PAIRNOTES_KEYCHAIN_GROUP": "FICTITIOUS.org.example.PairNotes.widget"]
 }
 
 private func sessionJSON(expired: Bool = false, rotated: Bool = false) -> [String: Any] {
@@ -98,15 +130,17 @@ private final class MemoryAuthStore: AuthSessionStore {
 private actor SessionTransportFixture: HTTPTransport {
     let holdRefresh: Bool
     let rejectRefresh: Bool
+    let recentLoginRequired: Bool
     private var refreshes = 0
     private var requests = 0
     private var authorization: [String] = []
     private var startedWaiter: CheckedContinuation<Void, Never>?
     private var releaseWaiter: CheckedContinuation<Void, Never>?
 
-    init(holdRefresh: Bool = false, rejectRefresh: Bool = false) {
+    init(holdRefresh: Bool = false, rejectRefresh: Bool = false, recentLoginRequired: Bool = false) {
         self.holdRefresh = holdRefresh
         self.rejectRefresh = rejectRefresh
+        self.recentLoginRequired = recentLoginRequired
     }
 
     func execute(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -124,8 +158,8 @@ private actor SessionTransportFixture: HTTPTransport {
             requests += 1
             authorization.append(request.value(forHTTPHeaderField: "Authorization") ?? "")
         }
-        let status = isRefresh && rejectRefresh ? 401 : 200
-        let payload: [String: Any] = status == 401 ? ["error": ["message": "session_revoked"]]
+        let status = (isRefresh && rejectRefresh) || recentLoginRequired ? 401 : 200
+        let payload: [String: Any] = status == 401 ? ["error": ["message": recentLoginRequired ? "recent_login_required" : "session_revoked"]]
             : (isRefresh ? sessionJSON(rotated: true) : ["identity": ["uid": "fictional-test-account", "displayName": "Sol ficticio"]])
         return (try JSONSerialization.data(withJSONObject: payload), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
     }

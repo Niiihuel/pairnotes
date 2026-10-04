@@ -36,9 +36,15 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         picker.accessoryItem = UIBarButtonItem(title: "Texto", style: .plain, target: self, action: #selector(insertText))
     }
 
-    func paperMarkupViewControllerDidChangeMarkup(_ paperMarkupViewController: PaperMarkupViewController) {
-        onMarkupChanged?()
+    nonisolated func paperMarkupViewControllerDidChangeMarkup(_ paperMarkupViewController: PaperMarkupViewController) {
+        Task { @MainActor [weak self] in self?.onMarkupChanged?() }
     }
+
+    // SDK 26.0 requires all four delegate methods. The document callback is
+    // marshalled to our main-actor session; the others do not mutate app state.
+    nonisolated func paperMarkupViewControllerDidChangeSelection(_ paperMarkupViewController: PaperMarkupViewController) {}
+    nonisolated func paperMarkupViewControllerDidBeginDrawing(_ paperMarkupViewController: PaperMarkupViewController) {}
+    nonisolated func paperMarkupViewControllerDidChangeContentVisibleFrame(_ paperMarkupViewController: PaperMarkupViewController) {}
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)

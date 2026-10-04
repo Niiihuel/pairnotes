@@ -62,6 +62,15 @@ check.call(app.package_product_dependencies.map(&:product_name) == %w[GoogleSign
   check.call(target.package_product_dependencies.empty?, "#{target.name} must not link service SDKs")
 end
 check.call(project.files.none? { |file| file.path.to_s.include?('GoogleService-Info') }, 'no abandoned Firebase configuration')
+keychain_groups = lambda do |path|
+  document = REXML::Document.new(File.read(path))
+  key = document.get_elements('plist/dict/key').find { |item| item.text == 'keychain-access-groups' }
+  key&.next_element&.get_elements('string')&.map(&:text)
+end
+private_group = '$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)'
+shared_group = '$(PAIRNOTES_KEYCHAIN_GROUP)'
+check.call(keychain_groups.call('Config/App.entitlements.example') == [private_group, shared_group], 'private Keychain must be first/default and separate from shared widget group')
+check.call(keychain_groups.call('Config/Widget.entitlements.example') == [shared_group], 'widget must never access app authentication credentials')
 catalog_path = 'PairNotes/App/Assets.xcassets'
 check.call(File.directory?(catalog_path), 'app asset catalog must exist')
 targets.each_value do |target|

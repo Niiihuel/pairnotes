@@ -8,6 +8,9 @@ private struct EditorRoute: Identifiable {
     let id = UUID()
     let store: DraftCatalogStore
     let draft: DraftSummary?
+    let uid: String?
+    let pairID: String?
+    let pairEpoch: UInt64?
 }
 private struct NoteRoute: Identifiable { let id: String }
 
@@ -48,6 +51,9 @@ struct RootView: View {
             NativePaperEditorView(store: route.store, draft: route.draft,
                                   onSaved: { Task { await model.reloadDrafts() } },
                                   onSend: { archive in
+                guard services.identity?.uid == route.uid, model.identity?.uid == route.uid,
+                      services.membership?.id == route.pairID,
+                      services.membership?.pairEpoch == route.pairEpoch else { return false }
                 let queued = await model.queue(archive: archive)
                 if queued { selectedTab = .create }
                 return queued
@@ -111,7 +117,8 @@ struct RootView: View {
 
     private func openDraft(_ draft: DraftSummary?) {
         guard model.identity?.uid == services.identity?.uid, let store = model.catalog else { return }
-        editor = EditorRoute(store: store, draft: draft)
+        editor = EditorRoute(store: store, draft: draft, uid: services.identity?.uid,
+                             pairID: services.membership?.id, pairEpoch: services.membership?.pairEpoch)
     }
 
     private func openNote(_ note: RemoteNote) { routeNote(note.id) }
@@ -136,7 +143,15 @@ struct RootView: View {
         }
         widgetConnecting = true
         let generation = widgetGeneration
-        defer { widgetConnecting = false }
+        let capturedScope = scope
+        defer {
+            widgetConnecting = false
+            // A new scope can arrive while the previous request is suspended.
+            // Its task may have skipped this guard; retry only that new scope.
+            if capturedScope != scope {
+                Task { await connectWidget(force: false) }
+            }
+        }
         do {
             let existing = WidgetAccessStore.load()
             if force || existing?.uid != uid || existing?.pairID != pair.id || existing?.pairEpoch != pair.pairEpoch ||

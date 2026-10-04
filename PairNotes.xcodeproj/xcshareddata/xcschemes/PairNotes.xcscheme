@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "1046F703F49994444C8010F3"
+               BlueprintIdentifier = "D032FE5A523ACEBEF33EA0EE"
                BuildableName = "PairNotes.app"
                BlueprintName = "PairNotes"
                ReferencedContainer = "container:PairNotes.xcodeproj">
@@ -28,7 +28,7 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "45F33492325CB2690D9C78AE"
+               BlueprintIdentifier = "EB6BFF61453A1C17866A410D"
                BuildableName = "PairNotesNativeTests.xctest"
                BlueprintName = "PairNotesNativeTests"
                ReferencedContainer = "container:PairNotes.xcodeproj">
@@ -44,7 +44,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "1046F703F49994444C8010F3"
+            BlueprintIdentifier = "D032FE5A523ACEBEF33EA0EE"
             BuildableName = "PairNotes.app"
             BlueprintName = "PairNotes"
             ReferencedContainer = "container:PairNotes.xcodeproj">
@@ -55,7 +55,7 @@
             skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "45F33492325CB2690D9C78AE"
+               BlueprintIdentifier = "EB6BFF61453A1C17866A410D"
                BuildableName = "PairNotesNativeTests.xctest"
                BlueprintName = "PairNotesNativeTests"
                ReferencedContainer = "container:PairNotes.xcodeproj">
@@ -77,7 +77,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "1046F703F49994444C8010F3"
+            BlueprintIdentifier = "D032FE5A523ACEBEF33EA0EE"
             BuildableName = "PairNotes.app"
             BlueprintName = "PairNotes"
             ReferencedContainer = "container:PairNotes.xcodeproj">
@@ -94,7 +94,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "1046F703F49994444C8010F3"
+            BlueprintIdentifier = "D032FE5A523ACEBEF33EA0EE"
             BuildableName = "PairNotes.app"
             BlueprintName = "PairNotes"
             ReferencedContainer = "container:PairNotes.xcodeproj">
