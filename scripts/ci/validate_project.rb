@@ -77,10 +77,37 @@ targets.each_value do |target|
   catalogs = target.resources_build_phase.files_references.count { |reference| reference.path == catalog_path }
   check.call(catalogs == (target == app ? 1 : 0), "app assets resource membership for #{target.name}")
 end
+privacy_manifests = {
+  'PairNotes' => 'PairNotes/App/PrivacyInfo.xcprivacy',
+  'PairNotesWidgets' => 'PairNotes/Widgets/PrivacyInfo.xcprivacy'
+}
+targets.each_value do |target|
+  manifests = target.resources_build_phase.files_references.map(&:path).select { |path| path.end_with?('PrivacyInfo.xcprivacy') }
+  check.call(manifests == Array(privacy_manifests[target.name]), "privacy manifest resource membership for #{target.name}")
+end
+privacy_manifests.each do |name, path|
+  check.call(File.file?(path), "privacy manifest must exist for #{name}")
+  manifest = REXML::Document.new(File.read(path))
+  api_key = manifest.get_elements('plist/dict/key').find { |key| key.text == 'NSPrivacyAccessedAPITypes' }
+  api_array = api_key&.next_element
+  check.call(api_array&.name == 'array', "required-reason API array for #{name}")
+  declared_apis = api_array.get_elements('dict').map do |entry|
+    type = entry.get_elements('key').find { |key| key.text == 'NSPrivacyAccessedAPIType' }&.next_element&.text
+    reasons = entry.get_elements('key').find { |key| key.text == 'NSPrivacyAccessedAPITypeReasons' }&.next_element&.get_elements('string')&.map(&:text)
+    { 'NSPrivacyAccessedAPIType' => type, 'NSPrivacyAccessedAPITypeReasons' => reasons }
+  end
+  expected_apis = name == 'PairNotes' ? [{
+    'NSPrivacyAccessedAPIType' => 'NSPrivacyAccessedAPICategoryUserDefaults',
+    'NSPrivacyAccessedAPITypeReasons' => ['CA92.1']
+  }] : []
+  check.call(declared_apis == expected_apis, "audited required-reason API declarations for #{name}")
+end
 app.build_configurations.each do |configuration|
+  check.call(configuration.build_settings['PROVISIONING_PROFILE_SPECIFIER'] == '$(PAIRNOTES_APP_PROFILE_SPECIFIER)', "app must use its own provisioning profile for #{configuration.name}")
   check.call(configuration.build_settings['ASSETCATALOG_COMPILER_APPICON_NAME'] == 'AppIcon', "app icon selection for #{configuration.name}")
 end
 widget.build_configurations.each do |configuration|
+  check.call(configuration.build_settings['PROVISIONING_PROFILE_SPECIFIER'] == '$(PAIRNOTES_WIDGET_PROFILE_SPECIFIER)', "widget must use its own provisioning profile for #{configuration.name}")
   check.call(configuration.build_settings['ASSETCATALOG_COMPILER_APPICON_NAME'].nil?, 'widget must not select the app icon')
 end
 icon_set = File.join(catalog_path, 'AppIcon.appiconset')
@@ -89,6 +116,7 @@ check.call(File.file?(icon_manifest), 'app icon manifest must exist')
 icon_images = JSON.parse(File.read(icon_manifest)).fetch('images')
 check.call(icon_images.any? { |image| image['filename'] && File.file?(File.join(icon_set, image['filename'])) }, 'app icon manifest must reference an existing image')
 core.build_configurations.each do |configuration|
+  check.call(configuration.build_settings['CODE_SIGNING_ALLOWED'] == 'NO', 'static core must not require a provisioning profile')
   check.call(configuration.build_settings['MACH_O_TYPE'] == 'staticlib', 'core must remain static')
   check.call(configuration.build_settings['APPLICATION_EXTENSION_API_ONLY'] == 'YES', 'core must be extension-safe')
 end

@@ -46,6 +46,18 @@ En NixOS, se pueden ejecutar los linters mediante `nix shell nixpkgs#actionlint 
 
 `bash scripts/ci/ios.sh minimum` en Linux termina con código 2 y un mensaje explícito de entorno faltante. No convierte ese caso en una build exitosa.
 
+## Compilación firmada manual
+
+El flujo separado `.github/workflows/distribute.yml` prepara un archive Release y exporta una IPA para App Store Connect usando certificados y perfiles del propietario. Se ejecuta manualmente sobre `main`; no envía la IPA a Apple ni necesita una clave de su API. La ficha existente usa la versión `1.0`, que se aplica a app y widget al archivar.
+
+El repositorio tiene cinco secretos de Actions: `PAIRNOTES_DISTRIBUTION_P12_BASE64`, `PAIRNOTES_DISTRIBUTION_P12_PASSWORD`, `PAIRNOTES_APP_PROFILE_BASE64`, `PAIRNOTES_WIDGET_PROFILE_BASE64` y `PAIRNOTES_IOS_CONFIG`. Se cargaron con la CLI por stdin. El workflow crea un Keychain temporal, instala cada perfil en su target y elimina el material temporal al terminar. El core estático no recibe un perfil de provisión. No se usa firma automática para crear o modificar recursos en Apple.
+
+Los perfiles descargados se verificaron en Linux mediante firma CMS y cadena Apple, coincidencia del certificado, equipo, Bundle IDs, vigencia y capacidades. Esto no equivale a ejecutar Xcode ni a instalar la app: el resultado del archive/export en macOS se registra por separado. Las pruebas físicas de OAuth, APNs y widget siguen pendientes aunque la firma pase.
+
+Validación local del corte de firma: 148 comprobaciones estructurales sobre el proyecto incluido y otro regenerado en una copia temporal, 15 tests Python del selector, actionlint, ShellCheck, sintaxis Bash/Ruby y rechazo explícito de distribución desde Linux. La app declara UserDefaults privado con razón `CA92.1`; la extensión no usa APIs propias que requieran razón. Ambos manifiestos se incluyen en Resources. Se añadieron las cuatro orientaciones para iPad sin cambiar las de iPhone. [Apple: manifiesto de APIs con razón requerida](https://developer.apple.com/documentation/technotes/tn3183-adding-required-reason-api-entries-to-your-privacy-manifest).
+
+Referencias: [GitHub: certificados y perfiles en Actions](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications), [Apple: subida de builds](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/).
+
 ## Registro histórico del corte M0
 
 Verificado localmente: 15 tests del selector, actionlint y ShellCheck. El verificador de proyecto ahora supera **96 comprobaciones** tanto sobre el proyecto incluido como tras regenerarlo en una copia temporal; incluye el catálogo del icono sólo en la app. La suite portable tiene 15 XCTest aprobados y se ejecuta de nuevo en CI. Se corrigió una referencia generada a `Foundation.framework` que apuntaba a iPhoneOS18.0; ahora resuelve contra `SDKROOT` tanto en el proyecto como en su generador.

@@ -14,6 +14,7 @@
         <key>UIApplicationSupportsMultipleScenes</key><false/>
     </dict>
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
+    <key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
     <key>PAIRNOTES_APP_GROUP</key><string>$(PAIRNOTES_APP_GROUP)</string>
     <key>PAIRNOTES_KEYCHAIN_GROUP</key><string>$(PAIRNOTES_KEYCHAIN_GROUP)</string>
     <key>PAIRNOTES_PRIVATE_KEYCHAIN_GROUP</key><string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>

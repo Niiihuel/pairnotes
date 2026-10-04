@@ -19,6 +19,7 @@
 		32D7D6CA28E5A6FE78A1A5D1 /* CloudNotesService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2515D495160C3BF260D800 /* CloudNotesService.swift */; };
 		32FDDC105E8BCE0A4DBE0075 /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83213EF412B23012D4054013 /* AppServices.swift */; };
 		3421147D1BEC8BD89E4ADDDC /* SharedWidgetContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E9B3FA0DBEE03D5B451FEC2 /* SharedWidgetContainer.swift */; };
+		431CBBA6F6AD15366E3824BC /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 68480025BD5650B61DB086AA /* PrivacyInfo.xcprivacy */; };
 		44CEF7465A841B4080DC9C5E /* WidgetRemoteClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B5636008FE5FCB9550586A4 /* WidgetRemoteClient.swift */; };
 		4625AA0D5F992DBAA369EF53 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98B8D8545D938941795FF4AC /* AppModel.swift */; };
 		4865D47640C670CFAC775675 /* DurableOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 247A7A9AEDB5364FF2CC62B6 /* DurableOutbox.swift */; };
@@ -46,6 +47,7 @@
 		C634B5DEA0FF2A722A595934 /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F5851C0774BB7B21B22A71 /* Pairing.swift */; };
 		C7CD73B100677DF2BB2679F7 /* ContentDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A32FA2D81028C28EB32F94F /* ContentDigest.swift */; };
 		CCDC46CDD38EEC041FC7AFB0 /* NativeEditorPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA62401A696C65AD842D5A3F /* NativeEditorPersistenceTests.swift */; };
+		DEC35396475D9F3C426A9421 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C7EC5DD951D6300188B97C90 /* PrivacyInfo.xcprivacy */; };
 		E1769BE0E027588D38904043 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4A055DA8070995BA4F7035B3 /* Foundation.framework */; };
 		E244C0ADEEAE786BA86FFEB5 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5254DDC623B9965ABFE1D446 /* TimelineView.swift */; };
 		E4FB0A9DB6F0B1CD7BC059E5 /* ServiceConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF1D8789DFB6B8006A09551F /* ServiceConfiguration.swift */; };
@@ -127,6 +129,7 @@
 		5C2515D495160C3BF260D800 /* CloudNotesService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CloudNotesService.swift; path = PairNotes/Services/CloudNotesService.swift; sourceTree = "<group>"; };
 		5E78BD17834248551D73FE8A /* PairNotesCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = PairNotesCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		643D7CD2EBDE2727173CC9C4 /* MockProviders.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MockProviders.swift; path = PairNotes/Core/Mocks/MockProviders.swift; sourceTree = "<group>"; };
+		68480025BD5650B61DB086AA /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = PairNotes/Widgets/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6E730B35EC1D5CC63F4C2561 /* NoteDocument.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NoteDocument.swift; path = PairNotes/Core/Domain/NoteDocument.swift; sourceTree = "<group>"; };
 		718FABC9C36EF4162BD6E59E /* HomeView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HomeView.swift; path = PairNotes/Features/Home/HomeView.swift; sourceTree = "<group>"; };
 		738FE47E4D73AB49A8B2212C /* RailwayClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RailwayClient.swift; path = PairNotes/Services/RailwayClient.swift; sourceTree = "<group>"; };
@@ -144,6 +147,7 @@
 		B3959D9B506F1F6668BD77F4 /* PaperProbeController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PaperProbeController.swift; path = PairNotes/Canvas/NativePaper/PaperProbeController.swift; sourceTree = "<group>"; };
 		B3BC0978E298518261401B2A /* DraftLibraryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DraftLibraryView.swift; path = PairNotes/Features/Editor/DraftLibraryView.swift; sourceTree = "<group>"; };
 		C485E36C6E1F6DE8533D58F3 /* FileDraftStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = FileDraftStore.swift; path = PairNotes/Core/Persistence/FileDraftStore.swift; sourceTree = "<group>"; };
+		C7EC5DD951D6300188B97C90 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = PairNotes/App/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		CA4EF7BD1BD5D74A329DAE56 /* PairNotesWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PairNotesWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		CF1D8789DFB6B8006A09551F /* ServiceConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ServiceConfiguration.swift; path = PairNotes/Services/ServiceConfiguration.swift; sourceTree = "<group>"; };
 		DBC27EC58BD453CB3654D44E /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RootView.swift; path = PairNotes/App/RootView.swift; sourceTree = "<group>"; };
@@ -236,6 +240,8 @@
 				E608F5E040CBEA6D81362305 /* ServiceConfigurationTests.swift */,
 				39035F2F48579EA838608966 /* WidgetRemoteClientTests.swift */,
 				423DB70E38CD849C60A2FE3E /* Assets.xcassets */,
+				C7EC5DD951D6300188B97C90 /* PrivacyInfo.xcprivacy */,
+				68480025BD5650B61DB086AA /* PrivacyInfo.xcprivacy */,
 			);
 			sourceTree = "<group>";
 		};
@@ -397,6 +403,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				431CBBA6F6AD15366E3824BC /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -419,6 +426,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2A6D20099E4B23A4CC3F5DA6 /* Assets.xcassets in Resources */,
+				DEC35396475D9F3C426A9421 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -596,6 +604,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(PAIRNOTES_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(PAIRNOTES_APP_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -619,6 +628,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(PAIRNOTES_BUNDLE_ID).widgets";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(PAIRNOTES_WIDGET_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -702,6 +712,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(PAIRNOTES_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(PAIRNOTES_APP_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -838,6 +849,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(PAIRNOTES_BUNDLE_ID).widgets";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(PAIRNOTES_WIDGET_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

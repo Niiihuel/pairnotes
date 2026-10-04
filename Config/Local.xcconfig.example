@@ -4,6 +4,10 @@
 // PAIRNOTES_APP_GROUP = <App Group registrado y habilitado en ambos targets>
 // APP_ENTITLEMENTS = Config/App.local.entitlements
 // WIDGET_ENTITLEMENTS = Config/Widget.local.entitlements
+// Sólo para firma manual: cada target usa su propio perfil.
+// CODE_SIGN_STYLE = Manual
+// PAIRNOTES_APP_PROFILE_SPECIFIER = <UUID o nombre del perfil de la app>
+// PAIRNOTES_WIDGET_PROFILE_SPECIFIER = <UUID o nombre del perfil del widget>
 // PAIRNOTES_KEYCHAIN_GROUP = <Team ID>.<grupo registrado compartido app/widget>
 // Configurar sólo después de registrar los servicios y descargar la configuración propia.
 // PAIRNOTES_GOOGLE_CLIENT_ID = <cliente OAuth iOS registrado para tu bundle ID>

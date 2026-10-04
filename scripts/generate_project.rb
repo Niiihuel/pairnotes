@@ -32,6 +32,11 @@ add_sources(project, widget, ['PairNotes/Widgets/**/*.swift'])
 add_sources(project, tests, ['PairNotes/Tests/NativeTests/**/*.swift'])
 assets = project.main_group.new_file('PairNotes/App/Assets.xcassets')
 app.resources_build_phase.add_file_reference(assets)
+[[app, 'PairNotes/App/PrivacyInfo.xcprivacy'], [widget, 'PairNotes/Widgets/PrivacyInfo.xcprivacy']].each do |target, path|
+  manifest = project.main_group.new_file(path)
+  manifest.last_known_file_type = 'text.xml'
+  target.resources_build_phase.add_file_reference(manifest)
+end
 
 # Google Sign-In belongs only to the app. The pure core and widget do not link it.
 def add_package(project, target, url, version, products)
@@ -82,11 +87,13 @@ project.targets.each do |target|
   end
 end
 app.build_configurations.each do |config|
+  config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = '$(PAIRNOTES_APP_PROFILE_SPECIFIER)'
   config.build_settings.merge!('PRODUCT_BUNDLE_IDENTIFIER' => '$(PAIRNOTES_BUNDLE_ID)', 'INFOPLIST_FILE' => 'Config/App-Info.plist', 'GENERATE_INFOPLIST_FILE' => 'NO', 'CODE_SIGN_ENTITLEMENTS' => '$(APP_ENTITLEMENTS)', 'LD_RUNPATH_SEARCH_PATHS' => ['$(inherited)', '@executable_path/Frameworks'], 'ASSETCATALOG_COMPILER_APPICON_NAME' => 'AppIcon')
   config.build_settings['OTHER_LDFLAGS'] = ['$(inherited)', '-ObjC']
   config.build_settings['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = ['$(inherited)', 'DEBUG'] if config.name == 'Debug'
 end
 widget.build_configurations.each do |config|
+  config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = '$(PAIRNOTES_WIDGET_PROFILE_SPECIFIER)'
   config.build_settings.merge!('PRODUCT_BUNDLE_IDENTIFIER' => '$(PAIRNOTES_BUNDLE_ID).widgets', 'INFOPLIST_FILE' => 'Config/Widget-Info.plist', 'GENERATE_INFOPLIST_FILE' => 'NO', 'CODE_SIGN_ENTITLEMENTS' => '$(WIDGET_ENTITLEMENTS)', 'APPLICATION_EXTENSION_API_ONLY' => 'YES', 'SKIP_INSTALL' => 'YES', 'LD_RUNPATH_SEARCH_PATHS' => ['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks'])
 end
 core.build_configurations.each do |config|
