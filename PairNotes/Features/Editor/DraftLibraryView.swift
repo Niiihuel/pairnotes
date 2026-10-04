@@ -22,7 +22,7 @@ struct DraftLibraryView: View {
             }
 
             if !model.guestDrafts.isEmpty {
-                Section("Dibujos creados como invitado") {
+                Section {
                     ForEach(model.guestDrafts) { draft in
                         Button {
                             guard copyingGuest == nil else { return }
@@ -36,6 +36,8 @@ struct DraftLibraryView: View {
                                   systemImage: copiedGuest.contains(draft.id) ? "checkmark" : "doc.on.doc")
                         }.disabled(copyingGuest != nil || copiedGuest.contains(draft.id))
                     }
+                } header: {
+                    Text("Dibujos creados como invitado")
                 } footer: {
                     Text("Elegí cuáles copiar a esta cuenta para editarlos y enviarlos. Los originales se conservan en este iPhone.")
                 }
@@ -72,7 +74,7 @@ struct DraftLibraryView: View {
             }
 
             if !model.outbox.isEmpty {
-                Section("Envíos") {
+                Section {
                     ForEach(model.outbox.reversed()) { operation in
                         HStack(spacing: 14) {
                             if let data = operation.archive.image(for: .thumbnail)?.pngData,
@@ -97,6 +99,8 @@ struct DraftLibraryView: View {
                             }
                         }
                     }
+                } header: {
+                    Text("Envíos")
                 } footer: {
                     Text("Enviado significa que el servidor confirmó la publicación. Las notificaciones y los widgets se actualizan según la conexión y los tiempos de iOS.")
                 }

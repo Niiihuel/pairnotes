@@ -1,7 +1,7 @@
 import Foundation
 
 public struct UserProfile: Codable, Equatable, Identifiable, Sendable {
-    /// Production will use a Firebase UID; mock IDs are explicitly fictitious.
+    /// Production uses the backend's opaque UID; mock IDs are explicitly fictitious.
     public let id: String
     public let displayName: String
     public let avatarSymbol: String

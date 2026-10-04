@@ -15,7 +15,11 @@ Primera ejecución iOS del nuevo corte: [37225754861](https://github.com/Niiihue
 
 La revisión reprodujo y corrigió dos carreras de servidor: publicar durante limpieza/renovación de carga y registrar notificaciones de una sesión antigua después de cambiar de cuenta. Hay regresiones específicas para ambas.
 
+Segunda ejecución iOS: [37226403788](https://github.com/Niiihuel/pairnotes/actions/runs/37226403788), commit `79279b7`, detuvo compilación por el nombre Swift no disponible del código de cancelación Google. Se corrigió usando el valor documentado del header de GoogleSignIn 9.2.0. Esa ejecución tampoco se contabiliza como build aprobada.
+
 Además se separó explícitamente el grupo Keychain privado del compartido, se cercaron callbacks del editor con la cuenta/pareja capturadas, se rechazaron redirects HTTP del widget y se corrigieron carreras de cola y paginación detectadas por revisión.
+
+Tercera ejecución: [37226921423](https://github.com/Niiihuel/pairnotes/actions/runs/37226921423), commit `e2a78bb`. Pasaron Linux y backend; la compilación detectó una combinación inválida de inicializadores `Section` con título y footer. Se corrigieron ambos casos con header explícito. El lockfile de SwiftPM conserva las versiones y revisiones resueltas realmente por Xcode; no se reconstruyó con valores supuestos.
 
 ## Comandos ejecutados
 
@@ -48,7 +52,11 @@ Proyecto y bucket constan en [RAILWAY_Y_FLUJO_NOTAS.md](RAILWAY_Y_FLUJO_NOTAS.md
 - PostgreSQL: `0a37e890-9759-42fa-9cce-322ea1b39960`, nombre `Postgres`.
 - API: `53774cc6-9364-4a0c-9e30-7ef697b84de2`, nombre `pairnotes-api`.
 
-Los IDs son metadatos, no credenciales. El despliegue y las comprobaciones HTTP se anotarán cuando terminen; crear servicios no equivale a tener login/push configurados.
+Los IDs son metadatos, no credenciales. La API se desplegó desde el commit `e2a78bb` con `railway up Backend --path-as-root --service pairnotes-api --environment development --ci`. Deployment `dd737ba2-1609-4471-a7fd-626b168a10ff`, estado Railway SUCCESS. URL: https://pairnotes-api-development.up.railway.app.
+
+Comprobaciones HTTPS reales: `/healthz` → 200 `{"status":"ok"}`; perfil, imagen privada y widget sin una credencial válida → 401 y `Cache-Control: private, no-store`; un intercambio OAuth de validación sin proveedor configurado → 400 `provider_not_configured`. No se creó una cuenta ficticia en el servicio. [Resultados sanitizados](evidence/railway/http-smoke.json). El bucket rechazó lectura anónima con 403.
+
+Build/deploy/health aprobados no equivalen a login Google/Apple ni entrega APNs configurados. Las audiencias OAuth y la clave APNs siguen pendientes. Se usan referencias privadas del servicio PostgreSQL y del bucket, sin copiar sus secretos al repositorio.
 
 ## Pruebas no ejecutadas
 

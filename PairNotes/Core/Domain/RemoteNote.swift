@@ -24,7 +24,7 @@ public struct NoteAssetPaths: Codable, Equatable, Sendable {
 }
 
 /// Immutable metadata returned after the server has finalized all four assets.
-/// Draft bytes remain in private local archives and Storage, never Firestore.
+/// Draft bytes remain in private local archives and object storage, outside note metadata.
 public struct RemoteNote: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let pairID: String

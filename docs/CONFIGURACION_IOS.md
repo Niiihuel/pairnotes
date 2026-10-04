@@ -10,6 +10,8 @@ La API entrega un desafío aleatorio de un solo uso antes del acceso con Google 
 
 El cliente guarda access y refresh tokens opacos en Keychain privado de la app, asociados a la URL de la API. La renovación concurrente se agrupa en una sola operación, persiste el refresh token rotado antes de nuevas solicitudes y descarta respuestas de una cuenta que ya cerró sesión. El widget recibe otra credencial, revocable y limitada a su snapshot, en el grupo compartido de Keychain. Los tokens no se escriben en archivos de configuración, UserDefaults, notificaciones ni logs de la aplicación.
 
+La API de desarrollo creada en esta sesión es `https://pairnotes-api-development.up.railway.app/`. En el archivo local xcconfig se escribe `PAIRNOTES_API_BASE_URL = https:/$()/pairnotes-api-development.up.railway.app/`. Esta URL no reemplaza los IDs OAuth, firma ni capacidades que siguen pendientes.
+
 ## Preparación manual
 
 1. Registrar identificadores propios para app y extensión, App Group, grupo compartido de Keychain y capacidades necesarias usando la cuenta Apple Developer del propietario. Tener membresía no registra estos valores automáticamente.

@@ -1,0 +1,34 @@
+{
+  "deploymentId": "dd737ba2-1609-4471-a7fd-626b168a10ff",
+  "commit": "e2a78bb",
+  "baseURL": "https://pairnotes-api-development.up.railway.app",
+  "checks": [
+    {
+      "check": "health",
+      "status": 200,
+      "body": {
+        "status": "ok"
+      }
+    },
+    {
+      "check": "/getPairState",
+      "status": 401,
+      "cacheControl": "private, no-store"
+    },
+    {
+      "check": "/image",
+      "status": 401,
+      "cacheControl": "private, no-store"
+    },
+    {
+      "check": "/widgetSnapshot",
+      "status": 401,
+      "cacheControl": "private, no-store"
+    },
+    {
+      "check": "unconfigured OAuth fails closed",
+      "status": 400,
+      "reason": "provider_not_configured"
+    }
+  ]
+}

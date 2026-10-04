@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
-import WidgetKit
+// SDK 26 exposes the async push-info getter on a non-Sendable WidgetCenter.
+@preconcurrency import WidgetKit
 import PairNotesCore
 
 private enum AppTab: Hashable { case home, create, memories, couple }

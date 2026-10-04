@@ -79,7 +79,7 @@ final class ServiceConfigurationTests: XCTestCase {
         let store = MemoryAuthStore(saved)
         let transport = SessionTransportFixture(holdRefresh: true)
         let client = try RailwayClient(configuration: configuration(), store: store, transport: transport)
-        let pending = Task { try await client.authenticatedJSON(path: "auth/session", method: "GET") }
+        let pending = Task<Void, Error> { _ = try await client.authenticatedJSON(path: "auth/session", method: "GET") }
         await transport.waitUntilRefreshing()
         client.clear()
         await transport.releaseRefresh()

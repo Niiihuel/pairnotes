@@ -46,7 +46,7 @@ public protocol WidgetSnapshotStoring: Sendable {
 
 /// The app is the only writer; WidgetKit opens this store as a reader.
 /// Atomic replacement of one JSON envelope prevents torn JSON/image pairs.
-/// Data's JSON representation is local only, never a Firestore record.
+/// Data's JSON representation belongs only to this local cache envelope.
 public actor WidgetSnapshotStore: WidgetSnapshotStoring {
     private let directory: URL
     private var fileURL: URL { directory.appendingPathComponent("note-widget.json") }

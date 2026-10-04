@@ -1,14 +1,14 @@
 # Compilar PairNotes desde Linux con GitHub Actions
 
-Alcance: continuar M0/M1 sin Mac propio. El workflow `PairNotes CI` se activa al subir cambios a `main`, abrir/actualizar un pull request o ejecutar **Actions → PairNotes CI → Run workflow**. No requiere secretos Apple ni Firebase: compila para simulador sin firma.
+El workflow `PairNotes CI` se activa al subir cambios a `main`, abrir/actualizar un pull request o ejecutar **Actions → PairNotes CI → Run workflow**. No requiere secretos Apple: compila para simulador sin firma. El corte vigente reemplaza Firebase por Railway y agrega pruebas del backend y de servicios/widget/editor; sus resultados están en [VALIDACION_RAILWAY.md](VALIDACION_RAILWAY.md).
 
-**Resultado verificado el 4 de octubre de 2026:** [ejecución 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f870cb6542e92611ebd85275801a8e441055`, ambos jobs aprobados. Pasaron 15 tests Python del selector y 15 XCTest Swift en Linux; `build-for-testing` de app, extensión y tests con Xcode 26.0.1/SDK 26.0; y los 2 tests PaperKit en iPhone 16e simulado con iOS 26.2/Xcode 26.2. Incluye el icono oscuro. Los [PNG exportados e inspeccionados](evidence/m0/README.md) se conservan en el repositorio.
+**Resultado histórico de M0 verificado el 4 de octubre de 2026:** [ejecución 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f870cb6542e92611ebd85275801a8e441055`, ambos jobs aprobados. Pasaron 15 tests Python del selector y 15 XCTest Swift en Linux; `build-for-testing` de app, extensión y tests con Xcode 26.0.1/SDK 26.0; y los 2 tests PaperKit en iPhone 16e simulado con iOS 26.2/Xcode 26.2. Incluye el icono oscuro. Los [PNG exportados e inspeccionados](evidence/m0/README.md) se conservan en el repositorio.
 
 ## Qué comprueba
 
 1. En Ubuntu, ejecuta tests del selector de simulador y la suite XCTest portable en la imagen Swift fijada por digest. El selector se prueba con inventarios sintéticos; no simula haber ejecutado Xcode.
 2. En `macos-26`, selecciona `/Applications/Xcode_26.0.1.app/Contents/Developer`, instala explícitamente el runtime **iOS 26.0 arm64** que requiere el compilador de catálogos y verifica que el SDK sea exactamente **iOS 26.0**. `build-for-testing` compila app, extensión y tests nativos con ese SDK.
-3. Con Xcode **26.2**, descubre un iPhone disponible con runtime **iOS 26.2**, lo inicia y ejecuta `PaperRoundTripTests`. No sustituye silenciosamente un runtime ausente por otro más nuevo.
+3. Con Xcode **26.2**, descubre un iPhone disponible con runtime **iOS 26.2**, lo inicia y ejecuta las suites nativas de PaperKit, persistencia del editor, cliente del widget y configuración/sesión. No sustituye silenciosamente un runtime ausente por otro más nuevo.
 4. Conserva logs, versiones reales del runner/Xcode/SDK, inventario del simulador, `.xcresult`, PNG adjuntos del roundtrip y la aplicación de simulador con su extensión. Un fallo de `xcodebuild` conserva su código de salida aunque la salida pase por `tee`.
 
 El [inventario oficial de la imagen macOS](https://github.com/actions/runner-images/blob/6d942e630479cd99a93dadfc766af11242bfa402/images/macos/macos-26-arm64-Readme.md) consultado incluye SDK 26.0 y runtimes 26.2/26.4/26.5, pero no runtime 26.0. La [ejecución 37222127785](https://github.com/Niiihuel/pairnotes/actions/runs/37222127785) acreditó que agregar el catálogo de iconos hace fallar `actool` sin un runtime compatible con el SDK mínimo. Por eso se incorporó `xcodebuild -downloadPlatform iOS -buildVersion 26.0 -architectureVariant arm64`, sin `sudo` para la descarga, siguiendo [Apple](https://developer.apple.com/documentation/xcode/downloading-and-installing-additional-xcode-components) y la [indicación de los mantenedores del runner](https://github.com/actions/runner-images/issues/13570). Se guardan inventarios antes/después y el log de instalación. Este paso añade tiempo y dependencia de red; si Apple no ofrece el runtime, falla explícitamente.
@@ -17,7 +17,7 @@ Compilación contra el SDK mínimo y ejecución sobre 26.2 son evidencias distin
 
 ## Revisar una ejecución desde Linux
 
-En la página **Actions**, abrir el run del commit correspondiente. Ambos jobs deben estar verdes. Descargar `linux-tests-<intento>` e `ios-evidence-<intento>`. El segundo contiene `ios-evidence.tar.gz`; al extraerlo:
+En la página **Actions**, abrir el run del commit correspondiente. Los tres jobs (portable, backend e iOS) deben estar verdes. El job backend compila TypeScript y ejecuta sus tests con PostgreSQL y S3 de prueba. Descargar `linux-tests-<intento>` e `ios-evidence-<intento>`. El segundo contiene `ios-evidence.tar.gz`; al extraerlo:
 
 - `artifacts/ios-minimum/environment.log` y `xcodebuild.log`: SDK y compilación mínima.
 - `artifacts/ios-minimum/PairNotes-simulator.tar.gz`: `.app` con `.appex`, conservando permisos ejecutables.
@@ -44,7 +44,7 @@ En NixOS, se pueden ejecutar los linters mediante `nix shell nixpkgs#actionlint 
 
 `bash scripts/ci/ios.sh minimum` en Linux termina con código 2 y un mensaje explícito de entorno faltante. No convierte ese caso en una build exitosa.
 
-## Estado de este corte
+## Registro histórico del corte M0
 
 Verificado localmente: 15 tests del selector, actionlint y ShellCheck. El verificador de proyecto ahora supera **96 comprobaciones** tanto sobre el proyecto incluido como tras regenerarlo en una copia temporal; incluye el catálogo del icono sólo en la app. La suite portable tiene 15 XCTest aprobados y se ejecuta de nuevo en CI. Se corrigió una referencia generada a `Foundation.framework` que apuntaba a iPhoneOS18.0; ahora resuelve contra `SDKROOT` tanto en el proyecto como en su generador.
 
@@ -56,7 +56,7 @@ Queda una advertencia no bloqueante de catálogo: el setting generado de `Accent
 
 El próximo corte de producto es **M2: identidad y vinculación segura**, empezando por contratos y Firebase Emulator Suite sin credenciales de producción, con tests negativos de invitaciones, pertenencia y acceso de un tercer usuario. El login Google/Apple real requiere configuración autorizada y se distinguirá de la prueba emulada. No se implementó M2 en este corte ni se avanzó a M3/Studio.
 
-## Archivos y comandos de la continuación
+## Archivos y comandos de la continuación M0 (histórico)
 
 - CI nuevo: `.github/workflows/ci.yml`, `scripts/ci/ios.sh`, `scripts/ci/select_simulator.py`, `scripts/ci/tests/test_select_simulator.py`, `scripts/ci/validate_project.rb` y este documento.
 - Proyecto corregido: `PairNotes.xcodeproj/project.pbxproj` y `scripts/generate_project.rb` (referencia Foundation por SDK y recursos del icono).
