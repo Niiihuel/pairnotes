@@ -4,6 +4,8 @@ Estado del corte: identificadores OAuth y clave APNs cargados; faltan certificad
 
 Configuración confirmada el 4 de octubre de 2026: Team ID `2K2U374CJC`, app `com.niiihuel.pairnotes`, extensión `com.niiihuel.pairnotes.widgets` y App Group `group.com.niiihuel.pairnotes`. El propietario confirmó la asignación del grupo a ambos identificadores. Google Cloud: proyecto `pairnotes-510620`, clientes iOS y Web obtenidos de sus descargas oficiales. El plist iOS declara el mismo Bundle ID y ambos clientes corresponden al mismo número de proyecto.
 
+La ficha PairNotes está creada en [App Store Connect](https://appstoreconnect.apple.com/apps/6819083456/distribution/ios/version/inflight), con Apple ID numérico `6819083456`. Este número identifica la ficha; el Bundle ID sigue siendo `com.niiihuel.pairnotes`.
+
 `Config/Local.xcconfig` (ignorado por Git) contiene los IDs de ambos clientes, esquema de retorno y URL API. Railway `pairnotes-api/development` tiene `GOOGLE_CLIENT_IDS` con ambos IDs autorizados (audience/azp) y `APPLE_CLIENT_IDS` con el Bundle ID principal. El secreto del cliente Web no se usa en este flujo de verificación de ID tokens y no se copió. Los valores locales no se transfieren automáticamente al runner de GitHub: falta incorporarlos al workflow de firma/distribución. [Comprobación HTTPS tras aplicar configuración](evidence/railway/oauth-config-smoke.json).
 
 ## Dependencias y contratos verificados
@@ -25,6 +27,8 @@ El archivo local xcconfig ahora fija `PAIRNOTES_APNS_ENVIRONMENT = production` p
 [Comprobación de configuración y health](evidence/railway/apns-config-smoke.json): no prueba aceptación de APNs ni entrega. La autorización del topic derivado `com.niiihuel.pairnotes.push-type.widgets` debe verificarse con el token real del widget; la selección del portal no se presenta como evidencia de entrega.
 
 ## Preparación manual
+
+Para solicitar el certificado **Apple Distribution**, se generó en Linux con OpenSSL 3.6.2 una clave RSA de 2048 bits y un CSR SHA-256 con subject `CN=PairNotes Distribution`. El archivo público `PairNotes-Distribution.certSigningRequest` está en Descargas; la clave privada se conserva fuera del repositorio, en el directorio local de firma de PairNotes, con permisos `0600` y directorio `0700`. Se verificaron la firma del CSR y la coincidencia de claves públicas. SHA-256 del CSR: `529a37afb36318bd77ee03c4b0bda5c40bfc222b4236ee827bc55e0f1a8bc74f`. Pendientes: aceptación del CSR por Apple, descarga del certificado `.cer`, exportación protegida `.p12`, perfiles de distribución para ambos targets y configuración de firma en GitHub Actions. La generación del CSR no constituye un certificado emitido ni una compilación firmada. [Apple: certificados](https://developer.apple.com/help/account/certificates/certificates-overview), [fastlane: generación de CSR con RSA 2048 y sólo CN](https://github.com/fastlane/fastlane/blob/master/spaceship/lib/spaceship/portal/certificate.rb).
 
 1. Registrar identificadores propios para app y extensión, App Group, grupo compartido de Keychain y capacidades necesarias usando la cuenta Apple Developer del propietario. Tener membresía no registra estos valores automáticamente.
 2. Copiar `Config/Local.xcconfig.example` a `Config/Local.xcconfig` y completar `PAIRNOTES_BUNDLE_ID`, `DEVELOPMENT_TEAM`, `PAIRNOTES_APP_GROUP`, `PAIRNOTES_KEYCHAIN_GROUP`, `PAIRNOTES_API_BASE_URL` y los clientes OAuth de Google. El archivo local está ignorado por git. En xcconfig, escribir `https:/$()/dominio-propio/` conserva las dos barras sin iniciar un comentario.
