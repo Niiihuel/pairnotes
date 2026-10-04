@@ -2,6 +2,12 @@ name: PairNotes signed archive
 
 on:
   workflow_dispatch:
+    inputs:
+      upload_to_testflight:
+        description: Upload the verified IPA to App Store Connect (processing checked separately)
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -16,7 +22,7 @@ defaults:
 
 jobs:
   archive:
-    name: Export signed IPA locally (no TestFlight upload)
+    name: Export signed IPA and optionally upload to TestFlight
     if: github.ref == 'refs/heads/main'
     runs-on: macos-26
     timeout-minutes: 40
@@ -52,6 +58,26 @@ jobs:
             artifacts/distribution/build-info.txt
             artifacts/distribution/verification.json
           if-no-files-found: error
+          retention-days: 7
+      - name: Upload verified IPA to App Store Connect
+        if: inputs.upload_to_testflight
+        timeout-minutes: 15
+        env:
+          PAIRNOTES_UPLOAD_TO_TESTFLIGHT: ${{ inputs.upload_to_testflight }}
+          PAIRNOTES_ASC_KEY_ID: ${{ secrets.PAIRNOTES_ASC_KEY_ID }}
+          PAIRNOTES_ASC_ISSUER_ID: ${{ secrets.PAIRNOTES_ASC_ISSUER_ID }}
+          PAIRNOTES_ASC_PRIVATE_KEY: ${{ secrets.PAIRNOTES_ASC_PRIVATE_KEY }}
+        run: bash scripts/ci/upload_testflight.sh upload
+      - name: Remove temporary App Store Connect key
+        if: always()
+        run: bash scripts/ci/upload_testflight.sh cleanup
+      - name: Save upload outcome without credentials
+        if: always() && inputs.upload_to_testflight
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pairnotes-upload-result-${{ github.run_number }}-${{ github.run_attempt }}
+          path: artifacts/distribution/upload-result.json
+          if-no-files-found: warn
           retention-days: 7
       - name: Save archive and export logs
         if: always()

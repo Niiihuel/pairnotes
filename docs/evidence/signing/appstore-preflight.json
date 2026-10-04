@@ -1,0 +1,15 @@
+{
+  "appID": "6819083456",
+  "bundleID": "com.niiihuel.pairnotes",
+  "apiAuthenticationVerified": true,
+  "groupID": "fd36449c-a82b-4c1d-aa50-d259a0c3649d",
+  "groupName": "amorchi",
+  "isInternalGroup": true,
+  "testerAccountCount": 3,
+  "ownerConfirmedPeopleCount": 2,
+  "hasAccessToAllBuilds": true,
+  "publicLinkEnabled": false,
+  "otherGroupsFound": 0,
+  "buildsBeforeFirstUpload": 0,
+  "testersOrGroupsModifiedByAgent": false
+}
