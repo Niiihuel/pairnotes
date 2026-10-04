@@ -1,6 +1,6 @@
 # Configuración iOS y validación en dispositivos
 
-Estado del corte: identificadores OAuth cargados; faltan firma, clave APNs y pruebas de OAuth/avisos/widget en dispositivos. La arquitectura vigente usa una API Node en Railway, PostgreSQL y almacenamiento privado; sustituye la propuesta Firebase del plan inicial por pedido del usuario. La app mantiene editor y borradores locales cuando la API no está configurada.
+Estado del corte: identificadores OAuth y clave APNs cargados; faltan certificado/perfiles de firma y pruebas de OAuth/avisos/widget en dispositivos. La arquitectura vigente usa una API Node en Railway, PostgreSQL y almacenamiento privado; sustituye la propuesta Firebase del plan inicial por pedido del usuario. La app mantiene editor y borradores locales cuando la API no está configurada.
 
 Configuración confirmada el 4 de octubre de 2026: Team ID `2K2U374CJC`, app `com.niiihuel.pairnotes`, extensión `com.niiihuel.pairnotes.widgets` y App Group `group.com.niiihuel.pairnotes`. El propietario confirmó la asignación del grupo a ambos identificadores. Google Cloud: proyecto `pairnotes-510620`, clientes iOS y Web obtenidos de sus descargas oficiales. El plist iOS declara el mismo Bundle ID y ambos clientes corresponden al mismo número de proyecto.
 
@@ -15,6 +15,14 @@ La API entrega un desafío aleatorio de un solo uso antes del acceso con Google 
 El cliente guarda access y refresh tokens opacos en Keychain privado de la app, asociados a la URL de la API. La renovación concurrente se agrupa en una sola operación, persiste el refresh token rotado antes de nuevas solicitudes y descarta respuestas de una cuenta que ya cerró sesión. El widget recibe otra credencial, revocable y limitada a su snapshot, en el grupo compartido de Keychain. Los tokens no se escriben en archivos de configuración, UserDefaults, notificaciones ni logs de la aplicación.
 
 La API de desarrollo creada en esta sesión es `https://pairnotes-api-development.up.railway.app/`. En el archivo local xcconfig se escribe `PAIRNOTES_API_BASE_URL = https:/$()/pairnotes-api-development.up.railway.app/`. Esta URL no reemplaza los IDs OAuth, firma ni capacidades que siguen pendientes.
+
+## APNs configurado para TestFlight
+
+El propietario creó la clave `9K2J26B9QA`, entorno **Production**, restricción **Topic Specific**, con los Bundle IDs principal y de la extensión. La clave P8 se leyó desde su descarga, se validó como EC P-256/ES256 mediante firma y verificación locales y se cargó en `PAIRNOTES_APNS_KEY` de Railway mediante stdin, sin imprimir ni versionar su contenido. `PAIRNOTES_APNS_KEY_ID`, `PAIRNOTES_APNS_TEAM_ID` y `PAIRNOTES_APP_BUNDLE_ID` completan la configuración del servidor.
+
+El archivo local xcconfig ahora fija `PAIRNOTES_APNS_ENVIRONMENT = production` para la futura instalación TestFlight; los entitlements locales incluyen push en ambos targets, el App Group y Keychain privado/compartido separados. Los tres archivos locales están ignorados por Git. Aún no hay certificados/perfiles ni un archive firmado. Una instalación firmada para desarrollo requerirá su entorno/clave compatibles; la clave actual es de producción.
+
+[Comprobación de configuración y health](evidence/railway/apns-config-smoke.json): no prueba aceptación de APNs ni entrega. La autorización del topic derivado `com.niiihuel.pairnotes.push-type.widgets` debe verificarse con el token real del widget; la selección del portal no se presenta como evidencia de entrega.
 
 ## Preparación manual
 

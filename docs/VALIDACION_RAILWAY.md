@@ -67,8 +67,12 @@ Build/deploy/health aprobados no equivalen a login Google/Apple ni entrega APNs 
 
 Actualización de identidad del 4 de octubre de 2026: los IDs reales Google (iOS y Web) y Apple se configuraron en `pairnotes-api/development`. Deployment `275fd8e4-fb03-45ad-bea3-9121ec43ea57`, estado SUCCESS. `/healthz` responde 200 y ambos proveedores rechazan un token deliberadamente inválido con 401 `invalid_identity_token`. [Evidencia](evidence/railway/oauth-config-smoke.json). Se crearon sólo desafíos temporales de validación, sin cuentas ni sesiones. Esto reemplaza el estado anterior de proveedor sin configurar, pero no acredita un login real.
 
+## Configuración APNs posterior
+
+Clave de producción `9K2J26B9QA` cargada en Railway; metadatos y contenido verificados en memoria contra el archivo descargado, sin publicar el secreto. Deployment `be7acb3d-280f-43d5-a17c-888f4170d60f` SUCCESS y `/healthz` 200. Firma ES256 y verificación local aprobadas. [Evidencia sanitizada](evidence/railway/apns-config-smoke.json). No se enviaron notificaciones ni se verificó la autorización APNs de topics con tokens reales, porque todavía no hay instalación firmada. La configuración local usa producción para TestFlight y conserva separados los grupos Keychain.
+
 ## Pruebas no ejecutadas
 
-Google/Apple con cuentas reales, firma/provisioning, entrega real APNs, widget instalado/visible, edición táctil, accesibilidad, rendimiento, restauración de backups y comportamiento entre dos iPhones. Motivos: siguen pendientes firma/perfiles y clave APNs legítima; no hay teléfonos conectados ni Mac local. CI permite compilar y ejecutar pruebas automáticas, no simula estas comprobaciones manuales.
+Google/Apple con cuentas reales, firma/provisioning, entrega real APNs, widget instalado/visible, edición táctil, accesibilidad, rendimiento, restauración de backups y comportamiento entre dos iPhones. Motivos: siguen pendientes certificado/perfiles de firma; no hay teléfonos conectados ni Mac local. CI permite compilar y ejecutar pruebas automáticas, no simula estas comprobaciones manuales.
 
 No se declara listo para App Store. El siguiente corte propuesto es configuración de identidad/firma y prueba entre dispositivos, junto con eliminación de cuenta/datos y política de retención antes de distribución. No se implementan todavía ubicación/distancia ni Studio.

@@ -1,0 +1,28 @@
+{
+  "checkedAt": "2026-10-04T20:59:00.128029+00:00",
+  "deploymentId": "be7acb3d-280f-43d5-a17c-888f4170d60f",
+  "railwayEnvironment": "development",
+  "apnsEnvironment": "production",
+  "restriction": "Topic Specific",
+  "registeredBundleIDs": [
+    "com.niiihuel.pairnotes",
+    "com.niiihuel.pairnotes.widgets"
+  ],
+  "keyID": "9K2J26B9QA",
+  "localES256SignatureVerified": true,
+  "configurationChecks": {
+    "keyMatchesDownload": true,
+    "keyIDMatches": true,
+    "teamIDMatches": true,
+    "bundleIDMatches": true
+  },
+  "health": {
+    "status": 200,
+    "body": {
+      "status": "ok"
+    }
+  },
+  "remoteAPNsAcceptanceTested": false,
+  "deviceDeliveryTested": false,
+  "widgetDerivedTopicAuthorizationTested": false
+}
