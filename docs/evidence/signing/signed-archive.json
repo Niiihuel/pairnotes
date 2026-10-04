@@ -1,0 +1,20 @@
+{
+  "app_and_widget_signatures_verified": true,
+  "bundle_ids_and_versions_verified": true,
+  "embedded_profiles_verified": true,
+  "production_entitlements_verified": true,
+  "keychain_isolation_verified": true,
+  "privacy_manifests_present": true,
+  "api_and_google_configuration_present": true,
+  "uploaded_to_apple": false,
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37236188455",
+  "commit": "6cf5c902986791c654e6e1f3483a61792a6e4fb9",
+  "version": "1.0",
+  "build": "2.1",
+  "xcode": "26.2 (17C52)",
+  "minimumOS": "26.0",
+  "ipaSHA256": "469f2e6aff0b3d482e6d7433503fa025fa9c37d137159efeb4a63b2c5894e9e7",
+  "archiveSucceeded": true,
+  "exportSucceeded": true,
+  "physicalDeviceTestsExecuted": false
+}

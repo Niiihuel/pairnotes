@@ -50,6 +50,8 @@ En NixOS, se pueden ejecutar los linters mediante `nix shell nixpkgs#actionlint 
 
 El flujo separado `.github/workflows/distribute.yml` prepara un archive Release y exporta una IPA para App Store Connect usando certificados y perfiles del propietario. Se ejecuta manualmente sobre `main`; no envía la IPA a Apple ni necesita una clave de su API. La ficha existente usa la versión `1.0`, que se aplica a app y widget al archivar.
 
+**Archive/export firmado aprobado:** [ejecución 37236188455](https://github.com/Niiihuel/pairnotes/actions/runs/37236188455), commit `6cf5c90`, Xcode 26.2 (17C52), versión `1.0`, build `2.1`, mínimo iOS 26.0. La importación del P12 en Keychain, las firmas de app/widget, los perfiles embebidos, permisos de producción, grupos Keychain, manifiestos y configuración de API/Google pasaron. Logs sin warnings ni errores de compilación; limpieza temporal aprobada. [Evidencia pública](evidence/signing/signed-archive.json). La IPA y sus símbolos se conservan fuera de Git en el directorio local de builds y como artefactos privados de ese run durante 7 días. **No se subió a Apple.**
+
 El repositorio tiene cinco secretos de Actions: `PAIRNOTES_DISTRIBUTION_P12_BASE64`, `PAIRNOTES_DISTRIBUTION_P12_PASSWORD`, `PAIRNOTES_APP_PROFILE_BASE64`, `PAIRNOTES_WIDGET_PROFILE_BASE64` y `PAIRNOTES_IOS_CONFIG`. Se cargaron con la CLI por stdin. El workflow crea un Keychain temporal, instala cada perfil en su target y elimina el material temporal al terminar. El core estático no recibe un perfil de provisión. No se usa firma automática para crear o modificar recursos en Apple.
 
 Los perfiles descargados se verificaron en Linux mediante firma CMS y cadena Apple, coincidencia del certificado, equipo, Bundle IDs, vigencia y capacidades. Esto no equivale a ejecutar Xcode ni a instalar la app: el resultado del archive/export en macOS se registra por separado. Las pruebas físicas de OAuth, APNs y widget siguen pendientes aunque la firma pase.
@@ -95,3 +97,5 @@ Se ejecutaron `gh run list`, `gh run view --log-failed`, `gh run download` y `gi
 ## Configuración del workflow
 
 Las acciones oficiales están fijadas a commits publicados: [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1) y [upload-artifact v7.0.1](https://github.com/actions/upload-artifact/releases/tag/v7.0.1). El token sólo tiene `contents: read`, no se persisten credenciales en el checkout y no se usan secretos en pull requests. Los paquetes `.tar.gz` conservan permisos de los binarios, siguiendo la [documentación de artefactos de GitHub](https://github.com/actions/upload-artifact#permission-loss).
+
+La suite ordinaria del mismo proyecto (commit `6bc5200`) se ejecuta en [37236154698](https://github.com/Niiihuel/pairnotes/actions/runs/37236154698): Linux y backend aprobados; validación de simulador aún en curso al registrar el archive. Su resultado no se presenta como completado aquí.

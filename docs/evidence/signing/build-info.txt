@@ -1,0 +1,6 @@
+commit=6cf5c902986791c654e6e1f3483a61792a6e4fb9
+version=1.0 (2.1)
+method=app-store-connect; destination=export; uploaded_to_apple=false
+Xcode 26.2
+Build version 17C52
+469f2e6aff0b3d482e6d7433503fa025fa9c37d137159efeb4a63b2c5894e9e7  artifacts/distribution/PairNotes.ipa
