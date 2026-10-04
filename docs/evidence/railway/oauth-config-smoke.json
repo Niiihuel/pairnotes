@@ -1,0 +1,28 @@
+{
+  "checkedAt": "2026-10-04T20:43:14.307931+00:00",
+  "deploymentId": "275fd8e4-fb03-45ad-bea3-9121ec43ea57",
+  "environment": "development",
+  "baseURL": "https://pairnotes-api-development.up.railway.app",
+  "checks": [
+    {
+      "check": "health",
+      "status": 200,
+      "body": {
+        "status": "ok"
+      }
+    },
+    {
+      "check": "google configured; invalid identity token rejected",
+      "status": 401,
+      "reason": "invalid_identity_token",
+      "cacheControl": "private, no-store"
+    },
+    {
+      "check": "apple configured; invalid identity token rejected",
+      "status": 401,
+      "reason": "invalid_identity_token",
+      "cacheControl": "private, no-store"
+    }
+  ],
+  "realOAuthLoginTested": false
+}

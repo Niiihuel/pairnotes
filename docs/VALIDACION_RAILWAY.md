@@ -61,10 +61,14 @@ Los IDs son metadatos, no credenciales. La API se desplegó desde el commit `e2a
 
 Comprobaciones HTTPS reales: `/healthz` → 200 `{"status":"ok"}`; perfil, imagen privada y widget sin una credencial válida → 401 y `Cache-Control: private, no-store`; un intercambio OAuth de validación sin proveedor configurado → 400 `provider_not_configured`. No se creó una cuenta ficticia en el servicio. [Resultados sanitizados](evidence/railway/http-smoke.json). El bucket rechazó lectura anónima con 403.
 
-Build/deploy/health aprobados no equivalen a login Google/Apple ni entrega APNs configurados. Las audiencias OAuth y la clave APNs siguen pendientes. Se usan referencias privadas del servicio PostgreSQL y del bucket, sin copiar sus secretos al repositorio.
+Build/deploy/health aprobados no equivalen a login Google/Apple ni entrega APNs configurados. En ese despliegue inicial las audiencias OAuth y la clave APNs seguían pendientes. Se usan referencias privadas del servicio PostgreSQL y del bucket, sin copiar sus secretos al repositorio.
+
+## Configuración de identidad posterior
+
+Actualización de identidad del 4 de octubre de 2026: los IDs reales Google (iOS y Web) y Apple se configuraron en `pairnotes-api/development`. Deployment `275fd8e4-fb03-45ad-bea3-9121ec43ea57`, estado SUCCESS. `/healthz` responde 200 y ambos proveedores rechazan un token deliberadamente inválido con 401 `invalid_identity_token`. [Evidencia](evidence/railway/oauth-config-smoke.json). Se crearon sólo desafíos temporales de validación, sin cuentas ni sesiones. Esto reemplaza el estado anterior de proveedor sin configurar, pero no acredita un login real.
 
 ## Pruebas no ejecutadas
 
-Google/Apple con cuentas reales, firma/provisioning, entrega real APNs, widget instalado/visible, edición táctil, accesibilidad, rendimiento, restauración de backups y comportamiento entre dos iPhones. Motivos: faltan los IDs OAuth, valores Apple y clave APNs legítimos; no hay teléfonos conectados ni Mac local. CI permite compilar y ejecutar pruebas automáticas, no simula estas comprobaciones manuales.
+Google/Apple con cuentas reales, firma/provisioning, entrega real APNs, widget instalado/visible, edición táctil, accesibilidad, rendimiento, restauración de backups y comportamiento entre dos iPhones. Motivos: siguen pendientes firma/perfiles y clave APNs legítima; no hay teléfonos conectados ni Mac local. CI permite compilar y ejecutar pruebas automáticas, no simula estas comprobaciones manuales.
 
 No se declara listo para App Store. El siguiente corte propuesto es configuración de identidad/firma y prueba entre dispositivos, junto con eliminación de cuenta/datos y política de retención antes de distribución. No se implementan todavía ubicación/distancia ni Studio.

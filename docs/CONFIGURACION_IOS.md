@@ -1,6 +1,10 @@
 # Configuración iOS y validación en dispositivos
 
-Estado del corte: adaptadores implementados; OAuth real, firma, APNs y WidgetKit push requieren configuración propia y pruebas en dispositivos. La arquitectura vigente usa una API Node en Railway, PostgreSQL y almacenamiento privado; sustituye la propuesta Firebase del plan inicial por pedido del usuario. La app mantiene editor y borradores locales cuando la API no está configurada.
+Estado del corte: identificadores OAuth cargados; faltan firma, clave APNs y pruebas de OAuth/avisos/widget en dispositivos. La arquitectura vigente usa una API Node en Railway, PostgreSQL y almacenamiento privado; sustituye la propuesta Firebase del plan inicial por pedido del usuario. La app mantiene editor y borradores locales cuando la API no está configurada.
+
+Configuración confirmada el 4 de octubre de 2026: Team ID `2K2U374CJC`, app `com.niiihuel.pairnotes`, extensión `com.niiihuel.pairnotes.widgets` y App Group `group.com.niiihuel.pairnotes`. El propietario confirmó la asignación del grupo a ambos identificadores. Google Cloud: proyecto `pairnotes-510620`, clientes iOS y Web obtenidos de sus descargas oficiales. El plist iOS declara el mismo Bundle ID y ambos clientes corresponden al mismo número de proyecto.
+
+`Config/Local.xcconfig` (ignorado por Git) contiene los IDs de ambos clientes, esquema de retorno y URL API. Railway `pairnotes-api/development` tiene `GOOGLE_CLIENT_IDS` con ambos IDs autorizados (audience/azp) y `APPLE_CLIENT_IDS` con el Bundle ID principal. El secreto del cliente Web no se usa en este flujo de verificación de ID tokens y no se copió. Los valores locales no se transfieren automáticamente al runner de GitHub: falta incorporarlos al workflow de firma/distribución. [Comprobación HTTPS tras aplicar configuración](evidence/railway/oauth-config-smoke.json).
 
 ## Dependencias y contratos verificados
 

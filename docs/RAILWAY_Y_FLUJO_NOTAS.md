@@ -49,7 +49,7 @@ Prueba real S3: PUT de bytes ficticios con `If-None-Match: *`; un segundo PUT de
 
 ## Configuración y aceptación pendientes
 
-La configuración iOS se documenta en [CONFIGURACION_IOS.md](CONFIGURACION_IOS.md). Todavía hacen falta los IDs reales Google/Apple, firma, App Group, grupos Keychain y clave APNs autorizada. La membresía Apple declarada por el usuario no sustituye esas credenciales.
+La configuración iOS se documenta en [CONFIGURACION_IOS.md](CONFIGURACION_IOS.md). Los IDs reales Google/Apple y el App Group ya fueron confirmados por el propietario; los clientes OAuth están configurados en Railway. Siguen pendientes firma/perfiles, grupos Keychain firmados y clave APNs autorizada. La membresía Apple declarada por el usuario no sustituye esas credenciales.
 
 Antes de distribuir: probar login/revocación/reauth en ambos proveedores; dos iPhones y un tercer usuario sin acceso; terminar la app durante upload y reintentar; denegar notificaciones; cambiar cuenta/pareja; instalar widgets pequeño/mediano; token rotation; pantalla bloqueada; app terminada y red intermitente. Registrar tiempo observado del widget, sin convertirlo en garantía. Comprobar VoiceOver, Dynamic Type, importación de fotos, memoria, temperatura y recuperación del editor tras cierre abrupto.
 

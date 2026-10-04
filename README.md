@@ -8,7 +8,7 @@ Por decisión del usuario, **Railway reemplaza Firebase**: API Node, PostgreSQL 
 
 Implementados: borradores múltiples con autosave, texto/fotos/trazo, exportación, sesiones y vinculación privada, cola de envíos con reintento, historial por días, último dibujo recibido, avisos APNs y widget con credencial propia. No hay datos ficticios presentados como notas recibidas reales. El editor local funciona sin configurar servicios.
 
-La prueba entre dos iPhones todavía requiere IDs OAuth y configuración Apple reales. La aceptación de push en APNs y la actualización visible del widget no se dan por comprobadas mediante tests con transporte simulado. El widget solicita actualizaciones; iOS decide cuándo mostrarlas. No se solicita ubicación ni se implementa todavía el widget de distancia o Studio/Metal.
+Los IDs OAuth reales ya están cargados en la configuración local y Railway; la prueba entre dos iPhones todavía requiere firma, perfiles y clave APNs. La aceptación de push en APNs y la actualización visible del widget no se dan por comprobadas mediante tests con transporte simulado. El widget solicita actualizaciones; iOS decide cuándo mostrarlas. No se solicita ubicación ni se implementa todavía el widget de distancia o Studio/Metal.
 
 La [validación inicial](docs/VALIDACION_INICIAL.md) y [CI](docs/CI_GITHUB_ACTIONS.md) conservan evidencia real de M0, incluido el roundtrip de texto/foto/trazo. Los resultados de este corte se registran en [VALIDACION_RAILWAY.md](docs/VALIDACION_RAILWAY.md).
 
