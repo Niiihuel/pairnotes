@@ -86,7 +86,7 @@ final class NativeEditorPersistenceTests: XCTestCase {
         // state. It must change the revision identity used by outbox and widgets.
         reopened.paperBackground = .rose
         let savedAgain = await reopened.save()
-        let recolored = try XCTUnwrap(savedAgain)
+        let recolored = try XCTUnwrap(savedAgain, reopened.status)
         XCTAssertNotEqual(colored.document.revisionHash, recolored.document.revisionHash)
         XCTAssertGreaterThan(recolored.document.revision, colored.document.revision)
         try assertPaperPixels(recolored.image(for: .widget)?.pngData, background: .rose)
@@ -95,6 +95,66 @@ final class NativeEditorPersistenceTests: XCTestCase {
         XCTAssertEqual(opacityIgnored, PaperBackground(red: 255, green: 0, blue: 0))
         XCTAssertEqual(PaperBackground.white.contrastingInkColor, UIColor.black)
         XCTAssertEqual(PaperBackground.charcoal.contrastingInkColor, UIColor.white)
+    }
+
+    @MainActor
+    func testConcurrentSaveWaitsForNewestEditAndCancellingOneCallerPreservesTheWriter() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalog = DraftCatalogStore(directory: directory, account: .guest)
+        let writeStarted = expectation(description: "First immutable capture reached persistence")
+        let store = PausingNativeDraftStore(catalog: catalog) { writeStarted.fulfill() }
+        let editor = NativePaperSession(store: store, draft: nil)
+        await editor.load()
+        editor.title = "Primera captura"
+        editor.paperBackground = .cream
+        let firstFinished = expectation(description: "Cancelled caller stops waiting")
+        let first = Task { @MainActor in
+            let result = await editor.save()
+            firstFinished.fulfill()
+            return result
+        }
+        await fulfillment(of: [writeStarted], timeout: 10)
+        let captured = await store.firstCapture
+        guard let captured else {
+            await store.release()
+            _ = await first.value
+            XCTFail("No capture reached persistence: \(editor.status)")
+            return
+        }
+        XCTAssertTrue(editor.busy)
+        editor.title = "Edición durante el guardado"
+        editor.paperBackground = .rose
+        let secondStarted = expectation(description: "Explicit Save joins active persistence")
+        let second = Task { @MainActor in
+            secondStarted.fulfill()
+            return await editor.save()
+        }
+        await fulfillment(of: [secondStarted], timeout: 2)
+        first.cancel()
+        // A cancelled waiter must return even while the shared write is gated.
+        await fulfillment(of: [firstFinished], timeout: 2)
+        XCTAssertTrue(editor.busy, "Cancelling one caller must not release the writer's ownership")
+        await store.release()
+        let firstResult = await first.value
+        XCTAssertNil(firstResult)
+        let secondResult = await second.value
+        let saved = try XCTUnwrap(secondResult, editor.status)
+        XCTAssertFalse(editor.busy)
+        XCTAssertGreaterThan(saved.document.revision, captured.document.revision)
+        XCTAssertEqual(try PaperProbeDocument.decode(captured.source.data, editorVersion: 2).background, .cream)
+        XCTAssertEqual(try PaperProbeDocument.decode(saved.source.data, editorVersion: 2).background, .rose)
+        for kind in RenderKind.allCases {
+            try assertPaperPixels(saved.image(for: kind)?.pngData, background: .rose)
+        }
+        let summaries = try await catalog.list()
+        XCTAssertEqual(summaries.count, 1)
+        XCTAssertEqual(summaries.first?.title, "Edición durante el guardado")
+        let persisted = try await catalog.load(id: saved.document.id)
+        XCTAssertEqual(persisted, saved)
+        try captured.validateIntegrity()
+        try saved.validateIntegrity()
+        editor.suspendAutosave()
     }
 
     @MainActor
@@ -304,6 +364,8 @@ final class NativeEditorPersistenceTests: XCTestCase {
         defer { window.isHidden = true; previousKeyWindow?.makeKeyAndVisible() }
         controller.loadViewIfNeeded()
         let original = try XCTUnwrap(controller.canvas.markup)
+        let blankRender = try await PaperProbeDocument.render(original, side: 384)
+        let blankPixels = try rgbaPixels(blankRender)
         let manager = try XCTUnwrap(controller.canvas.undoManager)
         manager.removeAllActions()
         let photo = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64)).image { context in
@@ -313,12 +375,35 @@ final class NativeEditorPersistenceTests: XCTestCase {
         var fixture = original
         fixture.insertNewImage(try XCTUnwrap(photo.cgImage), frame: CGRect(x: 100, y: 100, width: 300, height: 300))
         controller.replaceMarkup(fixture, actionName: "Agregar foto")
+        let inserted = try XCTUnwrap(controller.canvas.markup)
+        let insertedRender = try await PaperProbeDocument.render(inserted, side: 384)
+        let insertedPixels = try rgbaPixels(insertedRender)
+        XCTAssertNotEqual(insertedPixels, blankPixels, "The photo must actually appear before testing its history")
         XCTAssertTrue(manager.canUndo)
         controller.undo()
-        XCTAssertEqual(controller.canvas.markup, original)
+        let undone = try XCTUnwrap(controller.canvas.markup)
+        let undoneRender = try await PaperProbeDocument.render(undone, side: 384)
+        // The undo contract is the complete visible result; internal Coherence
+        // model equality is not sufficient evidence of restored photo content.
+        XCTAssertEqual(try rgbaPixels(undoneRender), blankPixels, "Undo must remove every photo pixel")
         XCTAssertTrue(manager.canRedo)
         controller.redo()
-        XCTAssertEqual(controller.canvas.markup, fixture)
+        let redone = try XCTUnwrap(controller.canvas.markup)
+        let redoneRender = try await PaperProbeDocument.render(redone, side: 384)
+        XCTAssertEqual(try rgbaPixels(redoneRender), insertedPixels, "Redo must restore the same photo pixels")
+    }
+
+    @MainActor
+    private func rgbaPixels(_ png: Data) throws -> Data {
+        let image = try XCTUnwrap(UIImage(data: png)?.cgImage)
+        let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(CGContext(data: nil, width: image.width, height: image.height,
+                                              bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                              space: colorSpace,
+                                              bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue |
+                                                  CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return Data(bytes: try XCTUnwrap(context.data), count: image.width * image.height * 4)
     }
 
     @MainActor
@@ -339,5 +424,38 @@ final class NativeEditorPersistenceTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(Int(pixels[2]) - Int(background.blue)), 1, file: file, line: line)
         XCTAssertTrue(stride(from: 3, to: image.width * image.height * 4, by: 4).allSatisfy { pixels[$0] == 255 },
                       "Paper and every exported pixel must stay opaque", file: file, line: line)
+    }
+}
+
+/// Gates only the first catalog write. Real source encoding, rendering, archive
+/// validation and disk persistence remain in the regression test.
+private actor PausingNativeDraftStore: NativePaperDraftStore {
+    let catalog: DraftCatalogStore
+    let onFirstCapture: @Sendable () -> Void
+    private(set) var firstCapture: DraftArchive?
+    private var pause: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    init(catalog: DraftCatalogStore, onFirstCapture: @escaping @Sendable () -> Void) {
+        self.catalog = catalog
+        self.onFirstCapture = onFirstCapture
+    }
+
+    func load(id: UUID) async throws -> DraftArchive? { try await catalog.load(id: id) }
+    func remove(id: UUID) async throws { try await catalog.remove(id: id) }
+
+    func save(_ archive: DraftArchive, title: String, at date: Date) async throws -> DraftSummary {
+        if firstCapture == nil {
+            firstCapture = archive
+            onFirstCapture()
+            if !released { await withCheckedContinuation { pause = $0 } }
+        }
+        return try await catalog.save(archive, title: title, at: date)
+    }
+
+    func release() {
+        released = true
+        pause?.resume()
+        pause = nil
     }
 }

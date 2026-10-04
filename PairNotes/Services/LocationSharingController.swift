@@ -3,7 +3,7 @@ import CoreLocation
 import Foundation
 import PairNotesCore
 
-struct LocationSample {
+struct LocationSample: Sendable {
     let latitude: Double
     let longitude: Double
     let accuracy: Double
@@ -192,30 +192,40 @@ final class LocationSharingController: NSObject, ObservableObject, CLLocationMan
         }
     }
 
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        guard manager === self.manager, let pendingID else { return }
-        switch manager.authorizationStatus {
-        case .authorizedWhenInUse, .authorizedAlways: manager.requestLocation()
-        case .denied, .restricted: finish(.failure(LocationFailure.permission), measurement: pendingID)
-        default: break
+    // Core Location delivers delegate callbacks on the run loop where the
+    // manager was created. measure() always creates it on the main actor.
+    // Keep the protocol boundary nonisolated and assert that documented
+    // contract before accessing UI state; no manager crosses an async hop.
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        MainActor.assumeIsolated {
+            guard manager === self.manager, let pendingID else { return }
+            switch manager.authorizationStatus {
+            case .authorizedWhenInUse, .authorizedAlways: manager.requestLocation()
+            case .denied, .restricted: finish(.failure(LocationFailure.permission), measurement: pendingID)
+            default: break
+            }
         }
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard manager === self.manager, let pendingID else { return }
-        guard let location = locations.last, CLLocationCoordinate2DIsValid(location.coordinate),
-              location.horizontalAccuracy.isFinite, location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 5_000,
-              location.timestamp.timeIntervalSince1970.isFinite,
-              abs(location.timestamp.timeIntervalSinceNow) <= 120 else {
-            finish(.failure(LocationFailure.unavailable), measurement: pendingID); return
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        MainActor.assumeIsolated {
+            guard manager === self.manager, let pendingID else { return }
+            guard let location = locations.last, CLLocationCoordinate2DIsValid(location.coordinate),
+                  location.horizontalAccuracy.isFinite, location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 5_000,
+                  location.timestamp.timeIntervalSince1970.isFinite,
+                  abs(location.timestamp.timeIntervalSinceNow) <= 120 else {
+                finish(.failure(LocationFailure.unavailable), measurement: pendingID); return
+            }
+            finish(.success(LocationSample(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude,
+                                           accuracy: location.horizontalAccuracy, date: location.timestamp)), measurement: pendingID)
         }
-        finish(.success(LocationSample(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude,
-                                       accuracy: location.horizontalAccuracy, date: location.timestamp)), measurement: pendingID)
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        guard manager === self.manager, let pendingID else { return }
-        finish(.failure(LocationFailure.unavailable), measurement: pendingID)
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        MainActor.assumeIsolated {
+            guard manager === self.manager, let pendingID else { return }
+            finish(.failure(LocationFailure.unavailable), measurement: pendingID)
+        }
     }
 
     private func finish(_ result: Result<LocationSample, Error>, measurement: UUID) {

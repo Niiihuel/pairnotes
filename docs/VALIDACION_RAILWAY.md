@@ -2,7 +2,7 @@
 
 Fecha: 4 de octubre de 2026. Plataforma de trabajo: Linux/NixOS; Xcode y simulador sólo en GitHub Actions.
 
-## Resultados observados
+## Resultados del corte inicial
 
 - CI final: [37227694583](https://github.com/Niiihuel/pairnotes/actions/runs/37227694583), commit `7d53d0258d384fe2ae2c043d90bbecc0cb89089f`, tres jobs aprobados. [Resumen conservado](evidence/railway/ci-summary.json).
 - iOS: app, extensión y tests compilaron con Xcode 26.0.1/SDK 26.0; **17 tests nativos aprobados**, cero fallos u omisiones, en iPhone 16e simulado con iOS 26.2/Xcode 26.2. Incluyen editor/persistencia (1), PaperKit (2), configuración/sesión (10) y caché/autorización del widget (4). [Resumen original de xcresult](evidence/railway/native-test-summary.json). Los logs iOS no contienen advertencias ni errores del compilador.
@@ -71,8 +71,14 @@ Actualización de identidad del 4 de octubre de 2026: los IDs reales Google (iOS
 
 Clave de producción `9K2J26B9QA` cargada en Railway; metadatos y contenido verificados en memoria contra el archivo descargado, sin publicar el secreto. Deployment `be7acb3d-280f-43d5-a17c-888f4170d60f` SUCCESS y `/healthz` 200. Firma ES256 y verificación local aprobadas. [Evidencia sanitizada](evidence/railway/apns-config-smoke.json). No se enviaron notificaciones ni se verificó la autorización APNs de topics con tokens reales, porque todavía no hay instalación firmada. La configuración local usa producción para TestFlight y conserva separados los grupos Keychain.
 
-## Pruebas no ejecutadas
+## Espacio compartido: actualización posterior
 
-Google/Apple con cuentas reales, firma/provisioning, entrega real APNs, widget instalado/visible, edición táctil, accesibilidad, rendimiento, restauración de backups y comportamiento entre dos iPhones. Motivos: siguen pendientes certificado/perfiles de firma; no hay teléfonos conectados ni Mac local. CI permite compilar y ejecutar pruebas automáticas, no simula estas comprobaciones manuales.
+El commit `8b08c9b` agrega fotos de perfil, recuerdos, mensajes, fecha de inicio y distancia opcional. Deployment `ef9daeb1-a2d9-4a34-a1cb-3dd41c6e3f64`, entorno `development`, confirmado `SUCCESS`. La comprobación HTTPS posterior obtuvo `/healthz` 200 y rechazo 401 en ocho rutas privadas sin autenticación, siempre con `Cache-Control: private, no-store`. No se leyeron ni modificaron registros de usuarios reales. [Evidencia del despliegue](evidence/railway/couple-space-smoke.json).
 
-No se declara listo para App Store. El siguiente corte propuesto es configuración de identidad/firma y prueba entre dispositivos, junto con eliminación de cuenta/datos y política de retención antes de distribución. No se implementan todavía ubicación/distancia ni Studio.
+La suite backend ampliada pasó **65 pruebas/subpruebas**, con PostgreSQL y S3 locales reales. El despliegue se realizó con `rtk railway up Backend --path-as-root --service pairnotes-api --environment development --ci --message 'PairNotes couple features 8b08c9b: profiles dates messages opt-in distance'`. [Alcance, contratos y validación completa del corte](ESPACIO_COMPARTIDO.md).
+
+## Validaciones pendientes
+
+Las suites controladas no validan entrega real APNs, widgets instalados/visibles, permisos interactivos, edición táctil, accesibilidad, rendimiento, restauración de backups ni el comportamiento conjunto en dos iPhones. Linux no tiene acceso a esos dispositivos; CI compila y ejecuta pruebas automáticas. La firma y distribución sí se completaron posteriormente al corte inicial, como registra [CI_GITHUB_ACTIONS.md](CI_GITHUB_ACTIONS.md).
+
+Antes de App Store siguen pendientes eliminación integral de cuenta/datos, política de retención y validación física del producto. Studio/Metal no forma parte de este corte.

@@ -1,0 +1,125 @@
+{
+  "checkedAt": "2026-10-04T23:09:39.535390+00:00",
+  "environment": "development",
+  "baseURL": "https://pairnotes-api-development.up.railway.app",
+  "sourceCommit": "8b08c9bdd87f6055de3a764a9b337423a27a92e5",
+  "deploymentId": "ef9daeb1-a2d9-4a34-a1cb-3dd41c6e3f64",
+  "checks": [
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "status": 200,
+      "expectedStatus": 200,
+      "body": {
+        "status": "ok"
+      },
+      "cacheControl": "private, no-store"
+    },
+    {
+      "method": "POST",
+      "path": "/getCoupleSpace",
+      "status": 401,
+      "expectedStatus": 401,
+      "body": {
+        "error": {
+          "status": "UNAUTHENTICATED",
+          "message": "authentication_required",
+          "details": {
+            "reason": "authentication_required"
+          }
+        }
+      },
+      "cacheControl": "private, no-store"
+    },
+    {
+      "method": "POST",
+      "path": "/messages",
+      "status": 401,
+      "expectedStatus": 401,
+      "body": {
+        "error": {
+          "status": "UNAUTHENTICATED",
+          "message": "authentication_required",
+          "details": {
+            "reason": "authentication_required"
+          }
+        }
+      },
+      "cacheControl": "private, no-store"
+    },
+    {
+      "method": "POST",
+      "path": "/memories",
+      "status": 401,
+      "expectedStatus": 401,
+      "body": {
+        "error": {
+          "status": "UNAUTHENTICATED",
+          "message": "authentication_required",
+          "details": {
+            "reason": "authentication_required"
+          }
+        }
+      },
+      "cacheControl": "private, no-store"
+    },
+    {
+      "method": "POST",
+      "path": "/updateLocation",
+      "status": 401,
+      "expectedStatus": 401,
+      "body": {
+        "error": {
+          "status": "UNAUTHENTICATED",
+          "message": "authentication_required",
+          "details": {
+            "reason": "authentication_required"
+          }
+        }
+      },
+      "cacheControl": "private, no-store"
+    },
+    {
+      "method": "GET",
+      "path": "/profileAvatar?uid=probe",
+      "status": 401,
+      "expectedStatus": 401,
+      "body": {
+        "reason": "authentication_required"
+      },
+      "cacheControl": "private, no-store"
+    },
+    {
+      "method": "GET",
+      "path": "/memoryPhoto",
+      "status": 401,
+      "expectedStatus": 401,
+      "body": {
+        "reason": "authentication_required"
+      },
+      "cacheControl": "private, no-store"
+    },
+    {
+      "method": "GET",
+      "path": "/widgetAvatar?uid=probe",
+      "status": 401,
+      "expectedStatus": 401,
+      "body": {
+        "reason": "authentication_required"
+      },
+      "cacheControl": "private, no-store"
+    },
+    {
+      "method": "GET",
+      "path": "/widgetSnapshot",
+      "status": 401,
+      "expectedStatus": 401,
+      "body": {
+        "reason": "authentication_required"
+      },
+      "cacheControl": "private, no-store"
+    }
+  ],
+  "scope": "Unauthenticated smoke only; no real-user records read or modified.",
+  "deploymentStatus": "SUCCESS"
+}

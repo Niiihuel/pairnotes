@@ -1,0 +1,22 @@
+{
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37242320713",
+  "commit": "8b08c9bdd87f6055de3a764a9b337423a27a92e5",
+  "device": "iPhone 16e simulator, iOS 26.2",
+  "test": "NativeEditorPersistenceTests/testEditorLayoutInLightAndDarkAppearance",
+  "testResult": "passed",
+  "overallRunResult": "failed: two other editor tests",
+  "captureScope": "UIHostingController window; excludes floating PencilKit palette windows. Not a device screenshot.",
+  "inspected": "Title, navigation actions, direct icon controls, paper contrast and spacing in light/dark; physical gestures and palette remain pending.",
+  "files": [
+    {
+      "file": "editor-dark.png",
+      "attachment": "595AF80B-9F47-4488-81D4-5C161FD10894.png",
+      "sha256": "14d20bb77d467c10de126b38365f15f2a5def834166b9521f9aa9815c3a8e01a"
+    },
+    {
+      "file": "editor-light.png",
+      "attachment": "77624691-9342-424A-9445-E8D2C7EB6BB2.png",
+      "sha256": "f61aeaadcdc7613639952365499556cddcd8c4508b32d501c13db02824823cc0"
+    }
+  ]
+}

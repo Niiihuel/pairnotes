@@ -49,13 +49,21 @@ No hay selector de cuenta ficticia, acceso con token de prueba ni fallback a un 
 
 ## Notificaciones y widget
 
-La app solicita autorización de notificaciones sólo al tocar **Activar notificaciones** en Nosotros. Registra el token APNs, su entorno y un identificador de instalación con la sesión autenticada. El servidor envía una alerta genérica y el ID de nota después de confirmar la publicación. Abrir la alerta consulta la nota autorizada; recibir el aviso o descargar el widget no marca el dibujo como visto. [Apple: registro APNs](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns).
+La app solicita autorización de notificaciones al tocar **Activar notificaciones** en Nosotros o al habilitar voluntariamente **Avisarme cada mes** en Nuestra fecha. Registra el token APNs, su entorno y un identificador de instalación con la sesión autenticada. El servidor envía una alerta genérica y el identificador después de confirmar un dibujo o mensaje. Abrir la alerta consulta la nota autorizada; recibir el aviso o descargar el widget no marca el dibujo como visto. [Apple: registro APNs](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns).
 
 La clave APNs real, Team ID, Key ID, topics y entorno ya están configurados en el servidor, como se registra arriba. `PAIRNOTES_APNS_ENVIRONMENT` debe coincidir con el entitlement de la instalación: development para la provisión de desarrollo correspondiente, production para la distribución correspondiente. No se puede deducir el entorno únicamente de Debug/Release. La aceptación del token y la entrega requieren comprobarse con dispositivos reales.
 
 WidgetKit usa su token de push propio de iOS 26, independiente del permiso de alertas normales. La extensión recibe sólo la credencial limitada; nunca el refresh token de la app. El usuario agrega el widget desde el sistema. La app puede pedir una recarga y el servidor puede enviar una señal; iOS decide cuándo ejecuta y presenta la actualización. [Apple: actualización de widgets con push](https://developer.apple.com/documentation/widgetkit/updating-widgets-with-widgetkit-push-notifications).
 
 La app consulta cambios al volver al primer plano, cada 30 segundos mientras sigue activa y al refrescar manualmente. Esa consulta no se ejecuta como un temporizador permanente en segundo plano. El widget conserva una caché con caducidad y muestra estados de reconexión cuando corresponde. Cerrar sesión o desvincular elimina las credenciales y cachés controladas en este dispositivo; no promete borrar instantáneamente una imagen ya representada por iOS en un dispositivo sin conexión.
+
+## Fecha, avisos mensuales y distancia opcional
+
+Nosotros → Nuestra fecha permite guardar la fecha civil de inicio, ver días juntos y exportar el aniversario al editor nativo de Calendario. **Avisarme cada mes** está apagado inicialmente y se configura en cada iPhone: programa avisos locales a las 09:00 al cumplir 1, 2, 3 meses y sucesivos. Los días inexistentes se ajustan al último del mes. Se renuevan las próximas 48 fechas al sincronizar; desactivar o cerrar sesión retira las solicitudes controladas por la app. No necesita una nueva credencial del servidor.
+
+Nosotros → Nuestra distancia pide autorización Mientras se usa la app sólo después de activar. Cada miembro elige explícitamente compartir; se conserva una muestra privada y sólo se devuelve distancia aproximada/antigüedad, nunca coordenadas de la pareja. No requiere habilitar ubicación de fondo en el portal ni permiso Always. `NSLocationWhenInUseUsageDescription` explica el uso. Después de 15 minutos se identifica como antigua; a los 30 se oculta el número.
+
+Los nuevos widgets se agregan desde iOS: Tu mensaje, Juntos desde, Nuestro aniversario y Nuestra distancia. También admiten pantalla de bloqueo. Usan el mismo App Group, credencial limitada y mecanismo de actualización de la extensión existente.
 
 ## Validaciones pendientes y comandos
 
@@ -68,6 +76,9 @@ Para validar la beta interna, comprobar con dos iPhones firmados:
 - Envío interrumpido/reintentado sin duplicados, cuatro activos de la misma revisión, cronología por día y paginación.
 - APNs con app abierta, en segundo plano y cerrada; permiso denegado; token renovado; ausencia de claves; abrir alerta sin registrar vista antes de mostrar la nota.
 - Widget instalado, token propio, actualización oportunista, modo sin conexión, credencial vencida y retirada de acceso de la pareja anterior.
+- Fotos de perfil/recuerdos, recorte previo, selección y zoom, cancelación/guardado y errores de red; exportación de fechas a Calendario.
+- Activar/denegar/pausar ubicación en ambos iPhones, muestras antiguas, cambio de dispositivo fuente y estados de distancia.
+- Habilitar/deshabilitar avisos mensuales, cambio de fecha/zona horaria y ausencia de avisos de una cuenta anterior.
 - Release firmado: grupo privado de Keychain separado del compartido, App Group correcto y ausencia de secretos en el bundle.
 
 La beta interna está destinada a validar estos comportamientos en dispositivos. La eliminación de cuenta, la revocación completa de concesiones del proveedor, las pruebas físicas y los requisitos de privacidad deben completarse antes de publicación en App Store.

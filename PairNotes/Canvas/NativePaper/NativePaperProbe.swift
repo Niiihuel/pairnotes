@@ -5,6 +5,16 @@ import PairNotesCore
 import PhotosUI
 import ImageIO
 
+/// The editor shares the app's catalog actor. An injectable boundary also lets
+/// persistence races be exercised without replacing PaperKit or its renderer.
+protocol NativePaperDraftStore: Sendable {
+    func load(id: UUID) async throws -> DraftArchive?
+    func save(_ archive: DraftArchive, title: String, at date: Date) async throws -> DraftSummary
+    func remove(id: UUID) async throws
+}
+
+extension DraftCatalogStore: NativePaperDraftStore {}
+
 @MainActor
 final class NativePaperSession: ObservableObject {
     let controller = PaperProbeController()
@@ -25,7 +35,7 @@ final class NativePaperSession: ObservableObject {
     @Published var selecting = false {
         didSet { controller.canvas.directTouchMode = selecting ? .selection : .drawing }
     }
-    private let store: DraftCatalogStore
+    private let store: any NativePaperDraftStore
     private let documentID: UUID
     private let existing: Bool
     private var loaded = false
@@ -34,12 +44,14 @@ final class NativePaperSession: ObservableObject {
     private var savedMutation: UInt64?
     private var lastArchive: DraftArchive?
     private var autosave: Task<Void, Never>?
+    private var saveTask: Task<Void, Never>?
+    private var saveWaiters: [UUID: CheckedContinuation<DraftArchive?, Never>] = [:]
     private var baselineArchive: DraftArchive?
     private var baselineTitle: String
     private var autosaveSuspended = false
     private var finished = false
 
-    init(store: DraftCatalogStore, draft: DraftSummary?) {
+    init(store: any NativePaperDraftStore, draft: DraftSummary?) {
         self.store = store
         documentID = draft?.id ?? UUID()
         existing = draft != nil
@@ -91,6 +103,7 @@ final class NativePaperSession: ObservableObject {
     func suspendAutosave() {
         autosaveSuspended = true
         autosave?.cancel()
+        autosave = nil
     }
 
     func resumeAutosave() {
@@ -100,10 +113,14 @@ final class NativePaperSession: ObservableObject {
 
     private func scheduleAutosave() {
         autosave?.cancel()
+        autosave = nil
         guard !autosaveSuspended, !finished else { return }
         autosave = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(2)) } catch { return }
             guard !Task.isCancelled, let self else { return }
+            // This task owns only the debounce. A later edit may cancel its
+            // timer, but must never cancel a capture already being persisted.
+            self.autosave = nil
             _ = await self.save()
         }
     }
@@ -111,11 +128,45 @@ final class NativePaperSession: ObservableObject {
     /// One immutable native capture produces every render. No local edit writes
     /// the received-note widget or changes a previously published note.
     func save() async -> DraftArchive? {
-        guard loaded, !busy, !finished else { return nil }
+        guard loaded, !finished, !Task.isCancelled else { return nil }
         if readOnly { return lastArchive }
-        if savedMutation == mutation, let lastArchive { return lastArchive }
-        busy = true
-        defer { busy = false }
+        if saveTask == nil {
+            guard !busy else { return nil }
+            if savedMutation == mutation, let lastArchive { return lastArchive }
+        }
+        autosave?.cancel()
+        autosave = nil
+        let requestID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(returning: nil); return }
+                saveWaiters[requestID] = continuation
+                guard saveTask == nil else { return }
+                busy = true
+                saveTask = Task { [self] in
+                    var result: DraftArchive?
+                    repeat {
+                        result = await writeCurrentCapture()
+                    } while result != nil && savedMutation != mutation && !finished
+                    saveTask = nil
+                    busy = false
+                    let waiters = Array(saveWaiters.values)
+                    saveWaiters.removeAll()
+                    for waiter in waiters { waiter.resume(returning: result) }
+                }
+            }
+        } onCancel: {
+            // Cancel only this caller's wait. Other Save/Send requests, and
+            // recovery persistence itself, still need the shared writer.
+            Task { @MainActor [weak self] in
+                self?.saveWaiters.removeValue(forKey: requestID)?.resume(returning: nil)
+            }
+        }
+    }
+
+    /// Exactly one task writes revisions. If a native callback or edit arrives
+    /// during a capture, save() captures again before releasing any caller.
+    private func writeCurrentCapture() async -> DraftArchive? {
         let capturedMutation = mutation
         do {
             guard let captured = controller.canvas.markup else { throw ProbeError.missingMarkup }
@@ -131,7 +182,7 @@ final class NativePaperSession: ObservableObject {
             let archive = try DraftArchive.make(id: documentID, revision: nextRevision, nativeData: source,
                                                 finalPNG: full, widgetPNG: widget, thumbnailPNG: thumb,
                                                 minimumEditorVersion: PaperProbeDocument.editorVersion)
-            try await store.save(archive, title: capturedTitle)
+            _ = try await store.save(archive, title: capturedTitle, at: Date())
             revision = nextRevision
             savedMutation = capturedMutation
             lastArchive = archive
@@ -172,7 +223,7 @@ final class NativePaperSession: ObservableObject {
                         widgetPNG: widget.pngData, thumbnailPNG: thumb.pngData,
                         canvasSize: baseline.document.canvasSize,
                         minimumEditorVersion: baseline.document.minimumEditorVersion)
-                    try await store.save(restored, title: baselineTitle)
+                    _ = try await store.save(restored, title: baselineTitle, at: Date())
                     revision = next
                     lastArchive = restored
                 }

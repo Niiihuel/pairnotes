@@ -1,8 +1,9 @@
 # PairNotes: backend privado en Railway
 
 Este corte implementa identidad, pareja de dos miembros, envío de notas inmutables,
-historial paginado, APNs y acceso limitado del widget. La decisión posterior del
-usuario reemplazó Firebase por Railway: este directorio no depende de Auth,
+historial paginado, perfiles con avatar, fecha de la relación, recuerdos, mensajes,
+distancia con consentimiento, APNs y acceso limitado de los widgets. La decisión
+posterior del usuario reemplazó Firebase por Railway: este directorio no depende de Auth,
 Firestore, Storage, Functions ni FCM. Los servicios son Node 22, PostgreSQL y un
 bucket S3 privado de Railway. No contiene credenciales reales.
 
@@ -28,10 +29,13 @@ PostgreSQL y S3; sólo sustituyen el proveedor externo de identidad y el transpo
 APNs. Los tests de autenticación usan firmas RSA/JOSE reales y PostgreSQL. No
 afirman haber iniciado sesión con Google/Apple ni enviado una push real.
 
-Validación ejecutada en Linux: `npm run build`; `npm test` con ambos servicios
-locales; `npm audit --omit=dev` (0 vulnerabilidades); `docker build -t
-pairnotes-backend:test .`. La suite registró 52 pruebas/subpruebas aprobadas, sin
-omisiones. El registro final del proyecto debe reflejar la revisión exacta probada.
+En el corte `8b08c9b`, CI confirmó `npm test` —que incluye `npm run build`— con
+65 pruebas/subpruebas aprobadas. Cubren también aislamiento de pareja en mensajes,
+avatares y recuerdos, normalización de fotos, permisos del widget, fechas,
+consentimiento, rechazo de muestras antiguas y revocación de ubicación. La
+validación anterior en Linux incluyó `npm audit --omit=dev` (0 vulnerabilidades)
+y `docker build -t pairnotes-backend:test .`; esos resultados no sustituyen una
+nueva auditoría o build de contenedor del corte actual.
 
 ## Configuración de Railway
 
@@ -70,8 +74,10 @@ La prueba no involucró dibujos privados ni verificó APNs/OAuth.
 
 ## Identidad HTTP
 
-Las rutas `/auth/*` reciben JSON directo y devuelven JSON directo. Todas las demás
-operaciones POST reciben `{data: {...}}` y devuelven `{result: {...}}`. Un fallo usa
+Las rutas `/auth/*` y `/widgetPushRegistration` reciben JSON directo y devuelven
+JSON directo. Las operaciones POST del producto reciben `{data: {...}}` y
+devuelven `{result: {...}}`. Los PUT de imágenes reciben bytes y devuelven JSON
+directo. Un fallo de una operación POST del producto usa
 `{error:{status,message,details:{reason}}}`; imágenes/widgets usan `{reason}` con
 status HTTP adecuado. Las razones son estables para el cliente, nunca incluyen
 tokens, fuente editable o texto íntimo. Todas las respuestas llevan
@@ -107,14 +113,18 @@ mayor necesita política WAF y límite distribuido adecuados.
 Todas las operaciones siguientes requieren Bearer de acceso, derivan el UID de
 la sesión y rechazan IDs/épocas ajenos. Los tiempos de las respuestas son ms Unix.
 
-- `upsertProfile {displayName}` → `{profile:{uid,displayName}}`.
-- `getPairState {}` → `{profile,pair:null|{id,members,pairEpoch,status,partner}}`.
+- `upsertProfile {displayName}` → `{profile:{uid,displayName,avatar}}`.
+  Cambiar el nombre conserva el avatar. `avatar` es `null` o `{id,sha256}`.
+- `getPairState {}` → `{profile,pair:null|{id,members,pairEpoch,status,startedOn,partner}}`.
+  `partner` tiene la misma forma pública del perfil.
 - `createInvite {}` → `{token,expiresAt}`; `acceptInvite {token}` → `{pair}`;
   `revokeInvite {}` → `{}`. Invitación opaca de 256 bits, hash únicamente, TTL
   15 minutos; autoaceptación, consumo, revocación y elegibilidad se comprueban en
   la transacción. Aceptar en paralelo no puede agregar un tercer miembro.
 - `closePair {pairId,pairEpoch}` → `{}`. Requiere autenticación de menos de cinco
-  minutos, incrementa la época, cierra la relación y elimina punteros activos.
+  minutos, incrementa la época, cierra la relación y elimina punteros activos,
+  consentimientos, coordenadas y distancia. Las consultas posteriores a los
+  contenidos de esa pareja quedan denegadas; no implica borrado integral del historial.
 - `createUploadSession {pairId,pairEpoch,idempotencyKey,noteId,revision,
   revisionHash,assets:[{role,sha256,byteCount,contentType}]}` →
   `{sessionId,noteId,paths:{source,final,widget,thumbnail},published}`.
@@ -158,6 +168,85 @@ revisionHash,publishedAt,paths,widgetSHA256`. Rutas finales:
 `pairs/{pairId}/{pairEpoch}/{noteId}/{role}`; temporales:
 `tmp/{uid}/{sessionId}/{role}`. Nunca se guarda binario/Base64 en PostgreSQL.
 
+## Espacio compartido, fotos y mensajes
+
+Estas operaciones usan los mismos Bearers de acceso y sobres POST del producto.
+`pairId` y `pairEpoch` identifican siempre una pareja activa a la que pertenece
+la sesión. Los IDs de recuerdos y mensajes admiten de 1 a 128 caracteres ASCII
+`A-Z`, `a-z`, `0-9`, `_` y `-`. Los límites de texto se cuentan en unidades UTF-16.
+
+- `getCoupleSpace {pairId,pairEpoch}` → `{profiles,startedOn,latestMessage,
+  memories,location}`. Devuelve los dos perfiles públicos, hasta 200 recuerdos
+  ordenados por `date` y el último mensaje **recibido** por la sesión, o `null`.
+- `updatePairDetails {pairId,pairEpoch,startedOn,timeZone?}` → `{pair}`.
+  `startedOn` es una fecha de calendario `YYYY-MM-DD` válida o `null`; no contiene
+  hora. Rechaza fechas futuras usando la zona IANA indicada, o UTC si se omite.
+- `upsertMemory {pairId,pairEpoch,memoryId,title,date,kind,recursYearly?,body?,
+  noteId?}` → `{memory}`. `kind` es `date` o `memory`; título obligatorio hasta
+  120 unidades, cuerpo hasta 2000, fecha `YYYY-MM-DD`. Admite hasta 200 elementos
+  por pareja. Ambos miembros pueden editarlos; conserva autor y fecha de creación.
+  `noteId` debe pertenecer a la misma pareja; `null` quita el vínculo. Una foto y
+  una nota vinculada pueden coexistir. Los campos opcionales omitidos conservan
+  su valor anterior; una foto se modifica mediante su ruta específica.
+- `memories {pairId,pairEpoch}` → `{memories}`; `deleteMemory
+  {pairId,pairEpoch,memoryId}` → `{}`. El borrado retira también su foto para limpieza.
+- `PUT /profileAvatar` recibe PNG/JPEG del perfil de la sesión y devuelve
+  `{profile}`. `GET /profileAvatar?uid=<uid>&avatarId=<id>` devuelve PNG sólo del
+  propio usuario o de su pareja activa. `avatarId` es opcional; al enviarlo, un
+  cambio de foto produce 409. `deleteProfileAvatar {}` → `{profile}` retira la foto.
+- `PUT /memoryPhoto?pairId=<id>&pairEpoch=<epoch>&memoryId=<id>` recibe PNG/JPEG y
+  devuelve `{memory}`. `GET` en esa misma ruta descarga PNG; `photoId=<id>` es
+  opcional y detecta una foto sustituida con 409. `deleteMemoryPhoto
+  {pairId,pairEpoch,memoryId}` → `{memory}` elimina sólo la foto del recuerdo.
+- `sendMessage {pairId,pairEpoch,messageId,text}` → `{message}`. Texto obligatorio
+  hasta 500 unidades; receptor derivado de la pareja, nunca elegido por el cliente.
+  Repetir el ID con el mismo autor y texto es idempotente; otro contenido falla.
+  Confirma mensaje, puntero del receptor y evento APNs en una transacción.
+- `messages {pairId,pairEpoch,limit?,cursor?:{sentAt,messageId}}` →
+  `{messages,nextCursor}`. Página predeterminada de 30, máximo 50, orden descendente
+  por envío e ID. No admite acceso desde una credencial del widget.
+
+Un recuerdo contiene `id,pairId,pairEpoch,authorId,title,date,kind,recursYearly,
+body,noteId,photo,createdAt,updatedAt`; `photo` es `null` o `{id,sha256}`. Un mensaje
+contiene `id,pairId,pairEpoch,authorId,recipientId,text,sentAt`. Los tiempos son ms Unix.
+
+Las fotos entrantes se limitan a 5 MiB y 4096² píxeles, se decodifican y normalizan
+en el servidor, corrigiendo orientación y eliminando metadatos EXIF/GPS. El PNG de
+avatar mide como máximo 256 × 256 px y 512 KiB; el de un recuerdo, 1536 × 1536 px
+y 5 MiB. Los bytes viven en S3 privado; las respuestas sólo exponen ID y SHA256,
+sin claves del bucket. Las descargas vuelven a comprobar permisos y la foto actual
+después de leer S3. Cambiar/borrar fotos las vuelve inaccesibles antes de su limpieza física.
+
+## Ubicación y distancia con consentimiento
+
+- `setLocationConsent {pairId,pairEpoch,enabled,deviceId?}` → `{location}`.
+  Activar requiere un dispositivo registrado y vinculado a la sesión actual;
+  sólo ese dispositivo puede aportar muestras. Repetir el mismo estado es
+  idempotente. Cambiar de fuente incrementa `consentVersion` y elimina la muestra
+  propia y la distancia calculada.
+- `updateLocation {pairId,pairEpoch,deviceId,consentVersion,sequence,latitude,
+  longitude,horizontalAccuracy,capturedAt}` → `{location}`. Requiere consentimiento
+  activo de esa versión y dispositivo; secuencia y fecha deben avanzar. Rechaza
+  coordenadas fuera de rango, precisión fuera de 0–5000 m, muestras de 30 minutos
+  o más de antigüedad, o más de un minuto en el futuro. `capturedAt` se expresa en ms Unix.
+
+`location` contiene `{sharingEnabled,sourceDeviceId,consentVersion,distance}`.
+`distance` contiene siempre `{status,meters,updatedAt,accuracyMeters}`: `disabled`
+si falta algún consentimiento, `waiting` hasta disponer de dos muestras,
+`available` hasta 15 minutos desde la muestra más antigua y `stale` después.
+Al cumplir 30 minutos, `meters` y `accuracyMeters` pasan a `null`; se conserva la
+fecha de referencia para indicar antigüedad. La distancia se redondea a 100 m y
+la incertidumbre combina ambas precisiones, redondeadas hacia arriba; un valor
+redondeado a cero no prueba que ambos estén juntos.
+
+No existe un endpoint de lectura de coordenadas. Se conserva sólo la última
+muestra privada por usuario, con vencimiento a los 30 minutos y limpieza periódica.
+Pausar elimina ambas muestras y la distancia, manteniendo independiente el
+consentimiento de la otra persona. Cerrar sesión, retirar/transferir el dispositivo
+fuente o cerrar la pareja revoca el acceso correspondiente y elimina las muestras.
+El servidor no activa permisos del teléfono ni garantiza GPS permanente o muestras
+en segundo plano; esas decisiones y restricciones corresponden a la app y a iOS.
+
 ## Widget y notificaciones
 
 `issueWidgetSession {deviceId}` devuelve `{token,expiresAt}`: siete días, rotación
@@ -165,14 +254,23 @@ que invalida el token anterior de ese dispositivo. Autoriza exclusivamente:
 
 - `GET /widgetSnapshot` → `{schemaVersion:1,pairId,pairEpoch,generatedAt,
   validUntil,note:null|{id,revision,revisionHash,publishedAt,authorDisplayName,
-  imageSHA256}}`. `validUntil` vence a los 15 minutos o antes si vence el bearer.
+  imageSHA256},profiles,startedOn,latestMessage,distance}`. Los campos adicionales
+  conservan `schemaVersion:1`; usan las formas públicas descritas arriba. El mensaje
+  es sólo el último recibido y la distancia nunca incluye coordenadas.
+  `validUntil` vence en un máximo de 15 minutos, antes si vence el bearer o si la
+  distancia mostrable alcanza los 30 minutos de antigüedad.
 - `GET /widgetImage?noteId=<última recibida>` → PNG; 409 si la última nota cambió.
+- `GET /widgetAvatar?uid=<miembro>&avatarId=<id>` → PNG actual de uno de los dos
+  miembros. `avatarId` es opcional y permite rechazar una foto sustituida con 409.
 - `POST /widgetPushRegistration {token:<hex>,enabled:<bool>,environment?}`
   registra/desactiva únicamente el token del dispositivo de esa credencial.
   Una retirada antigua no elimina un token más nuevo.
 
 Usan Bearer del widget y verifican dispositivo, vencimiento y época actual.
-No autorizan historial, fuente editable ni perfiles privados. Al cerrar pareja,
+Autorizan sólo ese resumen, la imagen de la última nota, los avatares de los dos
+miembros y el registro push propio. No autorizan historial de notas o mensajes,
+recuerdos/fotos de recuerdos, fuentes editables, coordenadas ni modificaciones de
+la pareja. Un Bearer del widget tampoco autentica las rutas de la app. Al cerrar pareja,
 rotar la credencial o quitar dispositivo fallan inmediatamente nuevas consultas;
 la caché del dispositivo puede permanecer hasta su vencimiento y la actualización
 que iOS permita ejecutar.
@@ -180,10 +278,11 @@ que iOS permita ejecutar.
 El worker consulta la outbox cada cinco segundos. Un lease transaccional y
 confirmaciones por dispositivo/canal permiten varios workers; los fallos se
 reintentan con backoff y un canal fallido no impide el otro. APNs estándar usa
-`alert` con “Tenés un dibujo nuevo” e identificadores. APNs WidgetKit usa
-`widgets`, topic `<bundleID>.push-type.widgets` y `aps.content-changed:true`.
-Nunca lleva imágenes, texto de una nota ni fuente. Una caída después de que APNs
-acepte y antes del acuse SQL puede duplicar un aviso: no se promete entrega
+`alert` con “Tenés un dibujo nuevo” o “Tenés un mensaje nuevo” e identificadores.
+APNs WidgetKit usa `widgets`, topic `<bundleID>.push-type.widgets` y
+`aps.content-changed:true`. Nunca lleva imágenes, contenido del mensaje, texto de
+una nota ni fuente. Una caída después de que APNs acepte y antes del acuse SQL
+puede duplicar un aviso: no se promete entrega
 exactamente una vez. iOS decide cuándo mostrar la actualización del widget.
 
 ## Persistencia, mantenimiento y límites pendientes
@@ -204,11 +303,20 @@ También purga credenciales,
 desafíos y límites vencidos; los refresh usados sobreviven hasta el vencimiento
 absoluto de su familia para detectar reutilización.
 
+El mantenimiento también elimina coordenadas vencidas. Las fotos privadas
+obsoletas o cargas sin adjuntar se eliminan con una hora de gracia desde su
+vencimiento. Relee el estado antes de borrar y conserva las imágenes adjuntas;
+un fallo de S3 deja la eliminación
+pendiente para otro ciclo. Las fotos retiradas no siguen autorizadas durante esa gracia.
+
 Pendientes de validación con credenciales/dispositivos reales: OAuth Google y
 Apple, reautenticación interactiva, APNs de app/widget, permisos, firma y cierre
-de sesión en dos iPhones. No se implementaron aún eliminación integral de cuenta,
-retención/borrado de dibujos compartidos, fotos de perfil, backups/restauración de
-producción, monitoreo/alertas operativas ni ubicación/distancia. El despliegue de
+de sesión en dos iPhones; también avatares, fotos de recuerdos, mensajes, permisos
+de ubicación, pausa/cambio de dispositivo y widgets con datos antiguos en hardware
+real. No se implementaron aún eliminación integral de cuenta, retención/borrado
+de dibujos compartidos, backups/restauración de producción ni monitoreo/alertas
+operativas. Los recordatorios locales y la exportación a Calendario pertenecen a
+la app; este servidor no programa esas alertas ni accede al calendario. El despliegue de
 desarrollo y sus recursos deben registrarse por separado; ningún test local los
 declara listos para App Store.
 

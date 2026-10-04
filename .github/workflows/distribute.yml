@@ -21,8 +21,27 @@ defaults:
     shell: bash
 
 jobs:
+  verified-ci:
+    name: Require successful CI for this exact commit
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Wait up to 15 minutes for the matching push CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/wait_for_ci.py
+
   archive:
     name: Export signed IPA and optionally upload to TestFlight
+    needs: verified-ci
     if: github.ref == 'refs/heads/main'
     runs-on: macos-26
     timeout-minutes: 40
@@ -31,6 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Select Xcode and initialize installed runtimes
         run: |

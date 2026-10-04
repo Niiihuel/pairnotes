@@ -4,7 +4,9 @@ El workflow `PairNotes CI` se activa al subir cambios a `main`, abrir/actualizar
 
 **Resultado histórico de M0 verificado el 4 de octubre de 2026:** [ejecución 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f870cb6542e92611ebd85275801a8e441055`, ambos jobs aprobados. Pasaron 15 tests Python del selector y 15 XCTest Swift en Linux; `build-for-testing` de app, extensión y tests con Xcode 26.0.1/SDK 26.0; y los 2 tests PaperKit en iPhone 16e simulado con iOS 26.2/Xcode 26.2. Incluye el icono oscuro. Los [PNG exportados e inspeccionados](evidence/m0/README.md) se conservan en el repositorio.
 
-**Resultado vigente de la suite ordinaria:** [37239688732](https://github.com/Niiihuel/pairnotes/actions/runs/37239688732), commit `872dc6c`: tres jobs aprobados, 15 tests Python, 40 Core, 52 backend y 21 nativos (128 en total); cero fallos y sin reintentos de esta ejecución. Compilación SDK 26.0 y ejecución de tests iOS 26.2. El [registro de mejoras de la beta](MEJORAS_BETA.md) incluye alcance, diagnósticos no bloqueantes y capturas reales.
+**Última suite ordinaria aprobada antes del espacio compartido:** [37239688732](https://github.com/Niiihuel/pairnotes/actions/runs/37239688732), commit `872dc6c`: tres jobs aprobados, 15 tests Python, 40 Core, 52 backend y 21 nativos (128 en total); cero fallos y sin reintentos de esta ejecución. Compilación SDK 26.0 y ejecución de tests iOS 26.2. El [registro de mejoras de la beta](MEJORAS_BETA.md) incluye alcance, diagnósticos no bloqueantes y capturas reales.
+
+El [corte de perfiles, fechas, recuerdos, mensajes, distancia y avisos mensuales](ESPACIO_COMPARTIDO.md) amplía la suite. Su primer run `37242320713` compiló con SDK 26.0 pero detectó dos fallos en el editor; el registro del corte describe las correcciones y distingue las pruebas locales de la nueva ejecución Apple pendiente.
 
 ## Qué comprueba
 
@@ -49,6 +51,10 @@ En NixOS, se pueden ejecutar los linters mediante `nix shell nixpkgs#actionlint 
 ## Compilación firmada manual
 
 El flujo separado `.github/workflows/distribute.yml` prepara un archive Release y exporta una IPA para App Store Connect usando certificados y perfiles del propietario. Se ejecuta manualmente sobre `main`. Por defecto sólo exporta; el input explícito `upload_to_testflight=true` habilita la subida posterior mediante una clave API del propietario. La ficha existente usa la versión `1.0`, que se aplica a app y widget al archivar.
+
+Desde el corte de espacio compartido, el flujo manual empieza en Ubuntu y exige que `PairNotes CI` del **mismo commit completo**, rama `main`, evento `push` y archivo `ci.yml` concluya `success`. Elige la ejecución/intento más reciente de esa SHA. Espera como máximo 15 minutos; falta de CI, fallo, cancelación o resultado inesperado bloquean archive y subida. Ambos jobs descargan explícitamente `github.sha`. El permiso `actions: read` y el token de consulta están limitados al job/paso de espera. Tras disparar este workflow, la comprobación y eventual subida continúan en GitHub aunque se cierre o reinicie la PC local.
+
+Validación del gate: `actionlint`, `shellcheck` y 21 tests Python aprobados (15 del selector y 6 del gate). Una consulta real contra `8b08c9b` rechazó correctamente la CI fallida `37242320713`; no firmó ni subió nada. La nueva suite esperada es 21 Python + 54 Core + 65 backend + 33 nativos; el conteo esperado no se presenta como una ejecución aprobada.
 
 **Archive/export firmado aprobado:** [ejecución 37236188455](https://github.com/Niiihuel/pairnotes/actions/runs/37236188455), commit `6cf5c90`, Xcode 26.2 (17C52), versión `1.0`, build `2.1`, mínimo iOS 26.0. La importación del P12 en Keychain, las firmas de app/widget, los perfiles embebidos, permisos de producción, grupos Keychain, manifiestos y configuración de API/Google pasaron. Logs sin warnings ni errores de compilación; limpieza temporal aprobada. [Evidencia pública](evidence/signing/signed-archive.json). La IPA y sus símbolos se conservan fuera de Git en el directorio local de builds y como artefactos privados de ese run durante 7 días. **No se subió a Apple.**
 
