@@ -16,6 +16,16 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     private var lastFittedSize: CGSize = .zero
     override var canBecomeFirstResponder: Bool { true }
 
+    /// Restoring persisted content is not an edit. Detach the delegate while
+    /// assigning it so a deferred main-actor change callback cannot autosave a
+    /// legacy draft merely because the user opened it.
+    func restoreMarkup(_ markup: PaperMarkup) {
+        let previousDelegate = canvas.delegate
+        canvas.delegate = nil
+        canvas.markup = markup
+        canvas.delegate = previousDelegate
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .secondarySystemBackground

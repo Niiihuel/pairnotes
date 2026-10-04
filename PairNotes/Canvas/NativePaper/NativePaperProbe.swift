@@ -57,7 +57,7 @@ final class NativePaperSession: ObservableObject {
             guard markup.featureSet.isSubset(of: PaperProbeDocument.supportedFeatures) else {
                 throw ProbeError.incompatibleDocument
             }
-            controller.canvas.markup = markup
+            controller.restoreMarkup(markup)
             paperBackground = restored.background
             savedMutation = mutation
             status = "Borrador guardado en este iPhone."

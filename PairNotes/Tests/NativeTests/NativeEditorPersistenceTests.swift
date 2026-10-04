@@ -110,9 +110,12 @@ final class NativeEditorPersistenceTests: XCTestCase {
         XCTAssertEqual(legacy.document.minimumEditorVersion, 1)
         let summary = try await store.save(legacy, title: "Antes del color")
         let editor = NativePaperSession(store: store, draft: summary)
+        editor.controller.loadViewIfNeeded()
         await editor.load()
         XCTAssertFalse(editor.readOnly)
         XCTAssertEqual(editor.paperBackground, .white)
+        await Task.yield()
+        await Task.yield()
         let unmodified = await editor.save()
         XCTAssertEqual(unmodified, legacy, "Opening a legacy draft must not rewrite its source")
         editor.paperBackground = .sky
