@@ -75,6 +75,21 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
         request.header('content-type') ?? '', request.header('x-content-sha256') ?? ''));
     } catch (error) {sendError(response, error, false);}
   });
+  for (const route of ['profileAvatar', 'memoryPhoto'] as const) {
+    app.put(`/${route}`, async (request, response, next) => {
+      try {response.locals.caller = await options.auth.authenticate(bearer(request)); next();}
+      catch (error) {sendError(response, error, false);}
+    }, express.raw({type: ['image/png', 'image/jpeg'], limit: '5mb'}), async (request, response) => {
+      try {
+        if (!Buffer.isBuffer(request.body)) fail('invalid_image', 'invalid-argument');
+        const caller = response.locals.caller as Caller;
+        response.json(route === 'profileAvatar'
+          ? await options.service.couple.profileAvatar(caller, request.body, request.header('content-type') ?? '')
+          : await options.service.couple.memoryPhoto(caller, {...request.query, pairEpoch: Number(request.query.pairEpoch)},
+            request.body, request.header('content-type') ?? ''));
+      } catch (error) {sendError(response, error, false);}
+    });
+  }
   app.use(express.json({limit: '32kb', strict: true}));
   for (const name of ['challenge', 'exchange', 'refresh'] as const) {
     app.post(`/auth/${name}`, async (request, response) => {
@@ -100,12 +115,28 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
         .send(await options.service.image(identity, request.query.path));
     } catch (error) {sendError(response, error, false);}
   });
+  app.get('/profileAvatar', async (request, response) => {
+    try {
+      const identity = await options.auth.authenticate(bearer(request));
+      if (typeof request.query.uid !== 'string' || (request.query.avatarId !== undefined && typeof request.query.avatarId !== 'string')) fail('invalid_user_id', 'invalid-argument');
+      response.type('image/png').send(await options.service.couple.avatar(identity, request.query.uid, request.query.avatarId));
+    } catch (error) {sendError(response, error, false);}
+  });
+  app.get('/memoryPhoto', async (request, response) => {
+    try {
+      const identity = await options.auth.authenticate(bearer(request));
+      response.type('image/png').send(await options.service.couple.memoryPhoto(identity,
+        {...request.query, pairEpoch: Number(request.query.pairEpoch)}));
+    } catch (error) {sendError(response, error, false);}
+  });
   app.get('/healthz', (_request, response) => {
     const ready = options.ready?.() ?? true;
     response.status(ready ? 200 : 503).json({status: ready ? 'ok' : 'starting'});
   });
   const operations = ['upsertProfile', 'getPairState', 'createInvite', 'acceptInvite', 'revokeInvite', 'closePair',
-    'createUploadSession', 'finalizeNote', 'timeline', 'note', 'latestReceivedNote', 'markNoteViewed', 'registerDevice', 'unregisterDevice', 'issueWidgetSession'] as const;
+    'createUploadSession', 'finalizeNote', 'timeline', 'note', 'latestReceivedNote', 'markNoteViewed', 'registerDevice', 'unregisterDevice', 'issueWidgetSession',
+    'getCoupleSpace', 'updatePairDetails', 'upsertMemory', 'memories', 'deleteMemory', 'deleteMemoryPhoto', 'deleteProfileAvatar',
+    'sendMessage', 'messages', 'setLocationConsent', 'updateLocation'] as const;
   for (const name of operations) {
     app.post(`/${name}`, async (request, response) => {
       try {
@@ -125,6 +156,12 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
     try {
       if (typeof request.query.noteId !== 'string') fail('invalid_note_id', 'invalid-argument');
       response.type('image/png').send(await options.service.widgetImage(bearer(request), request.query.noteId));
+    } catch (error) {sendError(response, error, false);}
+  });
+  app.get('/widgetAvatar', async (request, response) => {
+    try {
+      if (typeof request.query.uid !== 'string' || (request.query.avatarId !== undefined && typeof request.query.avatarId !== 'string')) fail('invalid_user_id', 'invalid-argument');
+      response.type('image/png').send(await options.service.widgetAvatar(bearer(request), request.query.uid, request.query.avatarId));
     } catch (error) {sendError(response, error, false);}
   });
   app.post('/widgetPushRegistration', async (request, response) => {

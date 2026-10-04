@@ -38,7 +38,7 @@ async function main(): Promise<void> {
         await Promise.allSettled(pending.docs.slice(start, start + 4).map(event => dispatchNotification(db, event.id, transport)));
       }
       if (Date.now() - lastCleanup > 60_000) {
-        await service.cleanupExpiredUploads(); await db.pruneExpiredCredentials(Date.now()); lastCleanup = Date.now();
+        await service.cleanupExpiredUploads(); await service.couple.cleanup(); await db.pruneExpiredCredentials(Date.now()); lastCleanup = Date.now();
       }
     } catch {ready = false; console.error('notification_worker_unavailable');}
     finally {polling = false;}

@@ -26,6 +26,7 @@ struct RootView: View {
     @State private var widgetMessage: String?
     @State private var widgetConnecting = false
     @State private var widgetGeneration: UInt64 = 0
+    @State private var messagesShowing = false
 
     private var scope: String {
         [services.identity?.uid ?? "guest", services.membership?.id ?? "none",
@@ -63,23 +64,37 @@ struct RootView: View {
         .sheet(item: $noteRoute) { route in
             NavigationStack { ReceivedNoteDetailView(noteID: route.id, services: services) }
         }
+        .sheet(isPresented: $messagesShowing) {
+            NavigationStack {
+                MessagesView(services: services)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { messagesShowing = false } } }
+            }
+        }
         .task {
             services.onOpenNote = { id in routeNote(id) }
+            services.onOpenCouple = { selectedTab = .couple }
+            services.onOpenMessages = {
+                if services.membership != nil { messagesShowing = true }
+                else { selectedTab = .couple }
+            }
             services.onSessionInvalidated = {
                 widgetGeneration &+= 1
                 WidgetAccessStore.clear()
                 noteRoute = nil
+                messagesShowing = false
                 widgetMessage = nil
+                LocationSharingController.shared.invalidate()
                 Task {
+                    await MonthlyReminderService.shared.clearScheduled()
                     await WidgetRemoteClient.shared.clearCache()
-                    WidgetCenter.shared.reloadTimelines(ofKind: SharedWidgetContainer.widgetKind)
+                    WidgetCenter.shared.reloadAllTimelines()
                 }
             }
             services.onReceivedNote = {
                 Task {
                     await model.foreground()
                     _ = await WidgetRemoteClient.shared.refresh()
-                    WidgetCenter.shared.reloadTimelines(ofKind: SharedWidgetContainer.widgetKind)
+                    WidgetCenter.shared.reloadAllTimelines()
                 }
             }
             await model.start()
@@ -92,7 +107,12 @@ struct RootView: View {
             }
         }
         .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
+            guard scenePhase == .active else {
+                // A native permission prompt may make the scene inactive. Only
+                // backgrounding cancels the explicit location request.
+                if scenePhase == .background { LocationSharingController.shared.invalidate() }
+                return
+            }
             await model.foreground()
             await connectWidget(force: false)
             // Foreground polling covers missed alerts and installations without
@@ -103,13 +123,16 @@ struct RootView: View {
                 await model.foreground()
             }
         }
-        .onChange(of: services.identity?.uid) { _, _ in editor = nil; noteRoute = nil }
+        .onChange(of: services.identity?.uid) { _, _ in editor = nil; noteRoute = nil; messagesShowing = false }
         .onOpenURL { url in
             if services.handle(url: url) { return }
             guard url.scheme == "pairnotes" else { return }
             switch url.host {
             case "create": selectedTab = .create
             case "couple": selectedTab = .couple
+            case "messages":
+                if services.membership != nil { messagesShowing = true }
+                else { selectedTab = .couple }
             case "note": routeNote(url.lastPathComponent)
             default: break
             }
@@ -168,8 +191,8 @@ struct RootView: View {
             }
             guard generation == widgetGeneration else { return }
             _ = await WidgetRemoteClient.shared.refresh()
-            WidgetCenter.shared.reloadTimelines(ofKind: SharedWidgetContainer.widgetKind)
-            widgetMessage = "Widget conectado. Agregá «Último dibujo» desde la pantalla de inicio. iOS decide cuándo actualiza su contenido."
+            WidgetCenter.shared.reloadAllTimelines()
+            widgetMessage = "Widgets conectados. Agregá «Último dibujo» en inicio, y «Tu mensaje», «Juntos desde», «Nuestro aniversario» o «Nuestra distancia» en la pantalla de bloqueo."
         } catch {
             guard generation == widgetGeneration else { return }
             if force { widgetMessage = error.localizedDescription }

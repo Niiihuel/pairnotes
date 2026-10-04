@@ -4,6 +4,11 @@ import Foundation
 /// configured on both targets before the system can provide its container.
 enum SharedWidgetContainer {
     static let widgetKind = "PairNotes.LocalNote"
+    static let messageKind = "PairNotes.ReceivedMessage"
+    static let togetherKind = "PairNotes.Together"
+    static let anniversaryKind = "PairNotes.Anniversary"
+    static let distanceKind = "PairNotes.Distance"
+    static let allWidgetKinds: Set<String> = [widgetKind, messageKind, togetherKind, anniversaryKind, distanceKind]
 
     static func directory(
         fileManager: FileManager = .default,

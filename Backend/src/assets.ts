@@ -3,7 +3,7 @@ type Metadata = {contentType?: string; size?: number; cacheControl?: string; met
 export class AssetStore {
   constructor(readonly client: S3Client, readonly bucket: string) {}
   file(path: string): AssetFile {
-    if (!/^(tmp|pairs)\/[a-zA-Z0-9_/-]+$/.test(path) || path.includes('..') || path.includes('//')) throw new Error('invalid_asset_path');
+    if (!/^(tmp|pairs|private)\/[a-zA-Z0-9_/-]+$/.test(path) || path.includes('..') || path.includes('//')) throw new Error('invalid_asset_path');
     return new AssetFile(this.client, this.bucket, path);
   }
 }

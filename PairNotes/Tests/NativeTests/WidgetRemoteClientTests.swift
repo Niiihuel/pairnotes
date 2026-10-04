@@ -84,6 +84,75 @@ final class WidgetRemoteClientTests: XCTestCase {
         XCTAssertNil(result.snapshot)
         XCTAssertTrue(state.paths.isEmpty)
     }
+
+    private func coupleMetadata(avatar: Bool = false, recipient: String = "first-user") throws -> Data {
+        let avatarValue: Any = avatar ? ["id": "30000000-0000-4000-8000-000000000003", "sha256": ContentDigest.sha256(png)] : NSNull()
+        return try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": 1, "pairId": "pair-test", "pairEpoch": 1,
+            "generatedAt": Date().timeIntervalSince1970 * 1_000,
+            "validUntil": Date().addingTimeInterval(600).timeIntervalSince1970 * 1_000,
+            "note": NSNull(), "startedOn": "2024-01-31",
+            "profiles": [["uid": "first-user", "displayName": "Alex ficticio", "avatar": avatarValue],
+                         ["uid": "second-user", "displayName": "Sam ficticio", "avatar": NSNull()]],
+            "latestMessage": ["id": "40000000-0000-4000-8000-000000000004", "authorId": "second-user",
+                              "recipientId": recipient, "text": "Mensaje ficticio", "sentAt": Date().timeIntervalSince1970 * 1_000],
+            "distance": ["status": "disabled", "meters": NSNull(), "updatedAt": NSNull(), "accuracyMeters": NSNull()]
+        ])
+    }
+
+    func testCoupleDataWithoutDrawingLoadsPrivateAvatarAndCachesOnlyForSameAccount() async throws {
+        let (client, state, directory) = setupClient()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        state.responses = [(200, try coupleMetadata(avatar: true)), (200, png)]
+        let received = await client.refresh()
+        XCTAssertNil(received.snapshot)
+        XCTAssertEqual(received.couple?.latestMessage?.text, "Mensaje ficticio")
+        XCTAssertEqual(received.couple?.startedOn?.rawValue, "2024-01-31")
+        XCTAssertEqual(received.avatars["first-user"], png)
+        XCTAssertEqual(state.paths, ["/widgetSnapshot", "/widgetAvatar"])
+        state.offline = true
+        let cached = await client.refresh()
+        XCTAssertTrue(cached.cached)
+        XCTAssertEqual(cached.couple, received.couple)
+        state.authorization = WidgetTestState.credential(uid: "second-user") // even if token were reused by bad local config
+        let switched = await client.refresh()
+        XCTAssertNil(switched.couple)
+        XCTAssertTrue(switched.avatars.isEmpty)
+    }
+
+    func testRevokedAvatarRequestClearsAllPrivateCoupleDataAndPriorOfflineCache() async throws {
+        let (client, state, directory) = setupClient()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        state.responses = [(200, try coupleMetadata())]
+        let initial = await client.refresh()
+        XCTAssertNotNil(initial.couple)
+        state.responses = [(200, try coupleMetadata(avatar: true)), (403, Data())]
+        let revoked = await client.refresh()
+        XCTAssertNil(revoked.couple)
+        XCTAssertTrue(revoked.avatars.isEmpty)
+        state.offline = true
+        let offline = await client.refresh()
+        XCTAssertNil(offline.couple)
+    }
+
+    func testWrongMessageRecipientAndExpiredCacheHidePrivateContent() async throws {
+        let (client, state, directory) = setupClient()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        state.responses = [(200, try coupleMetadata(recipient: "third-user"))]
+        let wrongRecipient = await client.refresh()
+        XCTAssertNil(wrongRecipient.couple)
+        state.responses = [(200, try coupleMetadata())]
+        let good = await client.refresh()
+        XCTAssertNotNil(good.couple)
+        let cacheURL = directory.appendingPathComponent("received-note.json")
+        var cache = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: cacheURL)) as? [String: Any])
+        cache["expiresAt"] = Date().addingTimeInterval(-1).timeIntervalSinceReferenceDate
+        try JSONSerialization.data(withJSONObject: cache).write(to: cacheURL)
+        state.offline = true
+        let expired = await client.refresh()
+        XCTAssertNil(expired.couple)
+        XCTAssertTrue(expired.avatars.isEmpty)
+    }
 }
 
 /// URLProtocol executes synchronously in these tests; state is locked because

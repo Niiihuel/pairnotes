@@ -54,7 +54,7 @@ struct ReceivedNoteProvider: TimelineProvider {
 
 struct PairNotesWidgetPushHandler: WidgetPushHandler {
     func pushTokenDidChange(_ pushInfo: WidgetPushInfo, widgets: [WidgetInfo]) {
-        let enabled = widgets.contains { $0.kind == SharedWidgetContainer.widgetKind }
+        let enabled = widgets.contains { SharedWidgetContainer.allWidgetKinds.contains($0.kind) }
         Task { await WidgetRemoteClient.shared.registerPushToken(pushInfo.token, enabled: enabled) }
     }
 }

@@ -3,6 +3,8 @@ import {Database, Timestamp, Transaction, DocumentData, FieldValue} from './data
 import {AssetStore} from './assets';
 import {HttpsError} from './errors';
 import sharp from 'sharp';
+import {CoupleFeatures, publicProfile} from './couple';
+import {revokeLocationDevice} from './location';
 
 export const roles = ['source', 'final', 'widget', 'thumbnail'] as const;
 type Role = typeof roles[number];
@@ -37,7 +39,19 @@ export function publicNote(note: DocumentData): DocumentData {
 
 /** Each HTTP operation independently authorizes its caller and relationship generation. */
 export class PairNotesService {
+  readonly couple = new CoupleFeatures(this);
   constructor(readonly db: Database, readonly bucket: AssetStore, readonly now: () => number = Date.now) {}
+  async getCoupleSpace(caller: Caller, input: Input) {return this.couple.getCoupleSpace(caller, input);}
+  async updatePairDetails(caller: Caller, input: Input) {return this.couple.updatePairDetails(caller, input);}
+  async upsertMemory(caller: Caller, input: Input) {return this.couple.upsertMemory(caller, input);}
+  async memories(caller: Caller, input: Input) {return this.couple.memories(caller, input);}
+  async deleteMemory(caller: Caller, input: Input) {return this.couple.deleteMemory(caller, input);}
+  async deleteMemoryPhoto(caller: Caller, input: Input) {return this.couple.deleteMemoryPhoto(caller, input);}
+  async deleteProfileAvatar(caller: Caller) {return this.couple.deleteProfileAvatar(caller);}
+  async sendMessage(caller: Caller, input: Input) {return this.couple.sendMessage(caller, input);}
+  async messages(caller: Caller, input: Input) {return this.couple.messages(caller, input);}
+  async setLocationConsent(caller: Caller, input: Input) {return this.couple.setLocationConsent(caller, input);}
+  async updateLocation(caller: Caller, input: Input) {return this.couple.updateLocation(caller, input);}
   async rate(uid: string, action: string, limit: number, period: number): Promise<void> {
     const ref = this.db.doc(`rateLimits/${digest(`${uid}:${action}`)}`);
     await this.db.runTransaction(async tx => {
@@ -59,25 +73,27 @@ export class PairNotesService {
       const pair = await this.pair(tx, uid, id);
       const partnerId = (pair.members as string[]).find(member => member !== uid)!;
       const profile = (await tx.get(this.db.doc(`pairs/${id}/profiles/${partnerId}`))).data();
-      return {id, members: pair.members, pairEpoch: pair.pairEpoch, status: 'active', partner: {uid: partnerId, displayName: profile?.displayName ?? 'Tu pareja'}};
+      return {id, members: pair.members, pairEpoch: pair.pairEpoch, status: 'active', startedOn: pair.startedOn ?? null,
+        partner: publicProfile({uid: partnerId, ...profile, displayName: profile?.displayName ?? 'Tu pareja'})};
     });
   }
   async upsertProfile(caller: Caller, input: Input): Promise<Input> {
     const displayName = string(input.displayName, 'display_name', 80).trim();
     if (!displayName) fail('invalid_display_name', 'invalid-argument');
     await this.rate(caller.uid, 'profile', 20, 60_000);
-    await this.db.runTransaction(async tx => {
+    const profile = await this.db.runTransaction(async tx => {
       const ref = this.db.doc(`users/${caller.uid}`);
       const old = (await tx.get(ref)).data();
       const pair = old?.activePairId ? await this.pair(tx, caller.uid, old.activePairId) : null;
       tx.set(ref, {uid: caller.uid, displayName, activePairId: old?.activePairId ?? null}, {merge: true});
-      if (pair) tx.set(this.db.doc(`pairs/${old!.activePairId}/profiles/${caller.uid}`), {uid: caller.uid, displayName});
+      if (pair) tx.set(this.db.doc(`pairs/${old!.activePairId}/profiles/${caller.uid}`), {uid: caller.uid, displayName, avatar: old?.avatar ?? null});
+      return publicProfile({...old, uid: caller.uid, displayName});
     });
-    return {profile: {uid: caller.uid, displayName}};
+    return {profile};
   }
   async getPairState(caller: Caller): Promise<Input> {
     const value = (await this.db.doc(`users/${caller.uid}`).get()).data();
-    return {profile: {uid: caller.uid, displayName: value?.displayName ?? ''}, pair: value?.activePairId ? await this.pairResponse(caller.uid, value.activePairId) : null};
+    return {profile: publicProfile({...value, uid: caller.uid}), pair: value?.activePairId ? await this.pairResponse(caller.uid, value.activePairId) : null};
   }
   async createInvite(caller: Caller): Promise<Input> {
     await this.rate(caller.uid, 'invite_create', 5, 60_000);
@@ -117,8 +133,8 @@ export class PairNotesService {
       if (!owner?.displayName || !user?.displayName) fail('profile_required');
       if (owner.activePairId || user.activePairId) fail('already_paired');
       tx.create(this.db.doc(`pairs/${id}`), {id, members: [invite.ownerId, caller.uid], pairEpoch: 1, status: 'active', lastPublishedMillis: 0});
-      tx.create(this.db.doc(`pairs/${id}/profiles/${invite.ownerId}`), {uid: invite.ownerId, displayName: owner.displayName});
-      tx.create(this.db.doc(`pairs/${id}/profiles/${caller.uid}`), {uid: caller.uid, displayName: user.displayName});
+      tx.create(this.db.doc(`pairs/${id}/profiles/${invite.ownerId}`), {uid: invite.ownerId, displayName: owner.displayName, avatar: owner.avatar ?? null});
+      tx.create(this.db.doc(`pairs/${id}/profiles/${caller.uid}`), {uid: caller.uid, displayName: user.displayName, avatar: user.avatar ?? null});
       tx.update(inviteRef, {status: 'consumed', consumedBy: caller.uid});
       if (user.inviteHash) tx.update(this.db.doc(`pairInvites/${user.inviteHash}`), {status: 'revoked'});
       tx.update(ownerRef, {activePairId: id, inviteHash: null});
@@ -135,7 +151,10 @@ export class PairNotesService {
       for (const uid of pair.members as string[]) {
         tx.update(this.db.doc(`users/${uid}`), {activePairId: null});
         tx.delete(this.db.doc(`pairs/${id}/views/${uid}`));
+        tx.delete(this.db.doc(`locationPrivate/${uid}`));
+        tx.delete(this.db.doc(`pairs/${id}/locationConsent/${uid}`));
       }
+      tx.delete(this.db.doc(`pairs/${id}/distance/current`));
     });
     return {};
   }
@@ -388,7 +407,10 @@ export class PairNotesService {
       const devices = await tx.get(this.db.collection(`users/${caller.uid}/devices`).limit(11));
       if (!devices.docs.some(device => device.id === deviceId) && devices.size >= 10) fail('device_limit', 'resource-exhausted');
       const installation = this.db.doc(`deviceOwners/${digest(deviceId)}`), previous = (await tx.get(installation)).data();
-      if (previous && previous.uid !== caller.uid) tx.delete(this.db.doc(`users/${previous.uid}/devices/${previous.deviceId}`));
+      if (previous && previous.uid !== caller.uid) {
+        await revokeLocationDevice(this.db, tx, previous.uid, previous.deviceId);
+        tx.delete(this.db.doc(`users/${previous.uid}/devices/${previous.deviceId}`));
+      }
       tx.set(installation, {uid: caller.uid, deviceId});
       const existing = devices.docs.find(device => device.id === deviceId)?.data() ?? {};
       const merged = {...existing, ...values};
@@ -407,13 +429,19 @@ export class PairNotesService {
       const oldRef = this.db.doc(`users/${previous.uid}/devices/${previous.deviceId}`), old = (await tx.get(oldRef)).data();
       const oldEnvironment = field === 'widgetPushToken' ? (old?.widgetPushEnvironment ?? old?.apnsEnvironment) : old?.apnsEnvironment;
       // Ownership rows for rotated tokens may be stale: never remove an unrelated new registration.
-      if (old?.[field] === pushToken && oldEnvironment === environment) tx.delete(oldRef);
+      if (old?.[field] === pushToken && oldEnvironment === environment) {
+        await revokeLocationDevice(this.db, tx, previous.uid, previous.deviceId);
+        tx.delete(oldRef);
+      }
     }
     tx.set(ref, {uid, deviceId});
   }
   async unregisterDevice(caller: Caller, input: Input): Promise<Input> {
     const deviceId = identifier(input.deviceId, 'device_id');
-    await this.db.doc(`users/${caller.uid}/devices/${deviceId}`).delete();
+    await this.db.runTransaction(async tx => {
+      await revokeLocationDevice(this.db, tx, caller.uid, deviceId);
+      tx.delete(this.db.doc(`users/${caller.uid}/devices/${deviceId}`));
+    });
     return {};
   }
   async issueWidgetSession(caller: Caller, input: Input): Promise<Input> {
@@ -435,20 +463,24 @@ export class PairNotesService {
     return this.db.runTransaction(async tx => {
       const hash = digest(secret), session = (await tx.get(this.db.doc(`widgetSessions/${hash}`))).data();
       if (!session || session.expiresAt.toMillis() <= this.now()) fail('widget_session_unavailable', 'unauthenticated');
-      await this.pair(tx, session.uid, session.pairId, session.pairEpoch);
+      const pair = await this.pair(tx, session.uid, session.pairId, session.pairEpoch);
       const device = (await tx.get(this.db.doc(`users/${session.uid}/devices/${session.deviceId}`))).data();
       if (!device?.active || device.widgetSessionHash !== hash) fail('widget_session_unavailable', 'unauthenticated');
       const view = (await tx.get(this.db.doc(`pairs/${session.pairId}/views/${session.uid}`))).data();
       const note = view?.latestNoteId ? (await tx.get(this.db.doc(`pairs/${session.pairId}/notes/${view.latestNoteId}`))).data() : null;
       const profile = note ? (await tx.get(this.db.doc(`pairs/${session.pairId}/profiles/${note.authorId}`))).data() : null;
+      const space = await this.couple.space(tx, session.uid, pair);
+      const distanceExpiry = space.location.distance.meters === null ? Infinity : space.location.distance.updatedAt + 30 * 60_000;
       return {schemaVersion: 1, pairId: session.pairId, pairEpoch: session.pairEpoch, note: note ? publicNote(note) : null,
         authorDisplayName: profile?.displayName ?? null, imageSHA256: note?.widgetSHA256 ?? null, generatedAt: this.now(),
-        validUntil: Math.min(session.expiresAt.toMillis(), this.now() + 15 * 60_000), uid: session.uid, deviceId: session.deviceId};
+        validUntil: Math.min(session.expiresAt.toMillis(), this.now() + 15 * 60_000, distanceExpiry), uid: session.uid, deviceId: session.deviceId,
+        profiles: space.profiles, startedOn: space.startedOn, latestMessage: space.latestMessage, distance: space.location.distance};
     });
   }
   async widgetSnapshot(secret: string): Promise<DocumentData> {
     const state = await this.widgetState(secret), note = state.note;
     return {schemaVersion: 1, pairId: state.pairId, pairEpoch: state.pairEpoch, generatedAt: state.generatedAt, validUntil: state.validUntil,
+      profiles: state.profiles, startedOn: state.startedOn, latestMessage: state.latestMessage, distance: state.distance,
       note: note ? {id: note.id, revision: note.revision, revisionHash: note.revisionHash, publishedAt: note.publishedAt,
         authorDisplayName: state.authorDisplayName, imageSHA256: state.imageSHA256} : null};
   }
@@ -480,6 +512,14 @@ export class PairNotesService {
     if (digest(bytes) !== snapshot.imageSHA256) fail('asset_integrity_mismatch');
     const fresh = await this.widgetState(secret);
     if (!fresh.note || fresh.note.id !== noteId) fail('latest_note_changed', 'aborted');
+    return bytes;
+  }
+  async widgetAvatar(secret: string, uid: string, avatarId?: string): Promise<Buffer> {
+    const state = await this.widgetState(secret);
+    if (!state.profiles.some((profile: DocumentData) => profile.uid === uid)) fail('not_pair_member', 'permission-denied');
+    const bytes = await this.couple.avatar({uid: state.uid, authTime: 0}, uid, avatarId);
+    const fresh = await this.widgetState(secret);
+    if (fresh.pairId !== state.pairId || fresh.pairEpoch !== state.pairEpoch) fail('stale_pair_epoch', 'permission-denied');
     return bytes;
   }
 }

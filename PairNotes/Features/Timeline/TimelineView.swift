@@ -12,6 +12,7 @@ struct TimelineView: View {
 
     var body: some View {
         List {
+            SharedMemoriesSection(services: model.services, notes: model.notes, openNote: openNote)
             if model.notes.isEmpty {
                 Section {
                     if model.isLoading {

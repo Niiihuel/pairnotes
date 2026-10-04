@@ -8,6 +8,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     let canvas = PaperMarkupViewController(markup: PaperMarkup(bounds: PaperProbeDocument.bounds),
                                            supportedFeatureSet: PaperProbeDocument.supportedFeatures)
     var onMarkupChanged: (() -> Void)?
+    var onHistoryChanged: ((Bool, Bool) -> Void)?
     var paperBackground: PaperBackground = .white {
         didSet { paper.backgroundColor = paperBackground.uiColor }
     }
@@ -24,6 +25,59 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         canvas.delegate = nil
         canvas.markup = markup
         canvas.delegate = previousDelegate
+    }
+
+    func refreshHistory() {
+        onHistoryChanged?(canvas.undoManager?.canUndo == true, canvas.undoManager?.canRedo == true)
+    }
+
+    func undo() {
+        canvas.undoManager?.undo()
+        refreshHistory()
+    }
+
+    func redo() {
+        canvas.undoManager?.redo()
+        refreshHistory()
+    }
+
+    /// App-owned insertions share PaperKit's undo manager with native strokes.
+    /// Suppress any implicit setter registration to avoid duplicate operations.
+    func replaceMarkup(_ markup: PaperMarkup, actionName: String) {
+        guard let previous = canvas.markup else { return }
+        let manager = canvas.undoManager
+        let grouping = manager != nil && manager?.isUndoing != true && manager?.isRedoing != true
+        if grouping { manager?.beginUndoGrouping() }
+        manager?.disableUndoRegistration()
+        restoreMarkup(markup)
+        manager?.enableUndoRegistration()
+        manager?.registerUndo(withTarget: self) { target in
+            target.replaceMarkup(previous, actionName: actionName)
+        }
+        manager?.setActionName(actionName)
+        if grouping { manager?.endUndoGrouping() }
+        onMarkupChanged?()
+        refreshHistory()
+    }
+
+    func fitPaper() {
+        canvas.contentVisibleFrame = canvas.markup?.bounds ?? PaperProbeDocument.bounds
+    }
+
+    func zoom(by factor: CGFloat) {
+        let visible = canvas.contentVisibleFrame
+        guard factor > 0, visible.width.isFinite, visible.height.isFinite,
+              visible.width > 0, visible.height > 0 else { return }
+        let bounds = canvas.markup?.bounds ?? PaperProbeDocument.bounds
+        let width = min(bounds.width * 4, max(bounds.width / 4, visible.width / factor))
+        let height = width * visible.height / visible.width
+        canvas.contentVisibleFrame = CGRect(x: visible.midX - width / 2, y: visible.midY - height / 2,
+                                            width: width, height: height)
+    }
+
+    func setPaletteVisible(_ visible: Bool) {
+        pencilKitResponderState.toolPickerVisibility = visible ? .visible : .hidden
+        if visible { becomeFirstResponder() }
     }
 
     override func viewDidLoad() {
@@ -64,7 +118,10 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     }
 
     nonisolated func paperMarkupViewControllerDidChangeMarkup(_ paperMarkupViewController: PaperMarkupViewController) {
-        Task { @MainActor [weak self] in self?.onMarkupChanged?() }
+        Task { @MainActor [weak self] in
+            self?.onMarkupChanged?()
+            self?.refreshHistory()
+        }
     }
 
     // SDK 26.0 requires all four delegate methods. The document callback is
@@ -76,6 +133,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
+        refreshHistory()
     }
 
     override func viewDidLayoutSubviews() {
@@ -106,8 +164,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
             markup.insertNewTextbox(attributedText: NSAttributedString(string: text, attributes: [
                 .font: UIFont.systemFont(ofSize: 64), .foregroundColor: self.paperBackground.contrastingInkColor
             ]), frame: CGRect(x: 150, y: 1120, width: 1200, height: 150))
-            self.canvas.markup = markup
-            self.onMarkupChanged?()
+            self.replaceMarkup(markup, actionName: "Agregar texto")
         })
         present(prompt, animated: true)
     }

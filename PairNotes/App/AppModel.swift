@@ -64,6 +64,7 @@ final class AppModel: ObservableObject {
         await reconcileSession()
         await services.restore()
         await reconcileSession()
+        await refreshSpace()
     }
 
     /// Unknown membership during restoration pauses the queue. A failed network
@@ -171,6 +172,18 @@ final class AppModel: ObservableObject {
         await reconcileSession()
         await retryTransientFailures()
         await refreshTimeline()
+        await refreshSpace()
+    }
+
+    private func refreshSpace() async {
+        guard let uid = services.identity?.uid, let pair = services.membership else { return }
+        do {
+            try await services.refreshCoupleSpace()
+            await LocationSharingController.shared.refreshIfNeeded(services: services)
+        } catch {
+            guard services.identity?.uid == uid, services.membership?.id == pair.id else { return }
+            services.spaceError = "No se pudo actualizar su espacio. Deslizá hacia abajo para reintentar."
+        }
     }
 
     func reloadDrafts() async {

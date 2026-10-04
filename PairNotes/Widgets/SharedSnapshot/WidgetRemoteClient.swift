@@ -3,9 +3,17 @@ import PairNotesCore
 
 struct WidgetRefreshResult: Sendable {
     let snapshot: NoteWidgetSnapshot?
+    let couple: CoupleWidgetSnapshot?
+    let avatars: [String: Data]
     let message: String
     let cached: Bool
     let expiresAt: Date?
+
+    init(snapshot: NoteWidgetSnapshot?, couple: CoupleWidgetSnapshot? = nil, avatars: [String: Data] = [:],
+         message: String, cached: Bool, expiresAt: Date?) {
+        self.snapshot = snapshot; self.couple = couple; self.avatars = avatars
+        self.message = message; self.cached = cached; self.expiresAt = expiresAt
+    }
 
     static func empty(_ message: String) -> Self {
         Self(snapshot: nil, message: message, cached: false, expiresAt: nil)
@@ -28,12 +36,18 @@ private struct ServerWidgetSnapshot: Decodable {
     let note: ServerWidgetNote?
     let generatedAt: Date
     let validUntil: Date?
+    let profiles: [CoupleProfile]?
+    let startedOn: CoupleDate?
+    let latestMessage: CoupleMessage?
+    let distance: CoupleDistance?
 }
 
 private struct AuthorizedWidgetCache: Codable {
     let credentialHash: String
     let expiresAt: Date
-    let snapshot: NoteWidgetSnapshot
+    let snapshot: NoteWidgetSnapshot?
+    let couple: CoupleWidgetSnapshot?
+    let avatars: [String: Data]?
 }
 
 private final class WidgetNoRedirects: NSObject, URLSessionTaskDelegate {
@@ -104,11 +118,15 @@ actor WidgetRemoteClient {
         generation == captured && !Task.isCancelled && authorizationProvider() == authorization && authorization.isUsable()
     }
 
-    private func request(_ name: String, authorization: WidgetAuthorization, noteID: String? = nil) throws -> URLRequest {
+    private func request(_ name: String, authorization: WidgetAuthorization, noteID: String? = nil,
+                         avatarUID: String? = nil, avatarID: String? = nil) throws -> URLRequest {
         guard authorization.isUsable() else { throw WidgetAccessError.invalidCredential }
         let url = authorization.baseURL.appendingPathComponent(name)
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         if let noteID { components?.queryItems = [URLQueryItem(name: "noteId", value: noteID)] }
+        if let avatarUID, let avatarID {
+            components?.queryItems = [URLQueryItem(name: "uid", value: avatarUID), URLQueryItem(name: "avatarId", value: avatarID)]
+        }
         guard let endpoint = components?.url else { throw WidgetAccessError.invalidCredential }
         var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData)
         request.setValue("Bearer \(authorization.token)", forHTTPHeaderField: "Authorization")
@@ -138,45 +156,90 @@ actor WidgetRemoteClient {
                 removeCache()
                 return .empty("La pareja cambió. Abrí PairNotes para reconectar.")
             }
-            guard let note = remote.note else {
-                removeCache()
-                return .empty("Tu próxima nota recibida aparecerá acá.")
+            var couple: CoupleWidgetSnapshot?
+            if let profiles = remote.profiles, let distance = remote.distance {
+                let value = CoupleWidgetSnapshot(profiles: profiles, startedOn: remote.startedOn,
+                                                  latestMessage: remote.latestMessage, distance: distance)
+                do { try value.validate(for: authorization.uid) }
+                catch { removeCache(); return .empty("Abrí PairNotes para actualizar el espacio compartido.") }
+                couple = value
             }
-            guard let noteID = UUID(uuidString: note.id) else {
-                throw URLError(.cannotParseResponse)
+            var snapshot: NoteWidgetSnapshot?
+            if let note = remote.note {
+                guard let noteID = UUID(uuidString: note.id) else { throw URLError(.cannotParseResponse) }
+                let (png, imageResponse) = try await session.data(for: request("widgetImage", authorization: authorization, noteID: note.id))
+                guard current(authorization, generation: captured) else { return .empty("La sesión cambió. Abrí PairNotes.") }
+                let imageStatus = (imageResponse as? HTTPURLResponse)?.statusCode ?? 0
+                if imageStatus == 401 || imageStatus == 403 {
+                    removeCache()
+                    return .empty("Abrí PairNotes para volver a conectar el widget.")
+                }
+                guard imageStatus == 200, !png.isEmpty, png.count <= maximumImageBytes,
+                      ContentDigest.sha256(png) == note.imageSHA256 else { throw URLError(.cannotDecodeContentData) }
+                let value = NoteWidgetSnapshot(noteID: noteID, revision: note.revision,
+                    revisionHash: note.revisionHash, authorName: note.authorDisplayName,
+                    updatedAt: note.publishedAt, pngData: png)
+                try value.validate()
+                snapshot = value
             }
-            let (png, imageResponse) = try await session.data(for: request("widgetImage", authorization: authorization, noteID: note.id))
-            guard current(authorization, generation: captured) else { return .empty("La sesión cambió. Abrí PairNotes.") }
-            let imageStatus = (imageResponse as? HTTPURLResponse)?.statusCode ?? 0
-            if imageStatus == 401 || imageStatus == 403 {
-                removeCache()
-                return .empty("Abrí PairNotes para volver a conectar el widget.")
+            var avatars: [String: Data] = [:]
+            for profile in couple?.profiles ?? [] {
+                guard let avatar = profile.avatar else { continue }
+                // Missing/replaced/offline photos fall back to initials, never a
+                // stale photo belonging to another credential or previous pair.
+                guard let (bytes, response) = try? await session.data(for: request("widgetAvatar", authorization: authorization,
+                                                        avatarUID: profile.uid, avatarID: avatar.id)) else { continue }
+                guard current(authorization, generation: captured) else { return .empty("La sesión cambió. Abrí PairNotes.") }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if status == 401 || status == 403 {
+                    removeCache(); return .empty("Abrí PairNotes para volver a conectar el widget.")
+                }
+                if status == 200, bytes.count <= 512 * 1024,
+                   ContentDigest.sha256(bytes) == avatar.sha256,
+                   bytes.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) { avatars[profile.uid] = bytes }
             }
-            guard imageStatus == 200, !png.isEmpty, png.count <= maximumImageBytes,
-                  ContentDigest.sha256(png) == note.imageSHA256 else { throw URLError(.cannotDecodeContentData) }
-            let snapshot = NoteWidgetSnapshot(noteID: noteID, revision: note.revision,
-                revisionHash: note.revisionHash, authorName: note.authorDisplayName,
-                updatedAt: note.publishedAt, pngData: png)
-            try snapshot.validate()
-            let expiration = min(authorization.expiresAt, remote.validUntil ?? authorization.expiresAt)
+            let expiration = min(authorization.expiresAt, remote.validUntil ?? authorization.expiresAt,
+                                 Date().addingTimeInterval(15 * 60))
             guard expiration > Date() else { throw WidgetAccessError.invalidCredential }
-            let cache = AuthorizedWidgetCache(credentialHash: ContentDigest.sha256(Data(authorization.token.utf8)),
-                                             expiresAt: expiration, snapshot: snapshot)
+            guard current(authorization, generation: captured) else { return .empty("La sesión cambió. Abrí PairNotes.") }
+            let cache = AuthorizedWidgetCache(credentialHash: authorizationHash(authorization),
+                                             expiresAt: expiration, snapshot: snapshot, couple: couple, avatars: avatars)
             if let url = cacheURL {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try JSONEncoder().encode(cache).write(to: url, options: .atomic)
             }
-            return WidgetRefreshResult(snapshot: snapshot, message: "", cached: false, expiresAt: expiration)
+            return WidgetRefreshResult(snapshot: snapshot, couple: couple, avatars: avatars,
+                                       message: snapshot == nil ? "Tu próxima nota recibida aparecerá acá." : "",
+                                       cached: false, expiresAt: expiration)
         } catch {
             guard current(authorization, generation: captured), let url = cacheURL,
                   let bytes = try? Data(contentsOf: url),
                   let cache = try? JSONDecoder().decode(AuthorizedWidgetCache.self, from: bytes),
-                  cache.credentialHash == ContentDigest.sha256(Data(authorization.token.utf8)), cache.expiresAt > Date(),
-                  (try? cache.snapshot.validate()) != nil else {
+                  cache.credentialHash == authorizationHash(authorization), cache.expiresAt > Date(),
+                  cacheIsValid(cache, for: authorization.uid) else {
                 return .empty("No se pudo actualizar. Abrí PairNotes para reintentar.")
             }
-            return WidgetRefreshResult(snapshot: cache.snapshot, message: "Última nota guardada", cached: true, expiresAt: cache.expiresAt)
+            return WidgetRefreshResult(snapshot: cache.snapshot, couple: cache.couple, avatars: cache.avatars ?? [:],
+                                       message: "Datos guardados; sin conexión", cached: true, expiresAt: cache.expiresAt)
         }
+    }
+
+    private func authorizationHash(_ authorization: WidgetAuthorization) -> String {
+        // Bind every private cache to the account, pair generation, endpoint and
+        // credential, including locally changed configuration with the same token.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return ContentDigest.sha256((try? encoder.encode(authorization)) ?? Data())
+    }
+
+    private func cacheIsValid(_ cache: AuthorizedWidgetCache, for uid: String) -> Bool {
+        if let snapshot = cache.snapshot, (try? snapshot.validate()) == nil { return false }
+        if let couple = cache.couple, (try? couple.validate(for: uid)) == nil { return false }
+        for (uid, bytes) in cache.avatars ?? [:] {
+            guard let avatar = cache.couple?.profiles.first(where: { $0.uid == uid })?.avatar,
+                  bytes.count <= 512 * 1024, ContentDigest.sha256(bytes) == avatar.sha256 else { return false }
+        }
+        return true
     }
 
     /// WidgetKit delivers a token in the extension. Its scoped credential can

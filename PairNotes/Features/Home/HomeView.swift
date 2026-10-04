@@ -8,6 +8,7 @@ struct HomeView: View {
 
     var body: some View {
         List {
+            CoupleHomeSections(services: model.services)
             Section("Para vos") {
                 if let note = model.latestReceived {
                     Button { openNote(note) } label: {

@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import AuthenticationServices
+import PhotosUI
 import PairNotesCore
 
 struct CoupleView: View {
@@ -25,7 +26,8 @@ struct CoupleView: View {
                 Section("Tu perfil") {
                     Button { sheet = .profile } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: "person.crop.circle.fill").font(.largeTitle).foregroundStyle(.tint)
+                            ProfileAvatarView(services: services, uid: identity.uid, name: identity.displayName,
+                                              reference: services.profileAvatar)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(identity.displayName).foregroundStyle(.primary)
                                 Text("Editar perfil").font(.subheadline).foregroundStyle(.secondary)
@@ -39,6 +41,7 @@ struct CoupleView: View {
                     Section { ProgressView("Consultando la pareja vinculada…") }
                 } else if let pair = services.membership {
                     Section {
+                        CouplePortraits(services: services)
                         HStack {
                             Label(pair.partner.displayName, systemImage: "heart.fill")
                             Spacer()
@@ -54,7 +57,18 @@ struct CoupleView: View {
                     } header: { Text("Vinculados") } footer: {
                         Text("Los dibujos se comparten entre estas dos cuentas.")
                     }
-                    Section("Avisos de dibujos nuevos") {
+                    Section("Su historia") {
+                        NavigationLink { TogetherSettingsView(services: services) } label: {
+                            Label("Juntos desde y avisos mensuales", systemImage: "calendar.badge.clock")
+                        }
+                        NavigationLink { DistanceSettingsView(services: services) } label: {
+                            Label("Nuestra distancia", systemImage: "location.circle")
+                        }
+                        NavigationLink { MessagesView(services: services) } label: {
+                            Label("Nuestros mensajes", systemImage: "bubble.left.and.text.bubble.right")
+                        }
+                    }
+                    Section("Avisos de dibujos y mensajes") {
                         if services.notificationsEnabled {
                             Label("Notificaciones activadas", systemImage: "bell.badge")
                             Menu("Opciones de notificaciones", systemImage: "ellipsis.circle") {
@@ -70,15 +84,15 @@ struct CoupleView: View {
                                 }
                             }
                         }
-                        Text("Recibirás un aviso cuando tu pareja envíe un dibujo. El mensaje no incluye el contenido privado de la nota.")
+                        Text("Recibirás un aviso cuando tu pareja envíe un dibujo o mensaje. La notificación no incluye su contenido privado.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
-                    Section("Dibujo en inicio") {
+                    Section("Sus widgets") {
                         Button("Conectar el widget", systemImage: "square.grid.2x2") {
                             Task { await connectWidget() }
                         }.disabled(widgetConnecting)
                         if widgetConnecting { ProgressView() }
-                        Text(widgetMessage ?? "Agregá el widget «Último dibujo» desde la pantalla de inicio. Muestra el último dibujo recibido; todos siguen disponibles en Recuerdos.")
+                        Text(widgetMessage ?? "En inicio: «Último dibujo». En la pantalla de bloqueo: «Tu mensaje», «Juntos desde» y «Nuestra distancia». Mantené presionada la pantalla para agregarlos.")
                             .font(.footnote).foregroundStyle(.secondary)
                         Text("La actualización depende de iOS. Abrí la app si el widget pide reconectar.")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -326,6 +340,11 @@ private struct ProfileEditor: View {
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var discarding = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photoData: Data?
+    @State private var removePhoto = false
+    @State private var loadingPhoto = false
+    @State private var crop: SelectedPhotoCrop?
     @FocusState private var nameFocused: Bool
 
     init(services: AppServices, identity: SessionIdentity) {
@@ -335,12 +354,29 @@ private struct ProfileEditor: View {
     }
 
     private var cleanName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var hasChanges: Bool { cleanName != identity.displayName }
-    private var canSave: Bool { !saving && hasChanges && (1...60).contains(cleanName.count) }
+    private var hasChanges: Bool { cleanName != identity.displayName || photoData != nil || removePhoto }
+    private var canSave: Bool { !saving && !loadingPhoto && hasChanges && (1...60).contains(cleanName.utf16.count) }
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    HStack {
+                        Spacer()
+                        if let photoData, let image = UIImage(data: photoData) {
+                            Image(uiImage: image).resizable().scaledToFill().frame(width: 100, height: 100).clipShape(Circle())
+                        } else {
+                            ProfileAvatarView(services: services, uid: identity.uid, name: cleanName,
+                                reference: removePhoto ? nil : services.profileAvatar, size: 100)
+                        }
+                        Spacer()
+                    }.listRowBackground(Color.clear)
+                    PhotosPicker(selection: $photoItem, matching: .images) { Label("Elegir foto", systemImage: "photo") }
+                    if photoData != nil || (services.profileAvatar != nil && !removePhoto) {
+                        Button("Quitar foto", systemImage: "trash", role: .destructive) { photoData = nil; removePhoto = true }
+                    }
+                    if loadingPhoto { ProgressView("Preparando foto…") }
+                } footer: { Text("Tu foto será visible sólo para tu pareja y en sus widgets.") }
                 Section {
                     TextField("Tu nombre", text: $name)
                         .textContentType(.nickname).textInputAutocapitalization(.words)
@@ -367,7 +403,23 @@ private struct ProfileEditor: View {
                 Button("Seguir editando", role: .cancel) {}
             }
             .interactiveDismissDisabled(saving || hasChanges)
-            .task { nameFocused = true }
+            .sheet(item: $crop) { selection in
+                PhotoCropEditor(image: selection.image, onCancel: { crop = nil }, onConfirm: { image in
+                    photoData = image.jpegData(compressionQuality: 0.85)
+                    removePhoto = false
+                    crop = nil
+                })
+            }
+            .task(id: photoItem) {
+                guard let photoItem else { return }
+                loadingPhoto = true
+                defer { if self.photoItem == photoItem { loadingPhoto = false } }
+                do {
+                    guard let bytes = try await photoItem.loadTransferable(type: Data.self), !Task.isCancelled, self.photoItem == photoItem,
+                          let image = UIImage(data: try SelectedPhoto.jpeg(bytes, maximum: 800)) else { return }
+                    crop = SelectedPhotoCrop(image: image)
+                } catch { errorMessage = "No se pudo abrir esta foto. Elegí otra imagen." }
+            }
         }
     }
 
@@ -379,7 +431,7 @@ private struct ProfileEditor: View {
         Task { @MainActor in
             defer { saving = false }
             do {
-                try await services.updateDisplayName(value)
+                try await services.updateProfile(name: value, photo: photoData, removePhoto: removePhoto)
                 guard services.identity?.uid == identity.uid else { return }
                 dismiss()
             } catch is CancellationError { return }

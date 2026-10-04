@@ -133,6 +133,18 @@ export class Database {
         OR (path LIKE 'rateLimits/%' AND (value->'until'->>'$time')::bigint <= $1)`, [now]);
     });
   }
+  async messagesPage(pairId: string, maximum: number, cursor?: {sentAt: number; messageId: string}): Promise<DocumentData[]> {
+    const prefix = `pairs/${pairId}/messages/`, values: unknown[] = [prefix];
+    let condition = '';
+    if (cursor) {
+      values.push(cursor.sentAt, cursor.messageId);
+      condition = " AND ((value->'sentAt'->>'$time')::bigint < $2 OR ((value->'sentAt'->>'$time')::bigint = $2 AND value->>'id' < $3))";
+    }
+    values.push(maximum);
+    const rows = await this.pool.query(`SELECT value FROM documents WHERE left(path,length($1))=$1 AND strpos(substring(path from length($1)+1),'/')=0${condition}
+      ORDER BY (value->'sentAt'->>'$time')::bigint DESC, value->>'id' DESC LIMIT $${values.length}`, values);
+    return rows.rows.map(row => decode(row.value));
+  }
   async runTransaction<T>(operation: (tx: Transaction) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {

@@ -1,6 +1,7 @@
 import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {Database, DocumentData, Timestamp, Transaction} from './database';
 import {HttpsError} from './errors';
+import {revokeLocationDevice} from './location';
 
 export type IdentityProvider = 'google' | 'apple';
 export interface VerifiedIdentity {
@@ -144,7 +145,7 @@ export class AuthService {
       if (existing) {
         const old = (await tx.get(this.db.doc(`authSessions/${existing.sessionId}`))).data()!;
         sessionDeviceId ??= old.deviceId;
-        this.revoke(tx, existing.sessionId, old, now, false);
+        await this.revoke(tx, existing.sessionId, old, now, false);
       }
       return this.createSession(tx, {uid, displayName, provider, authTime: identity.authTime, deviceId: sessionDeviceId}, now);
     });
@@ -171,12 +172,12 @@ export class AuthService {
       const sessionRef = this.db.doc(`authSessions/${record.sessionId}`), session = (await tx.get(sessionRef)).data();
       if (!session || session.revokedAt || milliseconds(session.refreshExpiresAt) <= now) return {error: 'invalid_refresh_token'} as const;
       if (record.consumedAt || session.refreshHash !== hash) {
-        this.revoke(tx, record.sessionId, session, now);
+        await this.revoke(tx, record.sessionId, session, now);
         return {error: 'refresh_token_reused'} as const;
       }
       const user = (await tx.get(this.db.doc(`users/${session.uid}`))).data();
       if (!user || user.disabled === true || user.deletedAt) {
-        this.revoke(tx, record.sessionId, session, now);
+        await this.revoke(tx, record.sessionId, session, now);
         return {error: 'account_unavailable'} as const;
       }
       const tokens = this.tokenPair(now, milliseconds(session.refreshExpiresAt));
@@ -200,8 +201,9 @@ export class AuthService {
     await this.db.runTransaction(async tx => {
       const now = this.now(), identity = await this.authenticated(tx, token, now);
       const session = (await tx.get(this.db.doc(`authSessions/${identity.sessionId}`))).data()!;
-      this.revoke(tx, identity.sessionId, session, now);
+      await this.revoke(tx, identity.sessionId, session, now);
       if (deviceId) {
+        await revokeLocationDevice(this.db, tx, identity.uid, deviceId);
         tx.delete(this.db.doc(`users/${identity.uid}/devices/${deviceId}`));
         // Widget authorization also checks this device record, making every
         // credential for the removed device unusable immediately.
@@ -234,8 +236,11 @@ export class AuthService {
       const previous = (await tx.get(binding)).data();
       if (previous) {
         const previousSession = (await tx.get(this.db.doc(`authSessions/${previous.sessionId}`))).data();
-        if (previousSession) this.revoke(tx, previous.sessionId, previousSession, now, previous.uid !== identity.uid);
-        if (previous.uid !== identity.uid) tx.delete(this.db.doc(`users/${previous.uid}/devices/${identity.deviceId}`));
+        if (previousSession) await this.revoke(tx, previous.sessionId, previousSession, now, previous.uid !== identity.uid);
+        if (previous.uid !== identity.uid) {
+          await revokeLocationDevice(this.db, tx, previous.uid, identity.deviceId);
+          tx.delete(this.db.doc(`users/${previous.uid}/devices/${identity.deviceId}`));
+        }
       }
       // Registration checks this binding in its own transaction as well. An old
       // request authenticated before this login cannot reclaim the installation.
@@ -250,10 +255,11 @@ export class AuthService {
       identity: {uid: identity.uid, displayName: identity.displayName}, provider: identity.provider};
   }
 
-  private revoke(tx: Transaction, id: string, session: DocumentData, now: number, revokeDevice = true): void {
+  private async revoke(tx: Transaction, id: string, session: DocumentData, now: number, revokeDevice = true): Promise<void> {
     tx.update(this.db.doc(`authSessions/${id}`), {revokedAt: Timestamp.fromMillis(now)});
     tx.delete(this.db.doc(`authAccess/${session.accessHash}`));
     if (revokeDevice && typeof session.deviceId === 'string') {
+      await revokeLocationDevice(this.db, tx, session.uid, session.deviceId);
       tx.delete(this.db.doc(`users/${session.uid}/devices/${session.deviceId}`));
     }
   }

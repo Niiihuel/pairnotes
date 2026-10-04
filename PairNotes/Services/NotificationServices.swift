@@ -92,6 +92,14 @@ extension AppServices: UNUserNotificationCenterDelegate {
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        if response.notification.request.content.userInfo["type"] as? String == "monthlyAnniversary" {
+            await MainActor.run { onOpenCouple?() }
+            return
+        }
+        if response.notification.request.content.userInfo["type"] as? String == "message" {
+            await MainActor.run { onOpenMessages?(); onReceivedNote?() }
+            return
+        }
         guard let noteID = response.notification.request.content.userInfo["noteId"] as? String,
               UUID(uuidString: noteID) != nil else { return }
         await MainActor.run { onOpenNote?(noteID) }

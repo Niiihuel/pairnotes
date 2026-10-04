@@ -186,6 +186,142 @@ final class NativeEditorPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testDiscardRestoresOriginalDraftAfterAutosaveUsingANewerRevision() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DraftCatalogStore(directory: directory, account: .guest)
+        let initialEditor = NativePaperSession(store: store, draft: nil)
+        await initialEditor.load()
+        initialEditor.title = "Título original"
+        initialEditor.paperBackground = .cream
+        initialEditor.controller.replaceMarkup(PaperProbeDocument.fixture(), actionName: "Contenido inicial")
+        let initialCapture = await initialEditor.save()
+        let original = try XCTUnwrap(initialCapture)
+        initialEditor.commit(original)
+        initialEditor.suspendAutosave()
+        let originalSummaries = try await store.list()
+        let editor = NativePaperSession(store: store, draft: try XCTUnwrap(originalSummaries.first))
+        await editor.load()
+        editor.title = "Cambio que se descarta"
+        editor.paperBackground = .rose
+        let autosave = await editor.save()
+        let publicationCapture = try XCTUnwrap(autosave)
+        XCTAssertTrue(editor.hasChanges, "Autosave is recovery, not an explicit acceptance of edits")
+        let discarded = await editor.discardChanges()
+        XCTAssertTrue(discarded)
+        let restored = try await store.load(id: original.document.id)
+        let archive = try XCTUnwrap(restored)
+        XCTAssertGreaterThan(archive.document.revision, publicationCapture.document.revision)
+        XCTAssertEqual(archive.source.data, original.source.data)
+        XCTAssertEqual(archive.document.revisionHash, original.document.revisionHash)
+        for kind in RenderKind.allCases {
+            XCTAssertEqual(archive.image(for: kind)?.pngData, original.image(for: kind)?.pngData)
+        }
+        let summaries = try await store.list()
+        XCTAssertEqual(summaries.first?.title, "Título original")
+        try publicationCapture.validateIntegrity()
+        XCTAssertNotEqual(publicationCapture.document.revisionHash, archive.document.revisionHash,
+                          "Discard cannot mutate an already captured publication")
+        editor.changed()
+        let savedAfterDiscard = await editor.save()
+        XCTAssertNil(savedAfterDiscard, "A late native callback cannot autosave a discarded session")
+    }
+
+    @MainActor
+    func testDiscardRemovesOnlyNewDraftAndExplicitCommitAdvancesItsBaseline() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DraftCatalogStore(directory: directory, account: .guest)
+        let editor = NativePaperSession(store: store, draft: nil)
+        await editor.load()
+        editor.title = "Recuperación temporal"
+        let autosaved = await editor.save()
+        let temporary = try XCTUnwrap(autosaved)
+        let firstDiscard = await editor.discardChanges()
+        XCTAssertTrue(firstDiscard)
+        let missing = try await store.load(id: temporary.document.id)
+        XCTAssertNil(missing)
+
+        let acceptedEditor = NativePaperSession(store: store, draft: nil)
+        await acceptedEditor.load()
+        acceptedEditor.title = "Guardado explícito"
+        let acceptedSave = await acceptedEditor.save()
+        let accepted = try XCTUnwrap(acceptedSave)
+        acceptedEditor.commit(accepted)
+        XCTAssertFalse(acceptedEditor.hasChanges)
+        acceptedEditor.title = "Cambio posterior"
+        acceptedEditor.paperBackground = .sky
+        _ = await acceptedEditor.save()
+        let secondDiscard = await acceptedEditor.discardChanges()
+        XCTAssertTrue(secondDiscard)
+        let restored = try await store.load(id: accepted.document.id)
+        XCTAssertEqual(restored?.source.data, accepted.source.data)
+        let summaries = try await store.list()
+        XCTAssertEqual(summaries.count, 1)
+        XCTAssertEqual(summaries.first?.title, "Guardado explícito")
+    }
+
+    @MainActor
+    func testPhotoCropPreservesChosenPixelsAndRotationAndClampsGestures() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80), format: format).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 60, height: 80))
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 60, y: 0, width: 60, height: 80))
+        }
+        let left = try XCTUnwrap(PhotoCropGeometry.cropped(source, rect: CGRect(x: 0, y: 0, width: 0.5, height: 1)))
+        XCTAssertEqual(left.cgImage?.width, 60)
+        XCTAssertEqual(left.cgImage?.height, 80)
+        try assertPaperPixels(left.pngData(), background: PaperBackground(red: 255, green: 0, blue: 0))
+        let rotated = PhotoCropGeometry.rotated(source)
+        XCTAssertEqual(rotated.cgImage?.width, 80)
+        XCTAssertEqual(rotated.cgImage?.height, 120)
+        let top = try XCTUnwrap(PhotoCropGeometry.cropped(rotated, rect: CGRect(x: 0, y: 0, width: 1, height: 0.5)))
+        try assertPaperPixels(top.pngData(), background: PaperBackground(red: 255, green: 0, blue: 0))
+        XCTAssertNil(PhotoCropGeometry.cropped(source, rect: CGRect(x: 2, y: 2, width: 0.5, height: 0.5)))
+        let rect = CGRect(x: 0.2, y: 0.2, width: 0.5, height: 0.5)
+        let moved = PhotoCropGeometry.moved(rect, by: CGSize(width: 10, height: -10))
+        XCTAssertEqual(moved, CGRect(x: 0.5, y: 0, width: 0.5, height: 0.5))
+        let resized = PhotoCropGeometry.resized(rect, by: CGSize(width: -10, height: -10), topLeft: false)
+        XCTAssertEqual(resized.width, 0.08, accuracy: 0.001)
+        XCTAssertEqual(resized.height, 0.08, accuracy: 0.001)
+        let square = PhotoCropGeometry.square(for: source.size)
+        XCTAssertEqual(square.width * source.size.width, square.height * source.size.height, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testPhotoInsertionCanUndoAndRedoThroughPaperKitHistory() async throws {
+        let controller = PaperProbeController()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.screen.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousKeyWindow?.makeKeyAndVisible() }
+        controller.loadViewIfNeeded()
+        let original = try XCTUnwrap(controller.canvas.markup)
+        let manager = try XCTUnwrap(controller.canvas.undoManager)
+        manager.removeAllActions()
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64)).image { context in
+            UIColor.systemTeal.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        }
+        var fixture = original
+        fixture.insertNewImage(try XCTUnwrap(photo.cgImage), frame: CGRect(x: 100, y: 100, width: 300, height: 300))
+        controller.replaceMarkup(fixture, actionName: "Agregar foto")
+        XCTAssertTrue(manager.canUndo)
+        controller.undo()
+        XCTAssertEqual(controller.canvas.markup, original)
+        XCTAssertTrue(manager.canRedo)
+        controller.redo()
+        XCTAssertEqual(controller.canvas.markup, fixture)
+    }
+
+    @MainActor
     private func assertPaperPixels(_ png: Data?, background: PaperBackground,
                                    file: StaticString = #filePath, line: UInt = #line) throws {
         let data = try XCTUnwrap(png, file: file, line: line)

@@ -16,8 +16,14 @@ final class AppServices: NSObject, ObservableObject {
     @Published private(set) var setupMessage: String?
     @Published private(set) var lastError: String?
     @Published var notificationsEnabled = false
+    @Published var profileAvatar: CoupleAvatar?
+    @Published var coupleSpace: CoupleSpaceState?
+    @Published var spaceError: String?
+    var spaceSequence: UInt64 = 0
 
     var onOpenNote: ((String) -> Void)?
+    var onOpenCouple: (() -> Void)?
+    var onOpenMessages: (() -> Void)?
     var onSessionInvalidated: (() -> Void)?
     var onReceivedNote: (() -> Void)?
     var widgetBaseURL: URL? { client?.configuration.apiBaseURL }
@@ -147,7 +153,7 @@ final class AppServices: NSObject, ObservableObject {
     func updateDisplayName(_ name: String) async throws {
         let uid = try requireUID()
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (1...60).contains(clean.count) else { throw ServiceError.invalidResponse }
+        guard (1...60).contains(clean.utf16.count) else { throw ServiceError.invalidResponse }
         _ = try await call("upsertProfile", ["displayName": clean])
         try checkUID(uid)
         try await refreshMembership()
@@ -164,7 +170,14 @@ final class AppServices: NSObject, ObservableObject {
         guard let profile = response["profile"] as? [String: Any], profile["uid"] as? String == uid,
               let name = profile["displayName"] as? String else { throw ServiceError.invalidResponse }
         let newPair = try Self.membership(from: response, for: uid)
-        if membership?.id != newPair?.id || membership?.pairEpoch != newPair?.pairEpoch { onSessionInvalidated?() }
+        if membership?.id != newPair?.id || membership?.pairEpoch != newPair?.pairEpoch {
+            coupleSpace = nil
+            spaceSequence &+= 1
+            spaceError = nil
+            onSessionInvalidated?()
+        }
+        if let avatar = profile["avatar"] as? [String: Any] { profileAvatar = try decodeSpace(avatar) }
+        else { profileAvatar = nil }
         identity = SessionIdentity(uid: uid, displayName: name)
         membership = newPair
         membershipResolved = true
@@ -201,6 +214,10 @@ final class AppServices: NSObject, ObservableObject {
         membershipResolved = false
         membership = nil
         notificationsEnabled = false
+        coupleSpace = nil
+        spaceSequence &+= 1
+        spaceError = nil
+        profileAvatar = nil
         onSessionInvalidated?()
         if let client, let uid = client.session?.identity.uid {
             // Local logout completes even offline. The remote device revocation
@@ -260,6 +277,10 @@ final class AppServices: NSObject, ObservableObject {
         refreshSequence &+= 1
         identity = nil
         membership = nil
+        profileAvatar = nil
+        coupleSpace = nil
+        spaceSequence &+= 1
+        spaceError = nil
         membershipResolved = false
         notificationsEnabled = false
         onSessionInvalidated?()

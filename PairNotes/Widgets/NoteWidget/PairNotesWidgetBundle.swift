@@ -5,5 +5,9 @@ import WidgetKit
 struct PairNotesWidgetBundle: WidgetBundle {
     var body: some Widget {
         NoteWidget()
+        ReceivedMessageWidget()
+        TogetherWidget()
+        AnniversaryWidget()
+        DistanceWidget()
     }
 }

@@ -12,6 +12,9 @@ final class NativePaperSession: ObservableObject {
     @Published var readOnly = false
     @Published var status = "Tu borrador se guarda en este iPhone."
     @Published var preview: UIImage?
+    @Published private(set) var hasChanges = false
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
     @Published var title: String { didSet { if title != oldValue { changed() } } }
     @Published var paperBackground: PaperBackground = .white {
         didSet {
@@ -31,13 +34,22 @@ final class NativePaperSession: ObservableObject {
     private var savedMutation: UInt64?
     private var lastArchive: DraftArchive?
     private var autosave: Task<Void, Never>?
+    private var baselineArchive: DraftArchive?
+    private var baselineTitle: String
+    private var autosaveSuspended = false
+    private var finished = false
 
     init(store: DraftCatalogStore, draft: DraftSummary?) {
         self.store = store
         documentID = draft?.id ?? UUID()
         existing = draft != nil
         title = draft?.title ?? "Sin título"
+        baselineTitle = draft?.title ?? "Sin título"
         controller.onMarkupChanged = { [weak self] in self?.changed() }
+        controller.onHistoryChanged = { [weak self] undo, redo in
+            self?.canUndo = undo
+            self?.canRedo = redo
+        }
     }
 
     func load() async {
@@ -50,6 +62,7 @@ final class NativePaperSession: ObservableObject {
             revision = archive.document.revision
             preview = archive.image(for: .final).flatMap { UIImage(data: $0.pngData) }
             lastArchive = archive
+            baselineArchive = archive
             guard archive.document.isEditable else { throw ProbeError.incompatibleDocument }
             let restored = try PaperProbeDocument.decode(archive.source.data,
                                                         editorVersion: archive.document.minimumEditorVersion)
@@ -68,10 +81,26 @@ final class NativePaperSession: ObservableObject {
     }
 
     func changed() {
-        guard loaded, !readOnly else { return }
+        guard loaded, !readOnly, !finished else { return }
+        hasChanges = true
         mutation &+= 1
         status = "Cambios sin guardar…"
+        scheduleAutosave()
+    }
+
+    func suspendAutosave() {
+        autosaveSuspended = true
         autosave?.cancel()
+    }
+
+    func resumeAutosave() {
+        autosaveSuspended = false
+        if hasChanges { scheduleAutosave() }
+    }
+
+    private func scheduleAutosave() {
+        autosave?.cancel()
+        guard !autosaveSuspended, !finished else { return }
         autosave = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(2)) } catch { return }
             guard !Task.isCancelled, let self else { return }
@@ -82,7 +111,7 @@ final class NativePaperSession: ObservableObject {
     /// One immutable native capture produces every render. No local edit writes
     /// the received-note widget or changes a previously published note.
     func save() async -> DraftArchive? {
-        guard loaded, !busy else { return nil }
+        guard loaded, !busy, !finished else { return nil }
         if readOnly { return lastArchive }
         if savedMutation == mutation, let lastArchive { return lastArchive }
         busy = true
@@ -115,8 +144,55 @@ final class NativePaperSession: ObservableObject {
         }
     }
 
-    func insertPhoto(_ item: PhotosPickerItem) async {
-        guard loaded, !busy, !readOnly else { return }
+    /// Explicit Save or a successful Send establishes the next discard point.
+    /// Autosave only protects recovery; it never silently accepts this session.
+    func commit(_ archive: DraftArchive) {
+        guard archive == lastArchive, savedMutation == mutation else { return }
+        baselineArchive = archive
+        baselineTitle = title
+        hasChanges = false
+    }
+
+    /// Roll back autosaved edits as a new monotonic revision. Never overwrite an
+    /// older archive or mutate a publication that already captured those bytes.
+    func discardChanges() async -> Bool {
+        guard loaded, !busy, !finished else { return false }
+        suspendAutosave()
+        busy = true
+        defer { busy = false }
+        do {
+            if let baseline = baselineArchive {
+                if lastArchive != baseline {
+                    let (next, overflow) = revision.addingReportingOverflow(1)
+                    guard !overflow else { throw LocalStoreError.obsoleteRevision }
+                    guard let full = baseline.image(for: .final), let widget = baseline.image(for: .widget),
+                          let thumb = baseline.image(for: .thumbnail) else { throw LocalStoreError.corruptData }
+                    let restored = try DraftArchive.make(id: documentID, revision: next,
+                        nativeData: baseline.source.data, finalPNG: full.pngData,
+                        widgetPNG: widget.pngData, thumbnailPNG: thumb.pngData,
+                        canvasSize: baseline.document.canvasSize,
+                        minimumEditorVersion: baseline.document.minimumEditorVersion)
+                    try await store.save(restored, title: baselineTitle)
+                    revision = next
+                    lastArchive = restored
+                }
+            } else {
+                try await store.remove(id: documentID)
+                lastArchive = nil
+            }
+            finished = true
+            hasChanges = false
+            status = "Cambios descartados."
+            return true
+        } catch {
+            status = "No se pudieron descartar los cambios. El borrador sigue conservado. Reintentá."
+            resumeAutosave()
+            return false
+        }
+    }
+
+    func loadPhoto(_ item: PhotosPickerItem) async -> UIImage? {
+        guard loaded, !busy, !readOnly, !finished else { return nil }
         busy = true
         defer { busy = false }
         do {
@@ -126,18 +202,33 @@ final class NativePaperSession: ObservableObject {
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceThumbnailMaxPixelSize: 1536
-                  ] as CFDictionary), var markup = controller.canvas.markup else {
+                  ] as CFDictionary) else {
                 status = "No se pudo importar la foto (máximo 20 MB)."
-                return
+                return nil
             }
-            let width: CGFloat = 900
-            let height = width * CGFloat(image.height) / CGFloat(image.width)
-            let scale = min(1, 1000 / height)
-            markup.insertNewImage(image, frame: CGRect(x: 250, y: 300, width: width * scale, height: height * scale))
-            controller.canvas.markup = markup
-            changed()
-        } catch { status = "No se pudo cargar la foto seleccionada." }
+            return UIImage(cgImage: image)
+        } catch { status = "No se pudo cargar la foto seleccionada."; return nil }
     }
+
+    @discardableResult
+    func insertPhoto(_ image: UIImage) -> Bool {
+        guard loaded, !busy, !readOnly, !finished, let image = image.cgImage,
+              var markup = controller.canvas.markup else { return false }
+        let width: CGFloat = 900
+        let height = width * CGFloat(image.height) / CGFloat(image.width)
+        let scale = min(1, 1000 / height)
+        let size = CGSize(width: width * scale, height: height * scale)
+        let bounds = markup.bounds
+        markup.insertNewImage(image, frame: CGRect(x: bounds.midX - size.width / 2,
+                                                  y: bounds.midY - size.height / 2,
+                                                  width: size.width, height: size.height))
+        controller.replaceMarkup(markup, actionName: "Agregar foto")
+        selecting = true
+        controller.fitPaper()
+        status = "Tocá la foto para moverla o cambiar su tamaño."
+        return true
+    }
+
 }
 
 struct NativePaperEditorView: View {
@@ -152,7 +243,9 @@ struct NativePaperEditorView: View {
     @State private var proposedTitle = ""
     @State private var sending = false
     @State private var closing = false
+    @State private var confirmingClose = false
     @State private var exportImage: ExportImage?
+    @State private var cropPhoto: ExportImage?
 
     init(store: DraftCatalogStore, draft: DraftSummary?, onSaved: @escaping () -> Void,
          onSend: @escaping (DraftArchive) async -> Bool) {
@@ -162,117 +255,156 @@ struct NativePaperEditorView: View {
     }
 
     private var working: Bool { session.busy || sending || closing }
+    private var presentingTools: Bool {
+        choosingPhoto || choosingBackground || renaming || confirmingClose || exportImage != nil || cropPhoto != nil
+    }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    if working { ProgressView().controlSize(.small) }
-                    Text(sending ? "Preparando el envío…" : session.status)
-                        .font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("editor.status")
+            GeometryReader { geometry in
+                let paperSide = max(100, min(640, geometry.size.width - 32, geometry.size.height - 224))
+                VStack(spacing: 10) {
+                    if !session.readOnly { editingControls }
+                    HStack(spacing: 8) {
+                        if working { ProgressView().controlSize(.small) }
+                        Text(sending ? "Preparando el envío…" : session.status)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .accessibilityIdentifier("editor.status")
+                        Spacer(minLength: 0)
+                    }
+                    if session.readOnly {
+                        if let preview = session.preview {
+                            Image(uiImage: preview).resizable().scaledToFit()
+                        } else { ContentUnavailableView("Borrador conservado", systemImage: "doc.lock") }
+                        Button("Exportar imagen", systemImage: "square.and.arrow.up", action: export)
+                            .disabled(working)
+                    } else {
+                        PaperProbeCanvas(controller: session.controller, enabled: !working && !confirmingClose)
+                            .frame(width: paperSide, height: paperSide)
+                            .background(Color(uiColor: session.paperBackground.uiColor))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.primary.opacity(0.22), lineWidth: 1)
+                                    .allowsHitTesting(false)
+                            }
+                            .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                            .accessibilityIdentifier("editor.paper")
+                        Text(session.selecting ? "Tocá una foto o texto y arrastrá para mover. Usá sus tiradores para cambiar el tamaño." :
+                             "Dibujá con el dedo. Usá dos dedos para desplazar o ampliar la hoja.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    // PencilKit owns the lower edge; all actions remain above the paper.
                     Spacer(minLength: 0)
                 }
-                if session.readOnly {
-                    if let preview = session.preview {
-                        Image(uiImage: preview).resizable().scaledToFit()
-                    } else { ContentUnavailableView("Borrador conservado", systemImage: "doc.lock") }
-                } else {
-                    PaperProbeCanvas(controller: session.controller, enabled: !working)
-                        .aspectRatio(1, contentMode: .fit)
-                        .background(Color(uiColor: session.paperBackground.uiColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(Color.primary.opacity(0.22), lineWidth: 1)
-                                .allowsHitTesting(false)
-                        }
-                        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
-                        .accessibilityIdentifier("editor.paper")
-                    Text(session.selecting ? "Tocá el texto o la foto que quieras mover o editar." :
-                         "Dibujá con el dedo o elegí una herramienta de la paleta.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                // The native tool palette owns the lower edge. Essential actions
-                // stay in the navigation bar and cannot be covered by the picker.
-                Spacer(minLength: 0)
+                .padding(.horizontal, 16).padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .padding(.horizontal, 16).padding(.top, 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle(session.title).navigationBarTitleDisplayMode(.inline)
-            .toolbarTitleMenu {
-                Button("Renombrar", systemImage: "pencil") { beginRenaming() }
-                    .disabled(session.readOnly || working)
-            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Listo", action: close)
-                        .disabled(working)
+                    Button(session.readOnly ? "Cerrar" : "Cancelar", action: requestClose)
+                        .disabled(working).accessibilityIdentifier("editor.cancel")
+                }
+                ToolbarItem(placement: .principal) {
+                    Button(action: beginRenaming) {
+                        Text(session.title).font(.headline).lineLimit(1).foregroundStyle(.primary)
+                    }
+                    .disabled(session.readOnly || working)
+                    .accessibilityLabel("Renombrar dibujo: \(session.title)")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Guardar y cerrar", systemImage: "checkmark", action: saveAndClose)
+                        .labelStyle(.iconOnly).disabled(session.readOnly || working)
                         .accessibilityIdentifier("editor.done")
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Enviar", systemImage: "paperplane.fill", action: send)
-                        .labelStyle(.iconOnly)
-                        .disabled(session.readOnly || working)
-                        .accessibilityIdentifier("editor.send")
-                }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Guardar borrador", systemImage: "checkmark.circle", action: save)
-                            .disabled(session.readOnly)
-                        Button("Exportar imagen", systemImage: "square.and.arrow.up", action: export)
-                        Divider()
-                        Button("Renombrar", systemImage: "pencil", action: beginRenaming)
-                            .disabled(session.readOnly)
-                        Button("Color de la hoja", systemImage: "paintpalette") { choosingBackground = true }
-                            .disabled(session.readOnly)
-                        if !session.readOnly {
-                            Divider()
-                            Button("Agregar texto", systemImage: "textformat") { session.controller.insertText() }
-                            Button("Agregar foto", systemImage: "photo.badge.plus") { choosingPhoto = true }
-                            Toggle("Seleccionar texto y fotos", isOn: $session.selecting)
-                            Divider()
-                            Button("Deshacer", systemImage: "arrow.uturn.backward") {
-                                session.controller.canvas.undoManager?.undo()
-                            }
-                            Button("Rehacer", systemImage: "arrow.uturn.forward") {
-                                session.controller.canvas.undoManager?.redo()
-                            }
-                        }
-                    } label: {
-                        Label("Opciones del dibujo", systemImage: "ellipsis")
-                    }
-                    .disabled(working)
-                    .accessibilityIdentifier("editor.options")
+                    Button("Enviar dibujo", systemImage: "paperplane.fill", action: send)
+                        .labelStyle(.iconOnly).disabled(session.readOnly || working)
+                        .accessibilityIdentifier("editor.send")
                 }
             }
             .interactiveDismissDisabled()
             .task { await session.load() }
+            .onAppear { session.resumeAutosave() }
+            .onDisappear { session.suspendAutosave() }
+            .onChange(of: confirmingClose) { _, showing in
+                if !showing && !closing { session.resumeAutosave() }
+            }
+            .onChange(of: presentingTools) { _, presented in
+                session.controller.setPaletteVisible(!presented && !session.selecting)
+            }
+            .onChange(of: session.selecting) { _, selecting in
+                session.controller.setPaletteVisible(!selecting && !presentingTools)
+            }
             .photosPicker(isPresented: $choosingPhoto, selection: $selectedPhoto, matching: .images)
             .onChange(of: selectedPhoto) { _, item in
                 guard let item else { return }
-                Task { await session.insertPhoto(item); selectedPhoto = nil }
+                Task {
+                    if let image = await session.loadPhoto(item) { cropPhoto = ExportImage(image: image) }
+                    selectedPhoto = nil
+                }
             }
             .alert("Renombrar dibujo", isPresented: $renaming) {
-                TextField("Título", text: $proposedTitle)
-                    .textInputAutocapitalization(.sentences)
+                TextField("Título", text: $proposedTitle).textInputAutocapitalization(.sentences)
                 Button("Cancelar", role: .cancel) {}
                 Button("Guardar") {
                     session.title = String(proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
-                    save()
-                }
-                .disabled(working || proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }.disabled(working || proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .confirmationDialog("¿Guardar los cambios del dibujo?", isPresented: $confirmingClose, titleVisibility: .visible) {
+                Button("Guardar y cerrar", action: saveAndClose)
+                Button("Descartar cambios", role: .destructive, action: discardAndClose)
+                Button("Seguir editando", role: .cancel) { session.resumeAutosave() }
+            } message: {
+                Text("Descartar vuelve al último guardado que confirmaste, aunque haya una copia automática de recuperación.")
             }
             .sheet(isPresented: $choosingBackground) {
                 PaperBackgroundPicker(background: $session.paperBackground)
-                    .disabled(session.busy)
-                    .presentationDetents([.medium])
+                    .disabled(session.busy).presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+            }
+            .fullScreenCover(item: $cropPhoto) { item in
+                PhotoCropEditor(image: item.image, onCancel: { cropPhoto = nil }) { image in
+                    if session.insertPhoto(image) { cropPhoto = nil }
+                }
             }
             .sheet(item: $exportImage) { ShareImageView(image: $0.image) }
         }
+    }
+
+    private var editingControls: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                tool("Deshacer", icon: "arrow.uturn.backward", id: "editor.undo", action: session.controller.undo)
+                    .disabled(!session.canUndo)
+                tool("Rehacer", icon: "arrow.uturn.forward", id: "editor.redo", action: session.controller.redo)
+                    .disabled(!session.canRedo)
+                Picker("Modo de edición", selection: $session.selecting) {
+                    Text("Dibujar").tag(false)
+                    Text("Seleccionar").tag(true)
+                }.pickerStyle(.segmented).accessibilityIdentifier("editor.selection")
+            }
+            HStack(spacing: 4) {
+                tool("Agregar foto y recortar", icon: "photo.badge.plus", id: "editor.photo") { choosingPhoto = true }
+                tool("Agregar texto", icon: "textformat", id: "editor.text", action: session.controller.insertText)
+                tool("Color de la hoja", icon: "paintpalette", id: "editor.background") { choosingBackground = true }
+                tool("Exportar imagen", icon: "square.and.arrow.up", id: "editor.export", action: export)
+                Spacer(minLength: 0)
+                tool("Alejar", icon: "minus.magnifyingglass", id: "editor.zoomOut") { session.controller.zoom(by: 1 / 1.35) }
+                tool("Ajustar hoja", icon: "arrow.up.left.and.arrow.down.right", id: "editor.fit", action: session.controller.fitPaper)
+                tool("Acercar", icon: "plus.magnifyingglass", id: "editor.zoomIn") { session.controller.zoom(by: 1.35) }
+            }
+        }.disabled(working || confirmingClose)
+    }
+
+    private func tool(_ label: String, icon: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).frame(minWidth: 44, minHeight: 44)
+        }.buttonStyle(.borderless).accessibilityLabel(label).help(label).accessibilityIdentifier(id)
     }
 
     private func beginRenaming() {
@@ -280,24 +412,37 @@ struct NativePaperEditorView: View {
         renaming = true
     }
 
-    private func save() {
-        Task { if await session.save() != nil { onSaved() } }
+    private func requestClose() {
+        guard !working else { return }
+        session.suspendAutosave()
+        if session.hasChanges { confirmingClose = true }
+        else { dismiss() }
     }
 
-    private func close() {
+    private func saveAndClose() {
         guard !working else { return }
         closing = true
         Task {
             defer { closing = false }
-            let saved = session.readOnly ? true : (await session.save() != nil)
-            if saved {
+            if let archive = await session.save() {
+                session.commit(archive)
                 onSaved()
                 dismiss()
-            }
+            } else { session.resumeAutosave() }
+        }
+    }
+
+    private func discardAndClose() {
+        guard !working else { return }
+        closing = true
+        Task {
+            defer { closing = false }
+            if await session.discardChanges() { onSaved(); dismiss() }
         }
     }
 
     private func export() {
+        guard !working else { return }
         Task {
             if let archive = await session.save(), let data = archive.image(for: .final)?.pngData,
                let image = UIImage(data: data) {
@@ -314,8 +459,10 @@ struct NativePaperEditorView: View {
             defer { sending = false }
             guard let archive = await session.save() else { return }
             onSaved()
-            if await onSend(archive) { dismiss() }
-            else { session.status = "El dibujo está guardado. Revisá la cuenta y la pareja vinculada en Nosotros antes de enviar." }
+            if await onSend(archive) {
+                session.commit(archive)
+                dismiss()
+            } else { session.status = "El dibujo está guardado. Revisá la cuenta y la pareja vinculada en Nosotros antes de enviar." }
         }
     }
 }

@@ -3,7 +3,8 @@ import {connect} from 'node:http2';
 import {Database, Timestamp} from './database';
 import {digest} from './service';
 
-export type NotificationPayload = {aps: {alert: {title: string; body: string}; sound: string}; pairId: string; noteId: string; pairEpoch: number};
+export type NotificationPayload = {aps: {alert: {title: string; body: string}; sound: string}; pairId: string; pairEpoch: number}
+  & ({noteId: string; type?: never; messageId?: never} | {type: 'message'; messageId: string; noteId?: never});
 export interface PushTransport {
   app(token: string, payload: NotificationPayload, environment: 'development' | 'production'): Promise<void>;
   widget(token: string, environment: 'development' | 'production'): Promise<void>;
@@ -12,7 +13,7 @@ export type APNsConfiguration = {key: string; keyId: string; teamId: string; bun
 export class LivePushTransport implements PushTransport {
   constructor(readonly apns: () => APNsConfiguration | undefined) {}
   async app(token: string, payload: NotificationPayload, environment: 'development' | 'production'): Promise<void> {
-    await this.send(token, 'alert', payload, environment, payload.noteId);
+    await this.send(token, 'alert', payload, environment, payload.noteId ?? digest(`message:${payload.messageId}`));
   }
   async widget(token: string, environment: 'development' | 'production'): Promise<void> {
     await this.send(token, 'widgets', {aps: {'content-changed': true}}, environment);
@@ -50,7 +51,8 @@ export async function dispatchNotification(db: Database, eventId: string, transp
     const event = (await tx.get(ref)).data();
     if (!event || event.status === 'done' || event.status === 'cancelled' || event.nextAttemptAt.toMillis() > now) return null;
     const pair = (await tx.get(db.doc(`pairs/${event.pairId}`))).data();
-    const note = (await tx.get(db.doc(`pairs/${event.pairId}/notes/${event.noteId}`))).data();
+    const note = (await tx.get(db.doc(event.type === 'message'
+      ? `pairs/${event.pairId}/messages/${event.messageId}` : `pairs/${event.pairId}/notes/${event.noteId}`))).data();
     if (!pair || pair.status !== 'active' || pair.pairEpoch !== event.pairEpoch || !pair.members.includes(event.recipientId) || !note || note.recipientId !== event.recipientId) {
       tx.update(ref, {status: 'cancelled'}); return null;
     }
@@ -64,8 +66,9 @@ export async function dispatchNotification(db: Database, eventId: string, transp
   });
   try {
     const devices = await db.collection(`users/${event.recipientId}/devices`).where('active', '==', true).get();
-    const payload: NotificationPayload = {aps: {alert: {title: 'PairNotes', body: 'Tenés un dibujo nuevo'}, sound: 'default'},
-      pairId: event.pairId, noteId: event.noteId, pairEpoch: event.pairEpoch};
+    const payload: NotificationPayload = {aps: {alert: {title: 'PairNotes', body: event.type === 'message' ? 'Tenés un mensaje nuevo' : 'Tenés un dibujo nuevo'}, sound: 'default'},
+      pairId: event.pairId, pairEpoch: event.pairEpoch,
+      ...(event.type === 'message' ? {type: 'message' as const, messageId: event.messageId} : {noteId: event.noteId})};
     let failed = false;
     for (const device of devices.docs) {
       for (const channel of ['app', 'widget'] as const) {
