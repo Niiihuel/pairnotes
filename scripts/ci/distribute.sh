@@ -199,6 +199,7 @@ for target, bundle, identifier in [('app', app, app_id), ('widget', app / 'PlugI
     require((bundle / 'PrivacyInfo.xcprivacy').is_file(), f'{target} privacy manifest')
     plistlib.loads((bundle / 'PrivacyInfo.xcprivacy').read_bytes())
     if target == 'app':
+        require(info.get('ITSAppUsesNonExemptEncryption') is False, 'reviewed encryption declaration')
         require(info.get('PAIRNOTES_PRIVATE_KEYCHAIN_GROUP') == private
                 and entitlements.get('com.apple.developer.applesignin') == ['Default'], 'app private Keychain and Apple sign-in')
         url = urllib.parse.urlparse(info.get('PAIRNOTES_API_BASE_URL', ''))
