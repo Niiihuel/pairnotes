@@ -27,8 +27,8 @@ swift test
 En este NixOS, el paquete Swift 5.10 compila los fuentes pero SwiftPM no logra ejecutar el descubrimiento de tests por una biblioteca ausente. La alternativa es el contenedor oficial Swift:
 
 ```bash
-docker run --rm --user "$(id -u):$(id -g)" \
-  -v "$PWD:/workspace" -w /workspace \
+docker run --rm \
+  -v "$PWD:/workspace:ro" -w /workspace \
   swift:6.2 swift test --scratch-path /tmp/pairnotes-build
 ```
 

@@ -32,8 +32,8 @@ jobs:
           python3 -m unittest discover -s scripts/ci/tests -v 2>&1 | tee artifacts/linux/ci-tests.log
       - name: Compile and test the portable Swift module
         run: |
-          docker run --rm --user "$(id -u):$(id -g)" \
-            -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/workspace:ro" -w /workspace \
             swift@sha256:eccc7a97f9b9881d9659e2e788081fd7675f86d39793b51200bfb178398b3784 \
             bash -c 'swift --version && swift test --scratch-path /tmp/pairnotes-build' \
             2>&1 | tee artifacts/linux/swift-tests.log
