@@ -1,6 +1,6 @@
 # Referencias verificadas para M0
 
-Consulta: 2026-10-04. Este registro complementa `Plan_app_pareja_Swift.md`; no reemplaza ni reconstruye el `FUENTES.md` mencionado en el encargo, que no estaba presente al inspeccionar el repositorio. Las referencias documentales describen contratos publicados; cuando hay evidencia de compilación se distingue expresamente de esa documentación. La primera compilación iOS en GitHub Actions falló, como se detalla debajo; este registro no acredita una build iOS exitosa.
+Consulta: 2026-10-04. Este registro complementa `Plan_app_pareja_Swift.md`; no reemplaza ni reconstruye el `FUENTES.md` mencionado en el encargo, que no estaba presente al inspeccionar el repositorio. Las referencias documentales describen contratos publicados; cuando hay evidencia de compilación se distingue expresamente de esa documentación. La [ejecución 37221416769](https://github.com/Niiihuel/pairnotes/actions/runs/37221416769), commit `b9cbb7a`, compiló app, Widget Extension y tests mediante `build-for-testing` con Xcode 26.0.1 y SDK 26.0. La suite nativa de esa ejecución todavía falló en la comparación exacta de píxeles del roundtrip; no acredita la aceptación completa de M0/M1.
 
 ## PaperKit en iOS 26
 
@@ -17,7 +17,7 @@ La documentación consultada ofrece archivos Markdown mediante el enlace «View 
 
 La [guía de integración](https://developer.apple.com/documentation/paperkit/getting-started-with-paperkit) documenta el adaptador `UIViewControllerRepresentable`, `PKToolPicker`, el observador del controlador y `pencilKitResponderState.activeToolPicker`/`toolPickerVisibility`. También presenta `MarkupEditViewController` con el controlador del canvas como delegado; esa integración no quedó validada para el SDK mínimo.
 
-**Contraste con compilación real:** la [primera ejecución de GitHub Actions](https://github.com/Niiihuel/pairnotes/actions/runs/37220239241), con Xcode 26.0.1 y SDK iOS 26.0, rechazó `insertion.delegate = canvas`: el compilador no reconoció la conformidad requerida de `PaperMarkupViewController` con `MarkupEditViewController.Delegate`. La documentación online actual y el SDK mínimo no deben tratarse como superficies idénticas. El experimento reemplazó ese menú por un `UIAlertController` para ingresar texto y la llamada al modelo `insertNewTextbox(attributedText:frame:rotation:)`, cuya disponibilidad está documentada desde iOS 26. La compilación de esa corrección y la edición visual posterior siguen pendientes; no se afirma que el cambio ya haya pasado Xcode. Es necesario conservar las instancias del editor y comprobar su ciclo de vida en iPhone.
+**Contraste con compilación real:** la [primera ejecución de GitHub Actions](https://github.com/Niiihuel/pairnotes/actions/runs/37220239241), con Xcode 26.0.1 y SDK iOS 26.0, rechazó `insertion.delegate = canvas`: el compilador no reconoció la conformidad requerida de `PaperMarkupViewController` con `MarkupEditViewController.Delegate`. La documentación online actual y el SDK mínimo no deben tratarse como superficies idénticas. El experimento reemplazó ese menú por un `UIAlertController` para ingresar texto y la llamada al modelo `insertNewTextbox(attributedText:frame:rotation:)`, cuya disponibilidad está documentada desde iOS 26. Esa corrección sí compiló con el SDK mínimo en la ejecución `37221416769`. La edición visual interactiva y el ciclo de vida del editor en iPhone siguen pendientes.
 
 La revisión comprobó otros valores predeterminados relevantes: [`directTouchAutomaticallyDraws`](https://developer.apple.com/documentation/paperkit/papermarkupviewcontroller/directtouchautomaticallydraws) puede anular el modo de selección; el adaptador lo desactiva para que el control explícito gobierne el dedo. [`zoomRange`](https://developer.apple.com/documentation/paperkit/papermarkupviewcontroller/zoomrange) empieza en `1...1`; se amplía y se usa [`setContentVisibleFrame`](https://developer.apple.com/documentation/paperkit/papermarkupviewcontroller/setcontentvisibleframe(_:animated:)) para encuadrar el lienzo completo. [`isEditable`](https://developer.apple.com/documentation/paperkit/papermarkupviewcontroller/iseditable) permite bloquear cambios durante la captura. Todos estos símbolos declaran disponibilidad iOS 26.
 
@@ -33,7 +33,7 @@ mutating func insertNewTextbox(attributedText: NSAttributedString, frame: CGRect
 mutating func append(contentsOf drawing: PKDrawing)
 ```
 
-Fuentes individuales: [imagen](https://developer.apple.com/documentation/paperkit/papermarkup/insertnewimage(_:frame:rotation:)), [texto](https://developer.apple.com/documentation/paperkit/papermarkup/insertnewtextbox(attributedtext:frame:rotation:)-67igk), [trazos PencilKit](https://developer.apple.com/documentation/paperkit/papermarkup/append(contentsof:)-5tgti). Son declaraciones de referencia, no resultados de compilación local.
+Fuentes individuales: [imagen](https://developer.apple.com/documentation/paperkit/papermarkup/insertnewimage(_:frame:rotation:)), [texto](https://developer.apple.com/documentation/paperkit/papermarkup/insertnewtextbox(attributedtext:frame:rotation:)-67igk), [trazos PencilKit](https://developer.apple.com/documentation/paperkit/papermarkup/append(contentsof:)-5tgti). La composición de prueba que usa estas operaciones compiló en GitHub Actions con SDK 26.0 y se ejecutó en simulador iOS 26.2; no se compiló iOS desde Linux.
 
 Para construir un trazo de prueba, las siguientes firmas Swift tienen disponibilidad documentada desde iOS 14, suficiente para el mínimo 26:
 
@@ -59,6 +59,8 @@ init(dataRepresentation: Data) throws
 
 Fuentes: [serialización](https://developer.apple.com/documentation/paperkit/papermarkup/datarepresentation()), [restauración](https://developer.apple.com/documentation/paperkit/papermarkup/init(datarepresentation:)). El callback [`paperMarkupViewControllerDidChangeMarkup`](https://developer.apple.com/documentation/paperkit/papermarkupviewcontroller/delegate-swift.protocol) permite detectar cambios.
 
+La documentación Markdown de [`indexableContent`](https://developer.apple.com/documentation/paperkit/papermarkup/indexablecontent) declara disponibilidad desde iOS 26.0 y la firma `var indexableContent: String? { get async }`. Permite consultar el contenido textual indexable para complementar las comprobaciones del roundtrip. Por sí sola no demuestra preservación de estilo, posición ni equivalencia visual; las nuevas comprobaciones que la incorporan todavía necesitan su propia ejecución de CI.
+
 Decisión de implementación del proyecto: tomar una copia del modelo y su revisión antes de serializar/renderizar; publicar fuente y derivados de esa misma revisión, con control de orden de escrituras. Un `Task` nuevo en cada callback sin ese control permitiría que terminara primero una revisión más reciente y luego se sobrescribiera con otra vieja.
 
 ### Render y compatibilidad
@@ -66,10 +68,14 @@ Decisión de implementación del proyecto: tomar una copia del modelo y su revis
 [`draw(in:frame:options:)`](https://developer.apple.com/documentation/paperkit/papermarkup/draw(in:frame:options:)) dibuja el modelo completo en el `CGContext` suministrado y es asíncrono:
 
 ```swift
-await markup.draw(in: context, frame: outputRect)
+await markup.draw(in: context, frame: canvas)
 ```
 
-El adaptador debe crear un contexto bitmap explícito, establecer sRGB, SDR, fondo y dimensiones; después puede obtener el `CGImage`. La orientación, escala, alfa y correspondencia con la vista quedan como pruebas visuales pendientes en Mac/iPhone. No se debe colocar `await` dentro del closure síncrono de `UIGraphicsImageRenderer.image`.
+El adaptador crea un contexto bitmap explícito con sRGB, SDR, fondo blanco y dimensiones de salida. Antes de dibujar aplica al contexto una transformación explícita entre las coordenadas del lienzo y los píxeles de salida, incluida la inversión vertical; `frame` conserva los límites lógicos del lienzo. Esto corrigió el recorte observado al producir los derivados. No se debe colocar `await` dentro del closure síncrono de `UIGraphicsImageRenderer.image`.
+
+**Evidencia observada:** en la ejecución `37221416769`, sobre un iPhone 16e con runtime iOS 26.2, pasó el rechazo de fuente PaperKit corrupta. En el roundtrip mixto pasaron las comprobaciones de presencia en las regiones de texto, imagen y trazo; falló solamente la igualdad exacta de píxeles. Los adjuntos `mixed-note-before` y `mixed-note-restored` se inspeccionaron y muestran los tres elementos completos. El diagnóstico de esos PNG identificó los mismos 1287 píxeles de texto desplazados un píxel hacia abajo tras restaurar (`dy = +1`); imagen y trazo fueron idénticos, sin otras diferencias. Es una observación de este fixture y runtime, no una garantía general de PaperKit. La comparación refinada está pendiente de ejecutar; esta ejecución conserva su resultado fallido.
+
+La orientación de fotos reales, fidelidad de color, alfa y correspondencia con la vista interactiva siguen pendientes de validación en simulador o iPhone. La inspección de los PNG generados no demuestra por sí sola esas conductas.
 
 [`FeatureSet.isSubset(of:)`](https://developer.apple.com/documentation/paperkit/featureset/issubset(of:)) permite contrastar las funciones del documento con las del editor. Guardar un render junto a la fuente permite mostrar sólo la imagen si la fuente no se abre o no es compatible. Esta estrategia se recomienda en [Meet PaperKit](https://developer.apple.com/videos/play/wwdc2025/285/). No eliminar silenciosamente elementos incompatibles para poder sobrescribir el documento.
 
@@ -106,4 +112,4 @@ Push remoto queda como validación pendiente: requiere firma, capability, tokens
 5. Mostrar en widget local el derivado de la revisión guardada mediante el App Group; comprobar placeholder y deep link.
 6. Repetir con documento corrupto/incompatible, contenedor ausente y escrituras fuera de orden.
 
-Estos puntos son criterios pendientes de ejecución; la investigación documental no los marca como aprobados.
+La compilación del punto 1 está acreditada por la ejecución enlazada con SDK 26.0; ejecutar sobre el runtime mínimo 26.0 sigue pendiente. También hay evidencia parcial del punto 4 para el fixture y del rechazo de fuente corrupta del punto 6, detallada arriba. La suite nativa completa, la interacción manual, App Group/widget visible y las demás condiciones conservan sus pendientes; la investigación documental no las marca como aprobadas.

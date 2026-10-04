@@ -22,7 +22,7 @@ En la página **Actions**, abrir el run del commit correspondiente. Ambos jobs d
 - `artifacts/ios-tests/attachments`: imágenes antes y después del roundtrip, cuando los tests llegaron a generarlas.
 - `artifacts/ios-tests/Tests.xcresult`: resultado completo para investigar en Xcode cuando sea necesario.
 
-Los adjuntos se intentan exportar también cuando el test falla. Si la compilación falla antes de producir el bundle, no habrá imágenes ni resultados de tests. No se generan imágenes ficticias para suplirlos. Los artefactos se retienen 14 días.
+Los adjuntos se intentan exportar también cuando el test falla. El artefacto pequeño `paperkit-renders-<intento>` permite descargar las imágenes y la fuente nativa sin bajar el paquete completo. Si la compilación falla antes de producir el bundle, no habrá imágenes ni resultados de tests. No se generan imágenes ficticias para suplirlos. Los artefactos se retienen 14 días.
 
 La `.app` de este flujo **sólo sirve para simulador**. Instalar en iPhone/TestFlight requerirá un flujo posterior con bundle IDs, App Group, firma y provisioning propios. Este workflow no registra capacidades, no publica una IPA y no despliega Firebase. Tampoco valida App Groups reales, push, batería, GPS ni la apariencia de un widget en pantalla de inicio.
 
@@ -42,9 +42,13 @@ En NixOS, se pueden ejecutar los linters mediante `nix shell nixpkgs#actionlint 
 
 ## Estado de este corte
 
-Verificado localmente: 15 tests del selector, 84 comprobaciones del proyecto, actionlint y ShellCheck. La suite portable ya tenía 15 XCTest aprobados y se ejecuta de nuevo en CI. Se corrigió una referencia generada a `Foundation.framework` que apuntaba a iPhoneOS18.0; ahora resuelve contra `SDKROOT` tanto en el proyecto como en su generador.
+Verificado localmente: 15 tests del selector, actionlint y ShellCheck. El verificador de proyecto ahora supera **96 comprobaciones** tanto sobre el proyecto incluido como tras regenerarlo en una copia temporal; incluye el catálogo del icono sólo en la app. La suite portable tiene 15 XCTest aprobados y se ejecuta de nuevo en CI. Se corrigió una referencia generada a `Foundation.framework` que apuntaba a iPhoneOS18.0; ahora resuelve contra `SDKROOT` tanto en el proyecto como en su generador.
 
-La ejecución remota se registrará con enlace al run y commit efectivos. Hasta obtener sus resultados, la compilación y los tests iOS siguen pendientes. El próximo corte de producto es M2 (identidad y vinculación), manteniendo verificaciones por fase antes de abordar editor completo, publicación, widgets remotos y distancia.
+El repositorio privado [Niiihuel/pairnotes](https://github.com/Niiihuel/pairnotes) ya está creado. En la [ejecución 37221416769](https://github.com/Niiihuel/pairnotes/actions/runs/37221416769), commit `b9cbb7a`, pasaron las pruebas Linux y la compilación de app, widget y tests con Xcode 26.0.1/SDK 26.0. En el simulador iPhone 16e/iOS 26.2 pasó el rechazo de fuente corrupta; el roundtrip falló exclusivamente por comparación exacta del raster.
+
+La inspección de los PNG confirmó los tres elementos completos y orientados correctamente. Imagen y trazo son idénticos. El texto conserva sus 1287 píxeles de tinta con desplazamiento vertical uniforme de un píxel tras la primera restauración. El test refinado exige igualdad exacta fuera del texto, permite únicamente esa traslación vertical de hasta un píxel, compara el texto indexable y exige que una segunda restauración sea estable. El guardado ahora genera los derivados desde la fuente serializada y restaurada. Su ejecución y la compilación del nuevo icono se registrarán al terminar el siguiente run; aún no se dan por aprobadas.
+
+El próximo corte de producto es **M2: identidad y vinculación segura**, empezando por contratos y Firebase Emulator Suite sin credenciales de producción, con tests negativos de invitaciones, pertenencia y acceso de un tercer usuario. El login Google/Apple real requiere configuración autorizada y se distinguirá de la prueba emulada. No se implementó M2 en este corte ni se avanzó a M3/Studio.
 
 ## Configuración del workflow
 

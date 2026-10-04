@@ -27,6 +27,7 @@
 		A3DB0ED1BA6AFE1F9700D273 /* PairNotesCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4BFC9F34145960D7E13A85F7 /* PairNotesCore.framework */; };
 		C359C184E559B27B2ECD4F3A /* NoteWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2213B490BE6C3CB113250218 /* NoteWidget.swift */; };
 		C8AF274D4C68D26D39274607 /* PaperProbeDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = E937D231B1053DE8EAD87C38 /* PaperProbeDocument.swift */; };
+		C8CAC24C6285E713958976E1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 074757EC41864909F5A59D69 /* Assets.xcassets */; };
 		CC1681D7154DFEBDA1DDDEDF /* PairNotesCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4BFC9F34145960D7E13A85F7 /* PairNotesCore.framework */; };
 		CE680998C37A84BBAD19562F /* SharedWidgetContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D177FEC825C5A5B055E2B846 /* SharedWidgetContainer.swift */; };
 		D11622137AF5CFE45F14A7EA /* NoteDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C2EC3335F010FFC29AFFC8 /* NoteDocument.swift */; };
@@ -91,6 +92,7 @@
 
 /* Begin PBXFileReference section */
 		0619F72F9E9E583FAB1D85CB /* PairNotesApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PairNotesApp.swift; path = PairNotes/App/PairNotesApp.swift; sourceTree = "<group>"; };
+		074757EC41864909F5A59D69 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = PairNotes/App/Assets.xcassets; sourceTree = "<group>"; };
 		0DEFCF22558E2A069A82E354 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		12E23A085FAC1A38A4F03A81 /* PairNotesNativeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PairNotesNativeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		15A7A5AE45E83B99DBCE9054 /* HomeView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HomeView.swift; path = PairNotes/Features/Home/HomeView.swift; sourceTree = "<group>"; };
@@ -197,6 +199,7 @@
 				2213B490BE6C3CB113250218 /* NoteWidget.swift */,
 				D5FA38D6E8A2DCC7E5F95FA8 /* PairNotesWidgetBundle.swift */,
 				866A6E9B0294A6B83B43C4CF /* PaperRoundTripTests.swift */,
+				074757EC41864909F5A59D69 /* Assets.xcassets */,
 			);
 			sourceTree = "<group>";
 		};
@@ -343,6 +346,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C8CAC24C6285E713958976E1 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

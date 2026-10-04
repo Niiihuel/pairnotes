@@ -30,6 +30,8 @@ add_sources(project, core, ['PairNotes/Core/**/*.swift'])
 add_sources(project, app, ['PairNotes/App/**/*.swift', 'PairNotes/Features/**/*.swift', 'PairNotes/Canvas/**/*.swift', 'PairNotes/Widgets/SharedSnapshot/**/*.swift'])
 add_sources(project, widget, ['PairNotes/Widgets/**/*.swift'])
 add_sources(project, tests, ['PairNotes/Tests/NativeTests/**/*.swift'])
+assets = project.main_group.new_file('PairNotes/App/Assets.xcassets')
+app.resources_build_phase.add_file_reference(assets)
 
 [app, widget, tests].each do |target|
   target.add_dependency(core)
@@ -62,7 +64,7 @@ project.targets.each do |target|
   end
 end
 app.build_configurations.each do |config|
-  config.build_settings.merge!('PRODUCT_BUNDLE_IDENTIFIER' => '$(PAIRNOTES_BUNDLE_ID)', 'INFOPLIST_FILE' => 'Config/App-Info.plist', 'GENERATE_INFOPLIST_FILE' => 'NO', 'CODE_SIGN_ENTITLEMENTS' => '$(APP_ENTITLEMENTS)', 'LD_RUNPATH_SEARCH_PATHS' => ['$(inherited)', '@executable_path/Frameworks'])
+  config.build_settings.merge!('PRODUCT_BUNDLE_IDENTIFIER' => '$(PAIRNOTES_BUNDLE_ID)', 'INFOPLIST_FILE' => 'Config/App-Info.plist', 'GENERATE_INFOPLIST_FILE' => 'NO', 'CODE_SIGN_ENTITLEMENTS' => '$(APP_ENTITLEMENTS)', 'LD_RUNPATH_SEARCH_PATHS' => ['$(inherited)', '@executable_path/Frameworks'], 'ASSETCATALOG_COMPILER_APPICON_NAME' => 'AppIcon')
 end
 widget.build_configurations.each do |config|
   config.build_settings.merge!('PRODUCT_BUNDLE_IDENTIFIER' => '$(PAIRNOTES_BUNDLE_ID).widgets', 'INFOPLIST_FILE' => 'Config/Widget-Info.plist', 'GENERATE_INFOPLIST_FILE' => 'NO', 'CODE_SIGN_ENTITLEMENTS' => '$(WIDGET_ENTITLEMENTS)', 'APPLICATION_EXTENSION_API_ONLY' => 'YES', 'SKIP_INSTALL' => 'YES', 'LD_RUNPATH_SEARCH_PATHS' => ['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks'])

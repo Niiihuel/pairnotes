@@ -73,9 +73,12 @@ final class PaperProbeSession: ObservableObject {
             guard let captured = controller.canvas.markup else { throw ProbeError.missingMarkup }
             let nextRevision = revision + 1
             let source = try await captured.dataRepresentation()
-            let full = try await PaperProbeDocument.render(captured, side: 1536)
-            let widget = try await PaperProbeDocument.render(captured, side: 1024)
-            let thumb = try await PaperProbeDocument.render(captured, side: 384)
+            // Render the exact persisted representation. PaperKit can normalize
+            // text geometry during its first serialization on iOS 26.2.
+            let persisted = try PaperMarkup(dataRepresentation: source)
+            let full = try await PaperProbeDocument.render(persisted, side: 1536)
+            let widget = try await PaperProbeDocument.render(persisted, side: 1024)
+            let thumb = try await PaperProbeDocument.render(persisted, side: 384)
             let archive = try DraftArchive.make(id: documentID, revision: nextRevision, nativeData: source,
                                                 finalPNG: full, widgetPNG: widget, thumbnailPNG: thumb)
             try await store().save(archive)

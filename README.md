@@ -1,6 +1,6 @@
 # PairNotes · M0 y base de M1
 
-App iOS nativa en preparación, basada en [el plan recibido](Plan_app_pareja_Swift.md). Trabajamos desde Linux y usamos runners macOS de GitHub Actions para compilar iOS. [El flujo de CI](docs/CI_GITHUB_ACTIONS.md) explica resultados, artefactos y límites; preparar un workflow no significa que la build ya haya pasado.
+App iOS nativa en preparación, basada en [el plan recibido](Plan_app_pareja_Swift.md). Trabajamos desde Linux y usamos runners macOS de GitHub Actions para compilar iOS. Repositorio privado: [Niiihuel/pairnotes](https://github.com/Niiihuel/pairnotes). [El flujo de CI](docs/CI_GITHUB_ACTIONS.md) registra las ejecuciones reales, sus artefactos y límites.
 
 El alcance incluye cuatro pestañas con datos ficticios, un experimento PaperKit para texto/imagen/trazo, guardado explícito de un borrador local, render y una extensión de widget local. El experimento conserva un único borrador. No hay autenticación, pareja real, publicación, servidor, seguimiento de ubicación ni motor Studio.
 
@@ -11,7 +11,7 @@ El alcance incluye cuatro pestañas con datos ficticios, un experimento PaperKit
 - `PairNotes/Core`: modelos Foundation, contratos, mocks y almacenamiento atómico; módulo `PairNotesCore`, compartido con SwiftPM.
 - `PairNotes/Canvas/NativePaper`: experimento iOS 26 de composición, fuente editable y renders.
 - `PairNotes/Widgets`: extensión separada y resolución del contenedor compartido.
-- `PairNotes/Tests`: tests portables y tests PaperKit pendientes de ejecutar en iOS.
+- `PairNotes/Tests`: tests portables y tests PaperKit ejecutados en el simulador de CI.
 - `Config`: ejemplos sin credenciales ni identificadores registrados.
 - [Validación inicial](docs/VALIDACION_INICIAL.md): entorno, resultados reales, limitaciones y próximo corte.
 - [Referencias verificadas](docs/REFERENCIAS_M0.md): firmas Apple y disponibilidad.
@@ -59,7 +59,17 @@ xcodebuild -project PairNotes.xcodeproj -scheme PairNotes \
   -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO test
 ```
 
-Estos comandos son instrucciones pendientes; no se ejecutaron en Linux. Una compilación con SDK 27 no reemplaza el ensayo con SDK/runtime mínimo 26.
+Estos comandos requieren Mac; GitHub Actions registra la compilación con SDK 26.0 y la ejecución en runtime 26.2. Ejecutar en runtime 26.0 exacto sigue pendiente. Una compilación con SDK 27 no reemplaza el ensayo del mínimo.
+
+## Icono de la app
+
+Se conserva [icon.png](icon.png), proporcionado por el usuario. El catálogo `PairNotes/App/Assets.xcassets` contiene su adaptación de 1024 × 1024 RGB, con fondo oscuro `#111118` elegido por el usuario, sin cambiar el diseño ni redondear esquinas manualmente. Pertenece sólo al target de la app. Para reproducir la conversión con ImageMagick:
+
+```bash
+magick icon.png -background '#111118' -alpha remove -alpha off \
+  -resize 1024x1024 -strip \
+  PNG24:PairNotes/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+```
 
 ## Prueba del editor y widget local
 
