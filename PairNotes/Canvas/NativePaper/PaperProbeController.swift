@@ -8,13 +8,27 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     let canvas = PaperMarkupViewController(markup: PaperMarkup(bounds: PaperProbeDocument.bounds),
                                            supportedFeatureSet: PaperProbeDocument.supportedFeatures)
     var onMarkupChanged: (() -> Void)?
+    var paperBackground: PaperBackground = .white {
+        didSet { paper.backgroundColor = paperBackground.uiColor }
+    }
+    private let paper = UIView()
     private let picker = PKToolPicker()
     private var lastFittedSize: CGSize = .zero
     override var canBecomeFirstResponder: Bool { true }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .white
+        view.backgroundColor = .secondarySystemBackground
+        // PaperKit's public contentView is sized to the document bounds and
+        // placed below all editable content (available with the iOS 26 SDK).
+        // Setting just the outer controller's background leaves a dark sheet.
+        paper.backgroundColor = paperBackground.uiColor
+        paper.isOpaque = true
+        paper.isUserInteractionEnabled = false
+        paper.layer.borderWidth = 1
+        paper.layer.borderColor = UIColor.gray.withAlphaComponent(0.45).cgColor
+        canvas.contentView = paper
+        canvas.overrideUserInterfaceStyle = .light
         addChild(canvas)
         canvas.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(canvas.view)
@@ -33,7 +47,10 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         picker.addObserver(canvas)
         pencilKitResponderState.activeToolPicker = picker
         pencilKitResponderState.toolPickerVisibility = .visible
-        picker.accessoryItem = UIBarButtonItem(title: "Texto", style: .plain, target: self, action: #selector(insertText))
+        let textItem = UIBarButtonItem(image: UIImage(systemName: "textformat"), style: .plain,
+                                      target: self, action: #selector(insertText))
+        textItem.accessibilityLabel = "Agregar texto"
+        picker.accessoryItem = textItem
     }
 
     nonisolated func paperMarkupViewControllerDidChangeMarkup(_ paperMarkupViewController: PaperMarkupViewController) {
@@ -64,7 +81,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         resignFirstResponder()
     }
 
-    @objc private func insertText() {
+    @objc func insertText() {
         guard canvas.isEditable else { return }
         // The SDK 26.0 compiler does not expose the controller's conformance to
         // MarkupEditViewController.Delegate. Insert using the stable model API.
@@ -77,7 +94,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   var markup = self.canvas.markup else { return }
             markup.insertNewTextbox(attributedText: NSAttributedString(string: text, attributes: [
-                .font: UIFont.systemFont(ofSize: 64), .foregroundColor: UIColor.black
+                .font: UIFont.systemFont(ofSize: 64), .foregroundColor: self.paperBackground.contrastingInkColor
             ]), frame: CGRect(x: 150, y: 1120, width: 1200, height: 150))
             self.canvas.markup = markup
             self.onMarkupChanged?()

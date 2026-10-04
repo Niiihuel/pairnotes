@@ -52,6 +52,52 @@ public struct PairInvite: Equatable, Sendable {
     }
 
     public func isExpired(at date: Date) -> Bool { date >= expiresAt }
+
+    /// One text item keeps messaging apps from joining a separate item and message.
+    public var shareMessage: String {
+        "\(InvitationCode.messageIntroduction)\n\(token)\n\n\(InvitationCode.messageInstructions)"
+    }
+}
+
+/// Accept only the code or messages produced by PairNotes. Never extract a secret
+/// from an arbitrary URL or repair a damaged code; the server validates its use.
+public enum InvitationCode {
+    fileprivate static let messageIntroduction = "Te invito a PairNotes.\n\nCódigo de invitación:"
+    fileprivate static let messageInstructions = "Abrí PairNotes → Nosotros → Tengo una invitación y pegá este mensaje."
+    private static let legacyInstructions = "Pegá este código en Nosotros para vincular nuestras cuentas."
+
+    public static func parse(_ input: String) -> String? {
+        // Bound pasted content before splitting it, including multibyte input.
+        guard input.utf8.prefix(2_049).count <= 2_048 else { return nil }
+        let words = components(input)
+        if words.count == 1 { return validCode(words[0]) }
+
+        let introduction = components(messageIntroduction)
+        let instructions = components(messageInstructions)
+        if words.count == introduction.count + 1 + instructions.count,
+           Array(words.prefix(introduction.count)) == introduction,
+           Array(words.suffix(instructions.count)) == instructions {
+            return validCode(words[introduction.count])
+        }
+
+        let legacy = components(legacyInstructions)
+        if words.count == 1 + legacy.count, Array(words.dropFirst()) == legacy {
+            return validCode(words[0])
+        }
+        return nil
+    }
+
+    private static func components(_ text: String) -> [Substring] {
+        text.split { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "\r" || $0 == "\r\n" }
+    }
+
+    private static func validCode(_ code: Substring) -> String? {
+        guard code.utf8.count == 43, code.utf8.allSatisfy({ byte in
+            (65...90).contains(byte) || (97...122).contains(byte) ||
+                (48...57).contains(byte) || byte == 45 || byte == 95
+        }) else { return nil }
+        return String(code)
+    }
 }
 
 public protocol PairingService: Sendable {

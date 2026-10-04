@@ -33,6 +33,64 @@ final class PairTimelineTests: XCTestCase {
         XCTAssertTrue(invitation.isExpired(at: deadline.addingTimeInterval(1)))
     }
 
+    private let invitationCode = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcDE"
+
+    func testInvitationShareMessageKeepsOpaqueCodeOnItsOwnLine() {
+        let invitation = PairInvite(token: invitationCode, expiresAt: Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(invitation.shareMessage, """
+        Te invito a PairNotes.
+
+        Código de invitación:
+        \(invitationCode)
+
+        Abrí PairNotes → Nosotros → Tengo una invitación y pegá este mensaje.
+        """)
+        XCTAssertEqual(invitation.shareMessage.components(separatedBy: invitationCode).count, 2)
+    }
+
+    func testInvitationImportAcceptsCleanCodeAndCompleteNewOrLegacyMessages() {
+        let invitation = PairInvite(token: invitationCode, expiresAt: Date(timeIntervalSince1970: 100))
+        let legacy = "\(invitationCode) Pegá este código en Nosotros para vincular nuestras cuentas."
+        for input in [invitationCode, " \n\t\(invitationCode)\r\n ", invitation.shareMessage,
+                      invitation.shareMessage.replacingOccurrences(of: "\n", with: "\r\n"),
+                      invitation.shareMessage.replacingOccurrences(of: "\n", with: " "), legacy,
+                      legacy.replacingOccurrences(of: " ", with: "\n")] {
+            XCTAssertEqual(InvitationCode.parse(input), invitationCode)
+        }
+    }
+
+    func testInvitationImportRejectsPartialModifiedAndNonASCIICodes() {
+        let damaged = [String(invitationCode.dropLast()), invitationCode + "a",
+                       invitationCode.replacingOccurrences(of: "_", with: "- "),
+                       invitationCode.replacingOccurrences(of: "A", with: "А"), // Cyrillic A
+                       invitationCode.replacingOccurrences(of: "-", with: "–"),
+                       invitationCode.replacingOccurrences(of: "_", with: "＿"),
+                       invitationCode.replacingOccurrences(of: "I", with: "I\u{200B}"),
+                       String(invitationCode.prefix(10)) + "\n" + invitationCode.dropFirst(10),
+                       "\u{00A0}" + invitationCode + "\u{00A0}"]
+        for code in damaged {
+            XCTAssertNil(InvitationCode.parse(code))
+            let message = PairInvite(token: code, expiresAt: Date(timeIntervalSince1970: 100)).shareMessage
+            XCTAssertNil(InvitationCode.parse(message))
+        }
+    }
+
+    func testInvitationImportRejectsAmbiguousUnrecognizedAndOversizedMessages() {
+        let invitation = PairInvite(token: invitationCode, expiresAt: Date(timeIntervalSince1970: 100))
+        let anotherCode = String(repeating: "z", count: 43)
+        for input in ["", " \n\t", invitationCode + "\n" + anotherCode,
+                      invitationCode + "\n" + invitationCode,
+                      invitation.shareMessage + "\n" + anotherCode,
+                      "https://example.test/invite/\(invitationCode)",
+                      "pairnotes://invite/\(invitationCode)",
+                      "Mi código es \(invitationCode)",
+                      invitation.shareMessage + " https://example.test",
+                      String(repeating: " ", count: 2_049) + invitationCode,
+                      String(repeating: "🐱", count: 1_024)] {
+            XCTAssertNil(InvitationCode.parse(input))
+        }
+    }
+
     func testDaysUseUserTimeZoneAndServerTimeNotLocalCreationTime() throws {
         let formatter = ISO8601DateFormatter()
         let early = try XCTUnwrap(formatter.date(from: "2026-10-05T01:00:00Z"))

@@ -13,6 +13,12 @@ final class NativePaperSession: ObservableObject {
     @Published var status = "Tu borrador se guarda en este iPhone."
     @Published var preview: UIImage?
     @Published var title: String { didSet { if title != oldValue { changed() } } }
+    @Published var paperBackground: PaperBackground = .white {
+        didSet {
+            controller.paperBackground = paperBackground
+            if paperBackground != oldValue { changed() }
+        }
+    }
     @Published var selecting = false {
         didSet { controller.canvas.directTouchMode = selecting ? .selection : .drawing }
     }
@@ -45,11 +51,14 @@ final class NativePaperSession: ObservableObject {
             preview = archive.image(for: .final).flatMap { UIImage(data: $0.pngData) }
             lastArchive = archive
             guard archive.document.isEditable else { throw ProbeError.incompatibleDocument }
-            let markup = try PaperMarkup(dataRepresentation: archive.source.data)
+            let restored = try PaperProbeDocument.decode(archive.source.data,
+                                                        editorVersion: archive.document.minimumEditorVersion)
+            let markup = restored.markup
             guard markup.featureSet.isSubset(of: PaperProbeDocument.supportedFeatures) else {
                 throw ProbeError.incompatibleDocument
             }
             controller.canvas.markup = markup
+            paperBackground = restored.background
             savedMutation = mutation
             status = "Borrador guardado en este iPhone."
         } catch {
@@ -81,16 +90,19 @@ final class NativePaperSession: ObservableObject {
         let capturedMutation = mutation
         do {
             guard let captured = controller.canvas.markup else { throw ProbeError.missingMarkup }
+            let capturedBackground = paperBackground
+            let capturedTitle = title
             let (nextRevision, overflow) = revision.addingReportingOverflow(1)
             guard !overflow else { throw LocalStoreError.obsoleteRevision }
-            let source = try await captured.dataRepresentation()
-            let persisted = try PaperMarkup(dataRepresentation: source)
-            let full = try await PaperProbeDocument.render(persisted, side: 1536)
-            let widget = try await PaperProbeDocument.render(persisted, side: 1024)
-            let thumb = try await PaperProbeDocument.render(persisted, side: 384)
+            let source = try await PaperProbeDocument.encode(captured, background: capturedBackground)
+            let persisted = try PaperProbeDocument.decode(source, editorVersion: PaperProbeDocument.editorVersion)
+            let full = try await PaperProbeDocument.render(persisted.markup, side: 1536, background: persisted.background)
+            let widget = try await PaperProbeDocument.render(persisted.markup, side: 1024, background: persisted.background)
+            let thumb = try await PaperProbeDocument.render(persisted.markup, side: 384, background: persisted.background)
             let archive = try DraftArchive.make(id: documentID, revision: nextRevision, nativeData: source,
-                                                finalPNG: full, widgetPNG: widget, thumbnailPNG: thumb)
-            try await store.save(archive, title: title)
+                                                finalPNG: full, widgetPNG: widget, thumbnailPNG: thumb,
+                                                minimumEditorVersion: PaperProbeDocument.editorVersion)
+            try await store.save(archive, title: capturedTitle)
             revision = nextRevision
             savedMutation = capturedMutation
             lastArchive = archive
@@ -134,6 +146,10 @@ struct NativePaperEditorView: View {
     let onSend: (DraftArchive) async -> Bool
     @Environment(\.dismiss) private var dismiss
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var choosingPhoto = false
+    @State private var choosingBackground = false
+    @State private var renaming = false
+    @State private var proposedTitle = ""
     @State private var sending = false
     @State private var closing = false
     @State private var exportImage: ExportImage?
@@ -145,82 +161,211 @@ struct NativePaperEditorView: View {
         self.onSend = onSend
     }
 
+    private var working: Bool { session.busy || sending || closing }
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 10) {
-                TextField("Título del borrador", text: $session.title).textFieldStyle(.roundedBorder)
-                    .disabled(session.readOnly)
+            VStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    if working { ProgressView().controlSize(.small) }
+                    Text(sending ? "Preparando el envío…" : session.status)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("editor.status")
+                    Spacer(minLength: 0)
+                }
                 if session.readOnly {
                     if let preview = session.preview {
                         Image(uiImage: preview).resizable().scaledToFit()
                     } else { ContentUnavailableView("Borrador conservado", systemImage: "doc.lock") }
                 } else {
-                    PaperProbeCanvas(controller: session.controller, enabled: !session.busy && !sending && !closing)
-                        .frame(minHeight: 250).background(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                    Toggle("Seleccionar texto e imágenes", isOn: $session.selecting)
-                    HStack {
-                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            Label("Foto", systemImage: "photo.badge.plus")
+                    PaperProbeCanvas(controller: session.controller, enabled: !working)
+                        .aspectRatio(1, contentMode: .fit)
+                        .background(Color(uiColor: session.paperBackground.uiColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(Color.primary.opacity(0.22), lineWidth: 1)
+                                .allowsHitTesting(false)
                         }
-                        Button("Deshacer", systemImage: "arrow.uturn.backward") { session.controller.canvas.undoManager?.undo() }
-                        Button("Rehacer", systemImage: "arrow.uturn.forward") { session.controller.canvas.undoManager?.redo() }
-                    }.labelStyle(.iconOnly).buttonStyle(.bordered)
-                    Text("Dibujá con el dedo. Agregá texto desde la paleta.")
+                        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                        .accessibilityIdentifier("editor.paper")
+                    Text(session.selecting ? "Tocá el texto o la foto que quieras mover o editar." :
+                         "Dibujá con el dedo o elegí una herramienta de la paleta.")
                         .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Text(session.status).font(.footnote).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("editor.status")
-                HStack {
-                    Button("Guardar") { Task { if await session.save() != nil { onSaved() } } }
-                        .buttonStyle(.bordered).disabled(session.readOnly)
-                    Button("Exportar", systemImage: "square.and.arrow.up") {
-                        Task {
-                            if let archive = await session.save(), let data = archive.image(for: .final)?.pngData,
-                               let image = UIImage(data: data) {
-                                onSaved()
-                                exportImage = ExportImage(image: image)
-                            }
-                        }
-                    }.labelStyle(.iconOnly).buttonStyle(.bordered)
-                    Button("Enviar", systemImage: "paperplane.fill") {
-                        guard !sending else { return }
-                        sending = true
-                        Task {
-                            defer { sending = false }
-                            guard let archive = await session.save() else { return }
-                            onSaved()
-                            if await onSend(archive) { dismiss() }
-                            else { session.status = "El dibujo está guardado. Revisá la cuenta y la pareja vinculada en Nosotros antes de enviar." }
-                        }
-                    }.buttonStyle(.borderedProminent).disabled(session.readOnly)
-                }
-                if session.busy || sending { ProgressView("Guardando…") }
+                // The native tool palette owns the lower edge. Essential actions
+                // stay in the navigation bar and cannot be covered by the picker.
+                Spacer(minLength: 0)
             }
-            .padding().disabled(session.busy || sending || closing)
-            .navigationTitle("Tu dibujo").navigationBarTitleDisplayMode(.inline)
+            .padding(.horizontal, 16).padding(.top, 12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color(uiColor: .systemGroupedBackground))
+            .navigationTitle(session.title).navigationBarTitleDisplayMode(.inline)
+            .toolbarTitleMenu {
+                Button("Renombrar", systemImage: "pencil") { beginRenaming() }
+                    .disabled(session.readOnly || working)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Listo") {
-                        closing = true
-                        Task {
-                            defer { closing = false }
-                            let saved = session.readOnly ? true : (await session.save() != nil)
-                            if saved {
-                                onSaved()
-                                dismiss()
+                    Button("Listo", action: close)
+                        .disabled(working)
+                        .accessibilityIdentifier("editor.done")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Enviar", systemImage: "paperplane.fill", action: send)
+                        .labelStyle(.iconOnly)
+                        .disabled(session.readOnly || working)
+                        .accessibilityIdentifier("editor.send")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Guardar borrador", systemImage: "checkmark.circle", action: save)
+                            .disabled(session.readOnly)
+                        Button("Exportar imagen", systemImage: "square.and.arrow.up", action: export)
+                        Divider()
+                        Button("Renombrar", systemImage: "pencil", action: beginRenaming)
+                            .disabled(session.readOnly)
+                        Button("Color de la hoja", systemImage: "paintpalette") { choosingBackground = true }
+                            .disabled(session.readOnly)
+                        if !session.readOnly {
+                            Divider()
+                            Button("Agregar texto", systemImage: "textformat") { session.controller.insertText() }
+                            Button("Agregar foto", systemImage: "photo.badge.plus") { choosingPhoto = true }
+                            Toggle("Seleccionar texto y fotos", isOn: $session.selecting)
+                            Divider()
+                            Button("Deshacer", systemImage: "arrow.uturn.backward") {
+                                session.controller.canvas.undoManager?.undo()
+                            }
+                            Button("Rehacer", systemImage: "arrow.uturn.forward") {
+                                session.controller.canvas.undoManager?.redo()
                             }
                         }
-                    }.disabled(session.busy || sending || closing)
+                    } label: {
+                        Label("Opciones del dibujo", systemImage: "ellipsis")
+                    }
+                    .disabled(working)
+                    .accessibilityIdentifier("editor.options")
                 }
             }
             .interactiveDismissDisabled()
             .task { await session.load() }
+            .photosPicker(isPresented: $choosingPhoto, selection: $selectedPhoto, matching: .images)
             .onChange(of: selectedPhoto) { _, item in
                 guard let item else { return }
                 Task { await session.insertPhoto(item); selectedPhoto = nil }
             }
+            .alert("Renombrar dibujo", isPresented: $renaming) {
+                TextField("Título", text: $proposedTitle)
+                    .textInputAutocapitalization(.sentences)
+                Button("Cancelar", role: .cancel) {}
+                Button("Guardar") {
+                    session.title = String(proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
+                    save()
+                }
+                .disabled(proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .sheet(isPresented: $choosingBackground) {
+                PaperBackgroundPicker(background: $session.paperBackground)
+                    .disabled(session.busy)
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
+            }
             .sheet(item: $exportImage) { ShareImageView(image: $0.image) }
+        }
+    }
+
+    private func beginRenaming() {
+        proposedTitle = session.title
+        renaming = true
+    }
+
+    private func save() {
+        Task { if await session.save() != nil { onSaved() } }
+    }
+
+    private func close() {
+        guard !working else { return }
+        closing = true
+        Task {
+            defer { closing = false }
+            let saved = session.readOnly ? true : (await session.save() != nil)
+            if saved {
+                onSaved()
+                dismiss()
+            }
+        }
+    }
+
+    private func export() {
+        Task {
+            if let archive = await session.save(), let data = archive.image(for: .final)?.pngData,
+               let image = UIImage(data: data) {
+                onSaved()
+                exportImage = ExportImage(image: image)
+            }
+        }
+    }
+
+    private func send() {
+        guard !working else { return }
+        sending = true
+        Task {
+            defer { sending = false }
+            guard let archive = await session.save() else { return }
+            onSaved()
+            if await onSend(archive) { dismiss() }
+            else { session.status = "El dibujo está guardado. Revisá la cuenta y la pareja vinculada en Nosotros antes de enviar." }
+        }
+    }
+}
+
+private struct PaperBackgroundPicker: View {
+    @Binding var background: PaperBackground
+    @Environment(\.dismiss) private var dismiss
+    private let presets: [(String, PaperBackground)] = [
+        ("Blanco", .white), ("Crema", .cream), ("Rosa", .rose),
+        ("Celeste", .sky), ("Menta", .mint), ("Oscuro", .charcoal)
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 76))], spacing: 16) {
+                        ForEach(presets, id: \.0) { name, color in
+                            Button {
+                                background = color
+                            } label: {
+                                VStack(spacing: 6) {
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color(uiColor: color.uiColor))
+                                        .frame(height: 42)
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .strokeBorder(Color.primary.opacity(background == color ? 0.8 : 0.2),
+                                                              lineWidth: background == color ? 3 : 1)
+                                        }
+                                    Text(name).font(.caption).foregroundStyle(.primary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(background == color ? .isSelected : [])
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    ColorPicker("Otro color", selection: Binding(
+                        get: { Color(uiColor: background.uiColor) },
+                        set: { background = PaperBackground(color: UIColor($0)) }
+                    ), supportsOpacity: false)
+                } footer: {
+                    Text("El color se guarda con el dibujo y también aparece al enviarlo, exportarlo y en el widget.")
+                }
+            }
+            .navigationTitle("Color de la hoja").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Listo") { dismiss() } }
+            }
         }
     }
 }

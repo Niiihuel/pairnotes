@@ -29,7 +29,7 @@ public struct CanvasSize: Codable, Equatable, Sendable {
 
 public struct NoteDocument: Codable, Equatable, Identifiable, Sendable {
     public static let currentSchemaVersion = 1
-    public static let currentPaperEditorVersion = 1
+    public static let currentPaperEditorVersion = 2
 
     public let id: UUID
     public let schemaVersion: Int
@@ -124,11 +124,13 @@ public struct DraftArchive: Codable, Equatable, Sendable {
     public static func make(
         id: UUID = UUID(), revision: UInt64, nativeData: Data,
         finalPNG: Data, widgetPNG: Data, thumbnailPNG: Data,
-        canvasSize: CanvasSize = .standard
+        canvasSize: CanvasSize = .standard,
+        minimumEditorVersion: Int = 1
     ) throws -> DraftArchive {
         let hash = ContentDigest.sha256(nativeData)
         let document = NoteDocument(
-            id: id, canvasSize: canvasSize, revision: revision, revisionHash: hash
+            id: id, minimumEditorVersion: minimumEditorVersion,
+            canvasSize: canvasSize, revision: revision, revisionHash: hash
         )
         let source = NativeSource(
             documentID: id, revision: revision, revisionHash: hash, data: nativeData
