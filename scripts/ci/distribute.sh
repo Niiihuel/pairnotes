@@ -51,12 +51,13 @@ trap finish EXIT
 
 # Decode directly from environment; neither values nor private assets enter build logs.
 python3 - "$work" <<'PY'
-import base64, json, os, pathlib, sys
+import base64, json, os, pathlib, shlex, subprocess, sys
 work = pathlib.Path(sys.argv[1])
 names = ['Local.xcconfig', 'App.local.entitlements', 'Widget.local.entitlements']
 if any((pathlib.Path('Config') / name).exists() for name in names):
     raise SystemExit('Refusing to overwrite existing local configuration or entitlements.')
-state = {'config': names, 'profiles': []}
+state = {'config': names, 'profiles': [], 'keychains': shlex.split(
+    subprocess.check_output(['security', 'list-keychains', '-d', 'user'], text=True))}
 (work / 'cleanup.json').write_text(json.dumps(state))
 for secret, name in [('PAIRNOTES_DISTRIBUTION_P12_BASE64', 'distribution.p12'),
                      ('PAIRNOTES_APP_PROFILE_BASE64', 'app.mobileprovision'),
@@ -96,13 +97,11 @@ security cms -D -i "$work/widget.mobileprovision" > "$work/widget.plist"
 
 # Validate the two profiles, then install only the selected UUIDs in Xcode's current directory.
 python3 - "$work" <<'PY'
-import datetime, hashlib, json, pathlib, plistlib, re, shlex, shutil, subprocess, sys
+import datetime, hashlib, json, pathlib, plistlib, re, shutil, subprocess, sys
 work = pathlib.Path(sys.argv[1])
 team, app = '2K2U374CJC', 'com.niiihuel.pairnotes'
 state_path = work / 'cleanup.json'
 state = json.loads(state_path.read_text())
-state['keychains'] = shlex.split(subprocess.check_output(['security', 'list-keychains', '-d', 'user'], text=True))
-state_path.write_text(json.dumps(state))
 subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', str(work / 'signing.keychain-db'), *state['keychains']], check=True)
 identities = set(re.findall(r'\b([A-Fa-f0-9]{40}) "Apple Distribution:[^"\n]+"', (work / 'identities.txt').read_text()))
 identities = {value.upper() for value in identities}
@@ -156,9 +155,11 @@ settings=(
 )
 # The static framework keeps its target-level CODE_SIGNING_ALLOWED=NO.
 xcodebuild -project PairNotes.xcodeproj -scheme PairNotes -configuration Release \
+  -onlyUsePackageVersionsFromResolvedFile \
   -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath "$work/DerivedData" \
   -archivePath "$work/PairNotes.xcarchive" "${settings[@]}" archive \
   2>&1 | tee artifacts/distribution/archive.log
+git diff --exit-code -- PairNotes.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 xcodebuild -exportArchive -archivePath "$work/PairNotes.xcarchive" \
   -exportOptionsPlist "$work/ExportOptions.plist" -exportPath "$work/export" \
   2>&1 | tee artifacts/distribution/export.log
