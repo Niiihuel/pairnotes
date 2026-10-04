@@ -263,7 +263,7 @@ struct NativePaperEditorView: View {
                     session.title = String(proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))
                     save()
                 }
-                .disabled(proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(working || proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .sheet(isPresented: $choosingBackground) {
                 PaperBackgroundPicker(background: $session.paperBackground)
