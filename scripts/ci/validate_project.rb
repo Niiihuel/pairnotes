@@ -17,7 +17,7 @@ end
 
 expected_sources = {
   'PairNotes' => ['PairNotes/App/**/*.swift', 'PairNotes/Features/**/*.swift',
-                  'PairNotes/Canvas/**/*.swift', 'PairNotes/Widgets/SharedSnapshot/**/*.swift'],
+                  'PairNotes/Canvas/**/*.swift', 'PairNotes/Services/**/*.swift', 'PairNotes/Widgets/SharedSnapshot/**/*.swift'],
   'PairNotesWidgets' => ['PairNotes/Widgets/**/*.swift'],
   'PairNotesCore' => ['PairNotes/Core/**/*.swift'],
   'PairNotesNativeTests' => ['PairNotes/Tests/NativeTests/**/*.swift']
@@ -49,6 +49,19 @@ core = targets.fetch('PairNotesCore')
 app = targets.fetch('PairNotes')
 widget = targets.fetch('PairNotesWidgets')
 tests = targets.fetch('PairNotesNativeTests')
+expected_packages = {
+  'https://github.com/google/GoogleSignIn-iOS.git' => '9.2.0'
+}
+packages = project.root_object.package_references
+check.call(packages.size == expected_packages.size, 'unexpected SDK packages')
+packages.each do |package|
+  check.call(package.requirement == { 'kind' => 'exactVersion', 'version' => expected_packages[package.repositoryURL] }, 'SDK versions must be exact and reviewed')
+end
+check.call(app.package_product_dependencies.map(&:product_name) == %w[GoogleSignIn], 'only Google Sign-In belongs to the app')
+[core, widget, tests].each do |target|
+  check.call(target.package_product_dependencies.empty?, "#{target.name} must not link service SDKs")
+end
+check.call(project.files.none? { |file| file.path.to_s.include?('GoogleService-Info') }, 'no abandoned Firebase configuration')
 catalog_path = 'PairNotes/App/Assets.xcassets'
 check.call(File.directory?(catalog_path), 'app asset catalog must exist')
 targets.each_value do |target|
@@ -95,7 +108,10 @@ check.call(testable && testable.attributes['skipped'] == 'NO', 'native tests mus
 check.call(testable.elements['BuildableReference'].attributes['BlueprintIdentifier'] == tests.uuid, 'scheme must execute native tests')
 
 Dir.glob('PairNotes/Core/**/*.swift').each do |path|
-  check.call(!File.read(path).match?(/^import (UIKit|SwiftUI|PaperKit|PencilKit|WidgetKit|PhotosUI)\b/), "UI dependency in #{path}")
+  check.call(!File.read(path).match?(/^import (UIKit|SwiftUI|PaperKit|PencilKit|WidgetKit|PhotosUI|Firebase\w*|GoogleSignIn)\b/), "platform dependency in #{path}")
+end
+Dir.glob('PairNotes/Widgets/**/*.swift').each do |path|
+  check.call(!File.read(path).match?(/^import (Firebase\w*|GoogleSignIn)\b/), "service SDK dependency in #{path}")
 end
 
 puts "#{checks} structural project checks passed. Apple SDK compilation was not performed."

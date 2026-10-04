@@ -27,11 +27,29 @@ def add_sources(project, target, patterns)
   end
 end
 add_sources(project, core, ['PairNotes/Core/**/*.swift'])
-add_sources(project, app, ['PairNotes/App/**/*.swift', 'PairNotes/Features/**/*.swift', 'PairNotes/Canvas/**/*.swift', 'PairNotes/Widgets/SharedSnapshot/**/*.swift'])
+add_sources(project, app, ['PairNotes/App/**/*.swift', 'PairNotes/Features/**/*.swift', 'PairNotes/Canvas/**/*.swift', 'PairNotes/Services/**/*.swift', 'PairNotes/Widgets/SharedSnapshot/**/*.swift'])
 add_sources(project, widget, ['PairNotes/Widgets/**/*.swift'])
 add_sources(project, tests, ['PairNotes/Tests/NativeTests/**/*.swift'])
 assets = project.main_group.new_file('PairNotes/App/Assets.xcassets')
 app.resources_build_phase.add_file_reference(assets)
+
+# Google Sign-In belongs only to the app. The pure core and widget do not link it.
+def add_package(project, target, url, version, products)
+  package = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+  package.repositoryURL = url
+  package.requirement = { 'kind' => 'exactVersion', 'version' => version }
+  project.root_object.package_references << package
+  products.each do |name|
+    dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+    dependency.package = package
+    dependency.product_name = name
+    target.package_product_dependencies << dependency
+    build_file = project.new(Xcodeproj::Project::Object::PBXBuildFile)
+    build_file.product_ref = dependency
+    target.frameworks_build_phase.files << build_file
+  end
+end
+add_package(project, app, 'https://github.com/google/GoogleSignIn-iOS.git', '9.2.0', %w[GoogleSignIn])
 
 [app, widget, tests].each do |target|
   target.add_dependency(core)
@@ -65,6 +83,8 @@ project.targets.each do |target|
 end
 app.build_configurations.each do |config|
   config.build_settings.merge!('PRODUCT_BUNDLE_IDENTIFIER' => '$(PAIRNOTES_BUNDLE_ID)', 'INFOPLIST_FILE' => 'Config/App-Info.plist', 'GENERATE_INFOPLIST_FILE' => 'NO', 'CODE_SIGN_ENTITLEMENTS' => '$(APP_ENTITLEMENTS)', 'LD_RUNPATH_SEARCH_PATHS' => ['$(inherited)', '@executable_path/Frameworks'], 'ASSETCATALOG_COMPILER_APPICON_NAME' => 'AppIcon')
+  config.build_settings['OTHER_LDFLAGS'] = ['$(inherited)', '-ObjC']
+  config.build_settings['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = ['$(inherited)', 'DEBUG'] if config.name == 'Debug'
 end
 widget.build_configurations.each do |config|
   config.build_settings.merge!('PRODUCT_BUNDLE_IDENTIFIER' => '$(PAIRNOTES_BUNDLE_ID).widgets', 'INFOPLIST_FILE' => 'Config/Widget-Info.plist', 'GENERATE_INFOPLIST_FILE' => 'NO', 'CODE_SIGN_ENTITLEMENTS' => '$(WIDGET_ENTITLEMENTS)', 'APPLICATION_EXTENSION_API_ONLY' => 'YES', 'SKIP_INSTALL' => 'YES', 'LD_RUNPATH_SEARCH_PATHS' => ['$(inherited)', '@executable_path/Frameworks', '@executable_path/../../Frameworks'])

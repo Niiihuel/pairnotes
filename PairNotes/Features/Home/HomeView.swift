@@ -2,48 +2,61 @@ import PairNotesCore
 import SwiftUI
 
 struct HomeView: View {
-    let notes: [DemoNote]
+    @ObservedObject var model: AppModel
     let createNote: () -> Void
+    let openNote: (RemoteNote) -> Void
 
     var body: some View {
         List {
-            Section("Una nota de ejemplo") {
-                if let note = notes.max(by: { $0.createdAt < $1.createdAt }) {
-                    NavigationLink {
-                        DemoNoteDetailView(note: note)
-                    } label: {
+            Section("Para vos") {
+                if let note = model.latestReceived {
+                    Button { openNote(note) } label: {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(note.title).font(.headline)
-                            Text(note.message)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(3)
-                            Text("De \(note.author.displayName) · perfil ficticio")
+                            AsyncNoteImage(path: note.assets.widget, services: model.services)
+                                .aspectRatio(1, contentMode: .fit)
+                                .frame(maxHeight: 340)
+                                .clipShape(RoundedRectangle(cornerRadius: 20))
+                            Text("De \(model.membership?.partner.displayName ?? "tu pareja")")
+                                .font(.headline)
+                            Text(note.serverPublishedAt, format: .dateTime.day().month().hour().minute())
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 4)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Abrir el último dibujo recibido")
+                } else if model.isLoading {
+                    ProgressView("Buscando recuerdos…")
                 } else {
-                    Text("No hay notas de ejemplo disponibles.")
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Image(systemName: "heart.text.square").font(.largeTitle).foregroundStyle(.pink)
+                        Text(model.membership == nil ? "Un espacio para ustedes" : "El próximo dibujo aparece acá")
+                            .font(.headline)
+                        Text(model.membership == nil
+                             ? "Podés empezar a dibujar ahora. Iniciá sesión y vinculá las dos cuentas desde Nosotros para compartir."
+                             : "Cuando tu pareja te envíe una nota, la vas a encontrar acá y en Recuerdos.")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 10)
                 }
             }
 
             Section {
                 Button(action: createNote) {
-                    Label("Crear una prueba local", systemImage: "square.and.pencil")
+                    Label("Crear un dibujo", systemImage: "square.and.pencil")
                 }
             } footer: {
-                Text("Los ejemplos son ficticios. Todavía no hay una cuenta ni envíos entre personas.")
+                Text("Los borradores se guardan en este iPhone. Elegís cuándo enviarlos.")
             }
-
-            Section("Distancia") {
-                Label("Ubicación sin activar", systemImage: "location.slash")
-                Text("Compartir ubicación será opcional. Esta versión no solicita permisos ni obtiene posiciones.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            if let status = model.status {
+                Section {
+                    Text(status).font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityLabel("Estado: \(status)")
+                }
             }
         }
         .navigationTitle("PairNotes")
+        .refreshable { await model.foreground() }
     }
 }

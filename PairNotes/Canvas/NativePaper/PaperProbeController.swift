@@ -4,9 +4,10 @@ import PencilKit
 import SwiftUI
 
 @MainActor
-final class PaperProbeController: UIViewController {
-    let canvas = PaperMarkupViewController(markup: PaperProbeDocument.fixture(),
+final class PaperProbeController: UIViewController, PaperMarkupViewController.Delegate {
+    let canvas = PaperMarkupViewController(markup: PaperMarkup(bounds: PaperProbeDocument.bounds),
                                            supportedFeatureSet: PaperProbeDocument.supportedFeatures)
+    var onMarkupChanged: (() -> Void)?
     private let picker = PKToolPicker()
     private var lastFittedSize: CGSize = .zero
     override var canBecomeFirstResponder: Bool { true }
@@ -24,6 +25,7 @@ final class PaperProbeController: UIViewController {
             canvas.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
         canvas.didMove(toParent: self)
+        canvas.delegate = self
         canvas.directTouchAutomaticallyDraws = false
         canvas.directTouchMode = .drawing
         canvas.zoomRange = 0.05...4
@@ -32,6 +34,10 @@ final class PaperProbeController: UIViewController {
         pencilKitResponderState.activeToolPicker = picker
         pencilKitResponderState.toolPickerVisibility = .visible
         picker.accessoryItem = UIBarButtonItem(title: "Texto", style: .plain, target: self, action: #selector(insertText))
+    }
+
+    func paperMarkupViewControllerDidChangeMarkup(_ paperMarkupViewController: PaperMarkupViewController) {
+        onMarkupChanged?()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -68,6 +74,7 @@ final class PaperProbeController: UIViewController {
                 .font: UIFont.systemFont(ofSize: 64), .foregroundColor: UIColor.black
             ]), frame: CGRect(x: 150, y: 1120, width: 1200, height: 150))
             self.canvas.markup = markup
+            self.onMarkupChanged?()
         })
         present(prompt, animated: true)
     }

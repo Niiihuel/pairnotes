@@ -2,178 +2,238 @@ import SwiftUI
 import UIKit
 import PaperKit
 import PairNotesCore
-import WidgetKit
 import PhotosUI
 import ImageIO
 
 @MainActor
-final class PaperProbeSession: ObservableObject {
+final class NativePaperSession: ObservableObject {
     let controller = PaperProbeController()
     @Published var busy = false
     @Published var readOnly = false
-    @Published var status = "Ejemplo ficticio: texto, imagen y trazo."
+    @Published var status = "Tu borrador se guarda en este iPhone."
     @Published var preview: UIImage?
+    @Published var title: String { didSet { if title != oldValue { changed() } } }
     @Published var selecting = false {
         didSet { controller.canvas.directTouchMode = selecting ? .selection : .drawing }
     }
-    private var didLoad = false
+    private let store: DraftCatalogStore
+    private let documentID: UUID
+    private let existing: Bool
+    private var loaded = false
     private var revision: UInt64 = 0
-    private var draftStore: FileDraftStore?
-    // One local scratch document for the M0 experiment; no published note identity.
-    private let documentID = UUID(uuidString: "76F70CBA-2B5D-4CDD-A3A3-0123456789AB")!
+    private var mutation: UInt64 = 0
+    private var savedMutation: UInt64?
+    private var lastArchive: DraftArchive?
+    private var autosave: Task<Void, Never>?
 
-    private func store() throws -> FileDraftStore {
-        if let draftStore { return draftStore }
-        let support = try FileManager.default.url(for: .applicationSupportDirectory,
-                                                  in: .userDomainMask, appropriateFor: nil, create: true)
-        let created = FileDraftStore(directory: support.appendingPathComponent("PaperProbe", isDirectory: true))
-        draftStore = created
-        return created
+    init(store: DraftCatalogStore, draft: DraftSummary?) {
+        self.store = store
+        documentID = draft?.id ?? UUID()
+        existing = draft != nil
+        title = draft?.title ?? "Sin título"
+        controller.onMarkupChanged = { [weak self] in self?.changed() }
     }
 
-    func initialLoad() async {
-        guard !didLoad else { return }
-        didLoad = true
-        await restore()
-    }
-
-    func restore() async {
-        guard !busy else { return }
+    func load() async {
+        guard !loaded else { return }
         busy = true
-        defer { busy = false }
+        defer { busy = false; loaded = true }
+        guard existing else { return }
         do {
-            guard let archive = try await store().load(id: documentID) else { return }
+            guard let archive = try await store.load(id: documentID) else { throw LocalStoreError.corruptData }
             revision = archive.document.revision
             preview = archive.image(for: .final).flatMap { UIImage(data: $0.pngData) }
-            guard archive.document.isEditable else {
-                readOnly = true
-                status = "Esta fuente necesita otra versión. Se conserva su imagen en modo de lectura."
-                return
+            lastArchive = archive
+            guard archive.document.isEditable else { throw ProbeError.incompatibleDocument }
+            let markup = try PaperMarkup(dataRepresentation: archive.source.data)
+            guard markup.featureSet.isSubset(of: PaperProbeDocument.supportedFeatures) else {
+                throw ProbeError.incompatibleDocument
             }
-            let restored = try PaperMarkup(dataRepresentation: archive.source.data)
-            guard restored.featureSet.isSubset(of: PaperProbeDocument.supportedFeatures) else {
-                readOnly = true
-                status = "Esta fuente necesita otra versión. Se conserva su imagen en modo de lectura."
-                return
-            }
-            controller.canvas.markup = restored
-            readOnly = false
-            status = "Borrador local reabierto · revisión \(revision)."
+            controller.canvas.markup = markup
+            savedMutation = mutation
+            status = "Borrador guardado en este iPhone."
         } catch {
             readOnly = true
-            status = "No se pudo abrir el borrador. Se conserva el archivo sin sobrescribirlo."
+            status = "Este borrador no se puede editar con esta versión. Conservamos su archivo y su imagen."
         }
     }
 
-    func save() async {
-        guard !busy, !readOnly else { return }
+    func changed() {
+        guard loaded, !readOnly else { return }
+        mutation &+= 1
+        status = "Cambios sin guardar…"
+        autosave?.cancel()
+        autosave = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            guard !Task.isCancelled, let self else { return }
+            _ = await self.save()
+        }
+    }
+
+    /// One immutable native capture produces every render. No local edit writes
+    /// the received-note widget or changes a previously published note.
+    func save() async -> DraftArchive? {
+        guard loaded, !busy else { return nil }
+        if readOnly { return lastArchive }
+        if savedMutation == mutation, let lastArchive { return lastArchive }
         busy = true
         defer { busy = false }
+        let capturedMutation = mutation
         do {
             guard let captured = controller.canvas.markup else { throw ProbeError.missingMarkup }
-            let nextRevision = revision + 1
+            let (nextRevision, overflow) = revision.addingReportingOverflow(1)
+            guard !overflow else { throw LocalStoreError.obsoleteRevision }
             let source = try await captured.dataRepresentation()
-            // Render the exact persisted representation. PaperKit can normalize
-            // text geometry during its first serialization on iOS 26.2.
             let persisted = try PaperMarkup(dataRepresentation: source)
             let full = try await PaperProbeDocument.render(persisted, side: 1536)
             let widget = try await PaperProbeDocument.render(persisted, side: 1024)
             let thumb = try await PaperProbeDocument.render(persisted, side: 384)
             let archive = try DraftArchive.make(id: documentID, revision: nextRevision, nativeData: source,
                                                 finalPNG: full, widgetPNG: widget, thumbnailPNG: thumb)
-            try await store().save(archive)
+            try await store.save(archive, title: title)
             revision = nextRevision
+            savedMutation = capturedMutation
+            lastArchive = archive
             preview = UIImage(data: full)
-            status = "Guardado en este iPhone · revisión \(revision)."
-            if let directory = SharedWidgetContainer.directory() {
-                do {
-                    let snapshot = NoteWidgetSnapshot(noteID: documentID, revision: revision,
-                                                      revisionHash: archive.document.revisionHash,
-                                                      authorName: "Ejemplo ficticio", updatedAt: Date(), pngData: widget)
-                    try await WidgetSnapshotStore(directory: directory).write(snapshot)
-                    WidgetCenter.shared.reloadTimelines(ofKind: SharedWidgetContainer.widgetKind)
-                    status += " Se solicitó actualizar el widget local."
-                } catch {
-                    status += " No se pudo escribir la copia del widget."
-                }
-            } else {
-                status += " El widget requiere configurar el grupo compartido en Xcode."
-            }
+            status = "Guardado en este iPhone."
+            return archive
         } catch {
-            status = "No se pudo guardar esta revisión. Reintentá antes de cerrar."
+            status = "No se pudo guardar. Reintentá antes de cerrar."
+            return nil
         }
     }
 
     func insertPhoto(_ item: PhotosPickerItem) async {
-        guard !busy, !readOnly else { return }
+        guard loaded, !busy, !readOnly else { return }
         busy = true
         defer { busy = false }
         do {
-            guard let data = try await item.loadTransferable(type: Data.self),
-                  data.count <= 20 * 1024 * 1024,
+            guard let data = try await item.loadTransferable(type: Data.self), data.count <= 20 * 1024 * 1024,
                   let source = CGImageSourceCreateWithData(data as CFData, nil),
                   let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceThumbnailMaxPixelSize: 1536
-                  ] as CFDictionary),
-                  var markup = controller.canvas.markup else {
+                  ] as CFDictionary), var markup = controller.canvas.markup else {
                 status = "No se pudo importar la foto (máximo 20 MB)."
                 return
             }
-            // Orientation normalized; only decoded pixels enter the native document.
             let width: CGFloat = 900
             let height = width * CGFloat(image.height) / CGFloat(image.width)
             let scale = min(1, 1000 / height)
             markup.insertNewImage(image, frame: CGRect(x: 250, y: 300, width: width * scale, height: height * scale))
             controller.canvas.markup = markup
-            status = "Foto agregada al borrador. Guardá para conservarla en este dispositivo."
-        } catch {
-            status = "No se pudo cargar la foto seleccionada."
+            changed()
+        } catch { status = "No se pudo cargar la foto seleccionada." }
+    }
+}
+
+struct NativePaperEditorView: View {
+    @StateObject private var session: NativePaperSession
+    let onSaved: () -> Void
+    let onSend: (DraftArchive) async -> Bool
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var sending = false
+    @State private var closing = false
+    @State private var exportImage: ExportImage?
+
+    init(store: DraftCatalogStore, draft: DraftSummary?, onSaved: @escaping () -> Void,
+         onSend: @escaping (DraftArchive) async -> Bool) {
+        _session = StateObject(wrappedValue: NativePaperSession(store: store, draft: draft))
+        self.onSaved = onSaved
+        self.onSend = onSend
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 10) {
+                TextField("Título del borrador", text: $session.title).textFieldStyle(.roundedBorder)
+                    .disabled(session.readOnly)
+                if session.readOnly {
+                    if let preview = session.preview {
+                        Image(uiImage: preview).resizable().scaledToFit()
+                    } else { ContentUnavailableView("Borrador conservado", systemImage: "doc.lock") }
+                } else {
+                    PaperProbeCanvas(controller: session.controller, enabled: !session.busy && !sending && !closing)
+                        .frame(minHeight: 250).background(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    Toggle("Seleccionar texto e imágenes", isOn: $session.selecting)
+                    HStack {
+                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                            Label("Foto", systemImage: "photo.badge.plus")
+                        }
+                        Button("Deshacer", systemImage: "arrow.uturn.backward") { session.controller.canvas.undoManager?.undo() }
+                        Button("Rehacer", systemImage: "arrow.uturn.forward") { session.controller.canvas.undoManager?.redo() }
+                    }.labelStyle(.iconOnly).buttonStyle(.bordered)
+                    Text("Dibujá con el dedo. Agregá texto desde la paleta.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(session.status).font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("editor.status")
+                HStack {
+                    Button("Guardar") { Task { if await session.save() != nil { onSaved() } } }
+                        .buttonStyle(.bordered).disabled(session.readOnly)
+                    Button("Exportar", systemImage: "square.and.arrow.up") {
+                        Task {
+                            if let archive = await session.save(), let data = archive.image(for: .final)?.pngData,
+                               let image = UIImage(data: data) {
+                                onSaved()
+                                exportImage = ExportImage(image: image)
+                            }
+                        }
+                    }.labelStyle(.iconOnly).buttonStyle(.bordered)
+                    Button("Enviar", systemImage: "paperplane.fill") {
+                        guard !sending else { return }
+                        sending = true
+                        Task {
+                            defer { sending = false }
+                            guard let archive = await session.save() else { return }
+                            onSaved()
+                            if await onSend(archive) { dismiss() }
+                            else { session.status = "El dibujo está guardado. Revisá la cuenta y la pareja vinculada en Nosotros antes de enviar." }
+                        }
+                    }.buttonStyle(.borderedProminent).disabled(session.readOnly)
+                }
+                if session.busy || sending { ProgressView("Guardando…") }
+            }
+            .padding().disabled(session.busy || sending || closing)
+            .navigationTitle("Tu dibujo").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Listo") {
+                        closing = true
+                        Task {
+                            defer { closing = false }
+                            let saved = session.readOnly ? true : (await session.save() != nil)
+                            if saved {
+                                onSaved()
+                                dismiss()
+                            }
+                        }
+                    }.disabled(session.busy || sending || closing)
+                }
+            }
+            .interactiveDismissDisabled()
+            .task { await session.load() }
+            .onChange(of: selectedPhoto) { _, item in
+                guard let item else { return }
+                Task { await session.insertPhoto(item); selectedPhoto = nil }
+            }
+            .sheet(item: $exportImage) { ShareImageView(image: $0.image) }
         }
     }
 }
 
-struct NativePaperProbeView: View {
-    @StateObject private var session = PaperProbeSession()
-    @State private var selectedPhoto: PhotosPickerItem?
+private struct ExportImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
 
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("Prueba local del editor").font(.headline)
-            Text(session.status).font(.footnote).foregroundStyle(.secondary)
-                .accessibilityIdentifier("editor.status")
-            if session.readOnly {
-                if let preview = session.preview {
-                    Image(uiImage: preview).resizable().scaledToFit()
-                        .accessibilityLabel("Imagen del borrador conservado")
-                }
-            } else {
-                PaperProbeCanvas(controller: session.controller, enabled: !session.busy)
-                    .frame(minHeight: 250).background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                Toggle("Seleccionar texto e imágenes", isOn: $session.selecting)
-                PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                    Label("Agregar foto", systemImage: "photo.badge.plus")
-                }
-                Text("Dibujá con el dedo. Usá Texto en la paleta para agregar una caja de texto.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            HStack {
-                Button("Guardar y renderizar") { Task { await session.save() } }
-                    .buttonStyle(.borderedProminent).disabled(session.readOnly)
-                Button("Reabrir") { Task { await session.restore() } }.buttonStyle(.bordered)
-            }
-            if session.busy { ProgressView("Procesando…") }
-        }
-        .padding().disabled(session.busy)
-        .task { await session.initialLoad() }
-        .onChange(of: selectedPhoto) { _, item in
-            guard let item else { return }
-            Task {
-                await session.insertPhoto(item)
-                selectedPhoto = nil
-            }
-        }
+struct ShareImageView: UIViewControllerRepresentable {
+    let image: UIImage
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [image], applicationActivities: nil)
     }
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

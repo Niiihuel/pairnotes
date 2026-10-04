@@ -4,3 +4,13 @@
 // PAIRNOTES_APP_GROUP = <App Group registrado y habilitado en ambos targets>
 // APP_ENTITLEMENTS = Config/App.local.entitlements
 // WIDGET_ENTITLEMENTS = Config/Widget.local.entitlements
+// PAIRNOTES_KEYCHAIN_GROUP = <Team ID>.<grupo registrado compartido app/widget>
+// Configurar sólo después de registrar los servicios y descargar la configuración propia.
+// PAIRNOTES_GOOGLE_CLIENT_ID = <cliente OAuth iOS registrado para tu bundle ID>
+// PAIRNOTES_GOOGLE_SERVER_CLIENT_ID = <cliente OAuth web propio si corresponde>
+// PAIRNOTES_GOOGLE_REVERSED_CLIENT_ID = <client ID iOS con los componentes invertidos>
+// PAIRNOTES_API_BASE_URL = https:/$()/tu-servicio.up.railway.app/
+// ^ $() conserva // en xcconfig sin convertirlo en comentario.
+// PAIRNOTES_APNS_ENVIRONMENT = development // production para distribución firmada
+// La app requiere HTTPS. Las pruebas de servidor usan proveedores inyectados sólo en tests.
+// No hay un acceso ficticio ni un modo emulador habilitado en la aplicación.
