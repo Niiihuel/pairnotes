@@ -57,7 +57,7 @@ extension AppServices {
         guard let pair = membership else { throw ServiceError.noPair }
         var payload: [String: Any] = ["pairId": pair.id, "pairEpoch": pair.pairEpoch, "limit": 30]
         if let cursor {
-            payload["cursor"] = ["publishedAt": cursor.serverPublishedAt.timeIntervalSince1970 * 1_000, "noteId": cursor.noteID]
+            payload["cursor"] = ["publishedAt": try RailwayClient.milliseconds(cursor.serverPublishedAt), "noteId": cursor.noteID]
         }
         let result = try await call("timeline", payload)
         try checkPair(uid: uid, pair: pair)

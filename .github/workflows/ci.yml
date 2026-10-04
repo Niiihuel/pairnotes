@@ -18,6 +18,48 @@ defaults:
     shell: bash
 
 jobs:
+  backend:
+    name: API, identity and private storage tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start isolated PostgreSQL and S3 test fixtures
+        run: |
+          docker compose -p pairnotes-ci -f Backend/compose.test.yml up -d --wait --wait-timeout 120
+          ready=0
+          for ((attempt=0; attempt<60; attempt++)); do
+            if curl -fsS http://127.0.0.1:59000/minio/health/live > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = 1
+      - name: Build and test API with actual SQL and S3
+        run: |
+          mkdir -p artifacts/backend
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/Backend:/workspace" -w /workspace \
+            -e DATABASE_URL=postgresql://pairnotes:pairnotes-local-only@127.0.0.1:55432/pairnotes_test \
+            -e TEST_S3_ENDPOINT=http://127.0.0.1:59000 \
+            node:22.23.1-bookworm \
+            bash -c 'npm ci --no-fund --no-audit && npm test' \
+            2>&1 | tee artifacts/backend/tests.log
+      - name: Remove isolated test fixtures
+        if: always()
+        run: docker compose -p pairnotes-ci -f Backend/compose.test.yml down --volumes
+      - name: Save backend test logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-tests-${{ github.run_attempt }}
+          path: artifacts/backend/
+          if-no-files-found: warn
+          retention-days: 14
+
   portable:
     name: Portable tests (Linux)
     runs-on: ubuntu-24.04

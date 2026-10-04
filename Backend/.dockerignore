@@ -1,0 +1,8 @@
+node_modules
+lib
+.git
+.env*
+.secret*
+*.log
+test
+README.md

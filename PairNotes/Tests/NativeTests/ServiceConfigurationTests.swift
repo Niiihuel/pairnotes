@@ -32,6 +32,14 @@ final class ServiceConfigurationTests: XCTestCase {
         XCTAssertThrowsError(try AuthSession.decode(bad, provider: "google"))
     }
 
+    func testTimelineCursorUsesIntegerMillisecondsAndRejectsUnsafeDates() throws {
+        let date = Date(timeIntervalSince1970: 2_147_483_648_002.0 / 1_000)
+        XCTAssertEqual(try RailwayClient.milliseconds(date), 2_147_483_648_002)
+        XCTAssertThrowsError(try RailwayClient.milliseconds(Date(timeIntervalSince1970: .infinity)))
+        XCTAssertThrowsError(try RailwayClient.milliseconds(Date(timeIntervalSince1970: -1)))
+        XCTAssertThrowsError(try RailwayClient.milliseconds(Date(timeIntervalSince1970: 9_007_199_254_740_992.0 / 1_000)))
+    }
+
     func testPrivateSessionGroupCannotBeSharedWithWidget() throws {
         var values = validConfigurationValues()
         values["PAIRNOTES_KEYCHAIN_GROUP"] = values["PAIRNOTES_PRIVATE_KEYCHAIN_GROUP"]
@@ -39,6 +47,13 @@ final class ServiceConfigurationTests: XCTestCase {
         values = validConfigurationValues()
         values["PAIRNOTES_PRIVATE_KEYCHAIN_GROUP"] = "$(AppIdentifierPrefix)org.example.PairNotes"
         XCTAssertThrowsError(try ServiceConfiguration.load(values: values))
+    }
+
+    func testOnlyExplicitNullConfirmsAnUnlinkedPair() throws {
+        XCTAssertNil(try AppServices.membership(from: ["pair": NSNull()], for: "fictional-uid"))
+        for malformed: [String: Any] in [[:], ["pair": "missing"], ["pair": []], ["pair": ["status": "active"]]] {
+            XCTAssertThrowsError(try AppServices.membership(from: malformed, for: "fictional-uid"))
+        }
     }
 
     @MainActor

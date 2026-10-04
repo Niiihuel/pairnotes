@@ -1,0 +1,47 @@
+# Configuración iOS y validación en dispositivos
+
+Estado del corte: adaptadores implementados; OAuth real, firma, APNs y WidgetKit push requieren configuración propia y pruebas en dispositivos. La arquitectura vigente usa una API Node en Railway, PostgreSQL y almacenamiento privado; sustituye la propuesta Firebase del plan inicial por pedido del usuario. La app mantiene editor y borradores locales cuando la API no está configurada.
+
+## Dependencias y contratos verificados
+
+El único paquete del target app es **GoogleSignIn 9.2.0**, fijado exactamente. El core y la extensión no lo enlazan. La [versión 9.2.0](https://github.com/google/GoogleSignIn-iOS/releases/tag/9.2.0) usa un manifiesto Swift 6.0; se conserva para compilar con Xcode 26. GoogleSignIn 10 requiere Xcode 27 según sus notas de versión. El [header de 9.2.0](https://github.com/google/GoogleSignIn-iOS/blob/9.2.0/GoogleSignIn/Sources/Public/GoogleSignIn/GIDSignIn.h) incluye el parámetro `nonce` del inicio de sesión.
+
+La API entrega un desafío aleatorio de un solo uso antes del acceso con Google o Apple. La app manda SHA-256 del nonce al proveedor y el backend verifica firma, audiencia, emisor, caducidad y nonce del ID token. La identidad interna se asigna por proveedor y sujeto; no hay vinculación automática por email. [Google: autenticación en servidor](https://developers.google.com/identity/sign-in/ios/backend-auth), [Apple: verificación de usuario](https://developer.apple.com/documentation/signinwithapple/verifying-a-user).
+
+El cliente guarda access y refresh tokens opacos en Keychain privado de la app, asociados a la URL de la API. La renovación concurrente se agrupa en una sola operación, persiste el refresh token rotado antes de nuevas solicitudes y descarta respuestas de una cuenta que ya cerró sesión. El widget recibe otra credencial, revocable y limitada a su snapshot, en el grupo compartido de Keychain. Los tokens no se escriben en archivos de configuración, UserDefaults, notificaciones ni logs de la aplicación.
+
+## Preparación manual
+
+1. Registrar identificadores propios para app y extensión, App Group, grupo compartido de Keychain y capacidades necesarias usando la cuenta Apple Developer del propietario. Tener membresía no registra estos valores automáticamente.
+2. Copiar `Config/Local.xcconfig.example` a `Config/Local.xcconfig` y completar `PAIRNOTES_BUNDLE_ID`, `DEVELOPMENT_TEAM`, `PAIRNOTES_APP_GROUP`, `PAIRNOTES_KEYCHAIN_GROUP`, `PAIRNOTES_API_BASE_URL` y los clientes OAuth de Google. El archivo local está ignorado por git. En xcconfig, escribir `https:/$()/dominio-propio/` conserva las dos barras sin iniciar un comentario.
+3. Copiar `Config/App.entitlements.example` y `Config/Widget.entitlements.example` a los nombres `.local.entitlements` indicados en el ejemplo. El primer grupo de Keychain de la app debe ser su grupo privado; el widget sólo declara el grupo compartido. Configurar `APP_ENTITLEMENTS` y `WIDGET_ENTITLEMENTS` con esos archivos.
+4. Habilitar Sign in with Apple para el identificador de la app. Configurar en el backend las audiencias Apple autorizadas para ese identificador. El flujo nativo usa AuthenticationServices; no requiere inventar un Service ID de un flujo web. Comprobar cancelación, primer acceso, acceso posterior sin nombre nuevo y revocación. [Apple: configuración](https://developer.apple.com/documentation/authenticationservices/implementing-user-authentication-with-sign-in-with-apple).
+5. Registrar un cliente OAuth iOS Google para el mismo bundle ID. Configurar el client ID y su esquema invertido en xcconfig; si se utiliza un cliente servidor, configurar también ese ID y la audiencia aceptada por el backend. Probar el retorno de URL en el dispositivo. [Google: integración iOS](https://developers.google.com/identity/sign-in/ios/start-integrating).
+6. Configurar API y secretos de servidor en Railway conforme a `docs/RAILWAY_Y_FLUJO_NOTAS.md`. Las claves S3, base de datos y clave privada APNs pertenecen al servidor. No incorporarlas al bundle iOS ni al repositorio. La app sólo necesita URL HTTPS, identificadores públicos OAuth y capacidades de firma.
+
+No hay selector de cuenta ficticia, acceso con token de prueba ni fallback a un emulador en la app. Los proveedores falsos de los tests del backend se inyectan exclusivamente desde el entorno de pruebas.
+
+## Notificaciones y widget
+
+La app solicita autorización de notificaciones sólo al tocar **Activar notificaciones** en Nosotros. Registra el token APNs, su entorno y un identificador de instalación con la sesión autenticada. El servidor envía una alerta genérica y el ID de nota después de confirmar la publicación. Abrir la alerta consulta la nota autorizada; recibir el aviso o descargar el widget no marca el dibujo como visto. [Apple: registro APNs](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns).
+
+Completar una clave APNs real en el servidor y seleccionar su Team ID, Key ID, topic/bundle ID y entorno. `PAIRNOTES_APNS_ENVIRONMENT` debe coincidir con el entitlement de la instalación: development para la provisión de desarrollo correspondiente, production para la distribución correspondiente. No se puede deducir el entorno únicamente de Debug/Release. No usar claves de ejemplo como si fueran credenciales válidas.
+
+WidgetKit usa su token de push propio de iOS 26, independiente del permiso de alertas normales. La extensión recibe sólo la credencial limitada; nunca el refresh token de la app. El usuario agrega el widget desde el sistema. La app puede pedir una recarga y el servidor puede enviar una señal; iOS decide cuándo ejecuta y presenta la actualización. [Apple: actualización de widgets con push](https://developer.apple.com/documentation/widgetkit/updating-widgets-with-widgetkit-push-notifications).
+
+La app consulta cambios al volver al primer plano, cada 30 segundos mientras sigue activa y al refrescar manualmente. Esa consulta no se ejecuta como un temporizador permanente en segundo plano. El widget conserva una caché con caducidad y muestra estados de reconexión cuando corresponde. Cerrar sesión o desvincular elimina las credenciales y cachés controladas en este dispositivo; no promete borrar instantáneamente una imagen ya representada por iOS en un dispositivo sin conexión.
+
+## Validaciones pendientes y comandos
+
+La CI sin firma compila código y ejecuta tests de documento, configuración, sesión y caché. No prueba cuentas OAuth reales ni entrega APNs. Para la compilación de simulador se usa el proyecto versionado y el script `scripts/ci/ios.sh`; para regeneración estructural se usan `scripts/generate_project.rb --replace` y `scripts/ci/validate_project.rb` con la gema xcodeproj fijada en el lockfile.
+
+Antes de distribución, verificar con dos iPhones firmados:
+
+- Acceso Google y Apple, cancelación, reautenticación sensible, restauración y revocación; no fusionar dos proveedores sólo porque compartan email.
+- Vinculación, invitación caducada/usada/revocada, intento de tercera cuenta y desvinculación con una sesión antigua abierta.
+- Envío interrumpido/reintentado sin duplicados, cuatro activos de la misma revisión, cronología por día y paginación.
+- APNs con app abierta, en segundo plano y cerrada; permiso denegado; token renovado; ausencia de claves; abrir alerta sin registrar vista antes de mostrar la nota.
+- Widget instalado, token propio, actualización oportunista, modo sin conexión, credencial vencida y retirada de acceso de la pareja anterior.
+- Release firmado: grupo privado de Keychain separado del compartido, App Group correcto y ausencia de secretos en el bundle.
+
+Eliminación de cuenta y revocación completa de concesiones del proveedor siguen siendo un corte necesario antes de publicación en App Store. No se presenta este código como listo para distribución hasta completar esos flujos, las pruebas físicas y los requisitos de privacidad.

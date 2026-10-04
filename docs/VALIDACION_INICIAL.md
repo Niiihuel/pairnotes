@@ -2,6 +2,8 @@
 
 Fecha: 4 de octubre de 2026. Alcance autorizado: M0 y base necesaria de M1.
 
+**Continuación posterior:** el usuario autorizó avanzar con envío, historial, avisos y widget recibido, y reemplazar Firebase por Railway. Ver [la enmienda](RAILWAY_Y_FLUJO_NOTAS.md) y [los resultados de ese corte](VALIDACION_RAILWAY.md). El contenido restante conserva el registro histórico de M0; no describe el estado actual de la app.
+
 Continuación autorizada: el usuario eligió trabajar sin Mac propio, compilar mediante GitHub Actions, crear el repositorio en `Niiihuel` y continuar luego por fases verificadas. Se creó el repositorio privado [Niiihuel/pairnotes](https://github.com/Niiihuel/pairnotes). El usuario también aportó `icon.png` y eligió fondo oscuro para su adaptación a icono iOS. La evidencia actualizada está en [CI_GITHUB_ACTIONS.md](CI_GITHUB_ACTIONS.md). El resto de este documento conserva el registro histórico de la inspección inicial; los 36 archivos enumerados al final corresponden a esa primera entrega.
 
 **Resultado de la primera entrega:** base portable y proyecto iOS preparados; en ese momento compilación y ejecución Apple estaban pendientes. Después se compiló realmente con SDK iOS 26.0 en GitHub Actions y se ejecutaron pruebas PaperKit en simulador 26.2. Consultar el estado de cada prueba y sus correcciones en el registro de CI enlazado arriba. La validación interactiva en iPhone, App Group y widget visible sigue pendiente.

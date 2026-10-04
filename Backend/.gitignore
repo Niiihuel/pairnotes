@@ -1,0 +1,7 @@
+node_modules/
+lib/
+*-debug.log
+*.log
+.env*
+.secret*
+coverage/

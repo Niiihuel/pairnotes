@@ -1,67 +1,61 @@
-# PairNotes · M0 y base de M1
+# PairNotes
 
-App iOS nativa en preparación, basada en [el plan recibido](Plan_app_pareja_Swift.md). Trabajamos desde Linux y usamos runners macOS de GitHub Actions para compilar iOS. Repositorio privado: [Niiihuel/pairnotes](https://github.com/Niiihuel/pairnotes). [El flujo de CI](docs/CI_GITHUB_ACTIONS.md) registra las ejecuciones reales, sus artefactos y límites.
+App iOS nativa para compartir dibujos, texto y fotos entre dos personas. Swift/SwiftUI y PaperKit, iOS 26 mínimo. Se desarrolla desde Linux; la compilación Apple y los tests nativos se ejecutan con GitHub Actions. Repositorio privado: [Niiihuel/pairnotes](https://github.com/Niiihuel/pairnotes).
 
-El alcance incluye cuatro pestañas con datos ficticios, un experimento PaperKit para texto/imagen/trazo, guardado explícito de un borrador local, render y una extensión de widget local. El experimento conserva un único borrador. No hay autenticación, pareja real, publicación, servidor, seguimiento de ubicación ni motor Studio.
+Por decisión del usuario, **Railway reemplaza Firebase**: API Node, PostgreSQL y almacenamiento S3 privado. Google y Apple siguen siendo proveedores de login. Las notificaciones se envían directamente por APNs. El [plan original](Plan_app_pareja_Swift.md) se conserva; la [enmienda de arquitectura y alcance](docs/RAILWAY_Y_FLUJO_NOTAS.md) documenta el cambio.
 
-**CI aprobada:** [run 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f87`: 15 tests Swift y 15 Python en Linux, compilación de app/widget con SDK 26.0 y 2 tests PaperKit en simulador iOS 26.2. [Evidencia visual](docs/evidence/m0/README.md). Firma, widget visible y validación interactiva en dispositivos continúan pendientes.
+## Estado
+
+Implementados: borradores múltiples con autosave, texto/fotos/trazo, exportación, sesiones y vinculación privada, cola de envíos con reintento, historial por días, último dibujo recibido, avisos APNs y widget con credencial propia. No hay datos ficticios presentados como notas recibidas reales. El editor local funciona sin configurar servicios.
+
+La prueba entre dos iPhones todavía requiere IDs OAuth y configuración Apple reales. La aceptación de push en APNs y la actualización visible del widget no se dan por comprobadas mediante tests con transporte simulado. El widget solicita actualizaciones; iOS decide cuándo mostrarlas. No se solicita ubicación ni se implementa todavía el widget de distancia o Studio/Metal.
+
+La [validación inicial](docs/VALIDACION_INICIAL.md) y [CI](docs/CI_GITHUB_ACTIONS.md) conservan evidencia real de M0, incluido el roundtrip de texto/foto/trazo. Los resultados de este corte se registran en [VALIDACION_RAILWAY.md](docs/VALIDACION_RAILWAY.md).
 
 ## Estructura
 
-- `PairNotes.xcodeproj`: proyecto listo para abrir, con scheme compartido `PairNotes`.
-- `PairNotes/App` y `Features`: SwiftUI y mocks inyectados.
-- `PairNotes/Core`: modelos Foundation, contratos, mocks y almacenamiento atómico; módulo `PairNotesCore`, compartido con SwiftPM.
-- `PairNotes/Canvas/NativePaper`: experimento iOS 26 de composición, fuente editable y renders.
-- `PairNotes/Widgets`: extensión separada y resolución del contenedor compartido.
-- `PairNotes/Tests`: tests portables y tests PaperKit ejecutados en el simulador de CI.
-- `Config`: ejemplos sin credenciales ni identificadores registrados.
-- [Validación inicial](docs/VALIDACION_INICIAL.md): entorno, resultados reales, limitaciones y próximo corte.
-- [Referencias verificadas](docs/REFERENCIAS_M0.md): firmas Apple y disponibilidad.
+- `PairNotes/App`, `Features` y `Canvas`: navegación, editor nativo, borradores, cola, historial y cuenta.
+- `PairNotes/Core`: dominio Foundation y persistencia portable; sin UI, SDKs de login ni servicios externos.
+- `PairNotes/Services`: Google/Apple, cliente HTTPS, sesión privada en Keychain y registro APNs.
+- `PairNotes/Widgets`: extensión separada, acceso acotado al último recibido y caché con vencimiento.
+- `Backend`: API, identidad OIDC, PostgreSQL, bucket privado, worker APNs y tests de integración.
+- `Config`: ejemplos sin secretos; [configuración iOS](docs/CONFIGURACION_IOS.md).
+- `PairNotes/Tests`: tests portables, persistencia nativa, configuración/sesiones y caché del widget.
 
-## Pruebas portables
+## Pruebas
 
-Con una distribución completa de Swift 5.10 o posterior:
+Core portable con Swift completo:
 
 ```bash
 swift test
 ```
 
-En este NixOS, el paquete Swift 5.10 compila los fuentes pero SwiftPM no logra ejecutar el descubrimiento de tests por una biblioteca ausente. La alternativa es el contenedor oficial Swift:
+Alternativa verificada en este Linux:
 
 ```bash
-docker run --rm \
-  -v "$PWD:/workspace:ro" -w /workspace \
-  swift:6.2 swift test --scratch-path /tmp/pairnotes-build
+docker run --rm -v "$PWD:/workspace:ro" -w /workspace \
+  swift@sha256:eccc7a97f9b9881d9659e2e788081fd7675f86d39793b51200bfb178398b3784 \
+  swift test --scratch-path /tmp/pairnotes-build
 ```
 
-Esos tests no importan PaperKit, SwiftUI ni WidgetKit. Comprueban bytes opacos, persistencia, revisiones y mocks; no equivalen a probar el editor iOS.
+Backend: seguir [Backend/README.md](Backend/README.md). Usa PostgreSQL y S3 local reales, fixtures ficticios, firmas JWT generadas para las pruebas y transporte APNs controlado. No usa cuentas personales en tests.
 
-## Abrir y validar en un Mac
+GitHub Actions verifica Core/Python en Linux, backend con SQL/S3, compilación app/widget/tests con SDK 26.0 y tests nativos en simulador 26.2. Los scripts registran las versiones reales y guardan artefactos; no requieren firma para simulador.
 
-No hace falta un Mac propio para la compilación automática: `.github/workflows/ci.yml` ejecuta los comandos en GitHub Actions. Esta sección también sirve para un Mac remoto o local cuando esté disponible.
-
-1. Instalar Xcode con SDK iOS 26 o posterior y un runtime de simulador compatible. Registrar las versiones efectivamente usadas.
-2. Abrir `PairNotes.xcodeproj`, seleccionar scheme `PairNotes` y un iPhone con iOS 26 o posterior.
-3. Compilar primero sin firma para simulador:
+En un Mac, abrir `PairNotes.xcodeproj` con scheme `PairNotes`. Para repetir los comandos de CI:
 
 ```bash
-xcodebuild -version
-xcodebuild -showsdks
-xcrun simctl list devices available
-xcodebuild -project PairNotes.xcodeproj -scheme PairNotes \
-  -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO build
+DEVELOPER_DIR=/Applications/Xcode_26.0.1.app/Contents/Developer bash scripts/ci/ios.sh minimum
+DEVELOPER_DIR=/Applications/Xcode_26.2.app/Contents/Developer bash scripts/ci/ios.sh test
 ```
 
-Para ejecutar los tests nativos, reemplazar `UDID_DEL_SIMULADOR` por uno del listado real:
+## Configuración de desarrollo
 
-```bash
-xcodebuild -project PairNotes.xcodeproj -scheme PairNotes \
-  -destination 'platform=iOS Simulator,id=UDID_DEL_SIMULADOR' \
-  -derivedDataPath DerivedData CODE_SIGNING_ALLOWED=NO test
-```
+Railway contiene un proyecto `pairnotes-dev`, entorno `development`, PostgreSQL y bucket privado. El [registro de validación](docs/VALIDACION_RAILWAY.md) indica el despliegue y las comprobaciones realizadas. La API falla de forma cerrada para login si los IDs de proveedor no están configurados.
 
-Estos comandos requieren Mac; GitHub Actions registra la compilación con SDK 26.0 y la ejecución en runtime 26.2. Ejecutar en runtime 26.0 exacto sigue pendiente. Una compilación con SDK 27 no reemplaza el ensayo del mínimo.
+Para un iPhone firmado, completar los ejemplos de `Config` con IDs propios, capacidades legítimas y la URL HTTPS del servicio. Usar [CONFIGURACION_IOS.md](docs/CONFIGURACION_IOS.md); no guardar claves APNs, refresh tokens ni certificados en Git. La app usa un grupo Keychain privado y otro compartido sólo para el widget.
+
+Crear permite dibujar sin cuenta. Al iniciar sesión, los dibujos de invitado se copian explícitamente a los borradores de esa cuenta. Vincular dos cuentas habilita Enviar. Cada envío conserva una revisión independiente; editar el borrador después no altera lo publicado. Todos los dibujos enviados permanecen consultables por días mientras la pareja siga vinculada.
 
 ## Icono de la app
 
@@ -72,21 +66,6 @@ magick icon.png -background '#111118' -alpha remove -alpha off \
   -resize 1024x1024 -strip \
   PNG24:PairNotes/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 ```
-
-## Prueba del editor y widget local
-
-En **Crear**, el ejemplo contiene texto, una ilustración sintética y un trazo. Se puede dibujar con el dedo, seleccionar objetos, agregar texto desde la paleta y elegir una foto mediante PhotosPicker. La app no pide acceso general a la fototeca. **Guardar y renderizar** captura una revisión y guarda fuente más tres imágenes; **Reabrir** restaura el borrador. Cerrar y volver a abrir verifica persistencia real. El editor no tiene autosave en este corte.
-
-Para compartir el render con el widget se necesita configuración propia:
-
-1. Copiar `Config/Local.xcconfig.example` a `Config/Local.xcconfig` y completar Team ID, bundle ID y App Group existentes y autorizados.
-2. Con la cuenta Apple del usuario, habilitar ese mismo App Group en la app y extensión y comprobar el provisioning. El código no registra capacidades por su cuenta.
-3. Copiar `Config/AppGroup.entitlements.example` a `Config/App.local.entitlements` y `Config/Widget.local.entitlements`. Activar sus rutas en `Local.xcconfig`.
-4. Compilar, ejecutar y guardar una revisión. Agregar manualmente el widget **PairNotes · prueba local** desde iOS. Tocar el widget abre Crear.
-
-Sin App Group la app sigue guardando localmente y el widget muestra un estado vacío explícito. `reloadTimelines` es una solicitud al sistema; no asegura actualización inmediata. El widget no usa red ni marca notas como vistas.
-
-Los archivos locales de configuración, claves APNs, certificados y `GoogleService-Info.plist` están ignorados por Git. Los IDs `org.example` son marcadores para build local, no cuentas o permisos concedidos. No hay configuración Firebase en este corte.
 
 ## Regenerar el proyecto, sólo si hace falta
 

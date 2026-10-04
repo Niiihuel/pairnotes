@@ -133,6 +133,17 @@ final class APITransport: HTTPTransport, @unchecked Sendable {
 /// a response from an older account can never replace the active Keychain record.
 @MainActor
 final class RailwayClient {
+    /// Dates use floating seconds; the API cursor contract uses exact integer
+    /// milliseconds. Canonicalize the round-trip before JSON serialization.
+    nonisolated static func milliseconds(_ date: Date) throws -> Int64 {
+        let value = date.timeIntervalSince1970 * 1_000
+        let maximumSafeInteger = 9_007_199_254_740_991.0
+        guard value.isFinite, value > 0, value <= maximumSafeInteger else { throw ServiceError.invalidResponse }
+        let rounded = value.rounded()
+        guard rounded > 0, rounded <= maximumSafeInteger else { throw ServiceError.invalidResponse }
+        return Int64(rounded)
+    }
+
     let configuration: ServiceConfiguration
     private(set) var session: AuthSession?
     var onInvalidated: (() -> Void)?

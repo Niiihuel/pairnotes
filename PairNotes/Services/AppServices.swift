@@ -60,6 +60,7 @@ final class AppServices: NSObject, ObservableObject {
         do {
             if saved.provider == "apple", let appleUserID = saved.providerUserID {
                 let state = try await ASAuthorizationAppleIDProvider().credentialState(forUserID: appleUserID)
+                try checkUID(saved.identity.uid)
                 if state == .revoked || state == .notFound { try await signOut(); return }
             }
             let response = try await client.authenticatedJSON(path: "auth/session", method: "GET")
@@ -106,7 +107,9 @@ final class AppServices: NSObject, ObservableObject {
             applySession(session)
             try await establishProfile(proposedName: result.user.profile?.name)
         } catch {
-            if (error as NSError).domain == kGIDSignInErrorDomain, (error as NSError).code == GIDSignInErrorCode.canceled.rawValue {
+            // kGIDSignInErrorCodeCanceled = -5 in the pinned SDK's public header.
+            // NS_ERROR_ENUM's imported type name differs from older SDK examples.
+            if (error as NSError).domain == kGIDSignInErrorDomain, (error as NSError).code == -5 {
                 throw CancellationError()
             }
             throw error
@@ -160,7 +163,7 @@ final class AppServices: NSObject, ObservableObject {
         guard sequence == refreshSequence, !signingOut else { return }
         guard let profile = response["profile"] as? [String: Any], profile["uid"] as? String == uid,
               let name = profile["displayName"] as? String else { throw ServiceError.invalidResponse }
-        let newPair = try (response["pair"] as? [String: Any]).map { try decodePair($0, uid: uid) }
+        let newPair = try Self.membership(from: response, for: uid)
         if membership?.id != newPair?.id || membership?.pairEpoch != newPair?.pairEpoch { onSessionInvalidated?() }
         identity = SessionIdentity(uid: uid, displayName: name)
         membership = newPair
@@ -262,7 +265,11 @@ final class AppServices: NSObject, ObservableObject {
         onSessionInvalidated?()
     }
 
-    private func decodePair(_ data: [String: Any], uid: String) throws -> PairMembership {
+    /// Only explicit JSON null confirms there is no relationship. A malformed
+    /// response must not cancel an account's durable pending publications.
+    nonisolated static func membership(from response: [String: Any], for uid: String) throws -> PairMembership? {
+        if response["pair"] is NSNull { return nil }
+        guard let data = response["pair"] as? [String: Any] else { throw ServiceError.invalidResponse }
         guard let id = data["id"] as? String, let members = data["members"] as? [String],
               let epoch = data["pairEpoch"] as? NSNumber, data["status"] as? String == "active",
               let partner = data["partner"] as? [String: Any], let partnerID = partner["uid"] as? String,
