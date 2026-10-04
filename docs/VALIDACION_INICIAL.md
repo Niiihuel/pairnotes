@@ -6,6 +6,8 @@ Continuación autorizada: el usuario eligió trabajar sin Mac propio, compilar m
 
 **Resultado de la primera entrega:** base portable y proyecto iOS preparados; en ese momento compilación y ejecución Apple estaban pendientes. Después se compiló realmente con SDK iOS 26.0 en GitHub Actions y se ejecutaron pruebas PaperKit en simulador 26.2. Consultar el estado de cada prueba y sus correcciones en el registro de CI enlazado arriba. La validación interactiva en iPhone, App Group y widget visible sigue pendiente.
 
+**Actualización final de CI:** la [ejecución 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f87`, aprobó compilación mínima con icono, 15 tests Swift portables, 15 tests Python y los 2 tests nativos. El roundtrip conserva texto indexable, imagen y trazo; su segunda restauración tiene render idéntico a la primera. Se inspeccionaron y conservaron los tres PNG reales en [evidence/m0](evidence/m0/README.md). Los pendientes enumerados debajo son el registro inicial: compilación SDK 26.0 y pruebas automatizadas sobre runtime 26.2 ya están resueltos; no lo están interacción manual, runtime 26.0 en ejecución ni validación física/servicios.
+
 ## Inspección y documentación recibida
 
 La carpeta `/home/nihuel/projects/personal/dnnote` contenía únicamente `Plan_app_pareja_Swift.md` (43 KB). No había aplicación, proyecto Xcode, `Package.swift`, servidor ni repositorio Git inicializado. Se leyó el plan completo y `/home/nihuel/.codex/RTK.md`, referenciado por las instrucciones del usuario.

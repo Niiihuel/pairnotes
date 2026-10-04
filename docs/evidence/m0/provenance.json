@@ -1,0 +1,29 @@
+{
+  "run": "https://github.com/Niiihuel/pairnotes/actions/runs/37222564964",
+  "commit": "7c60f870cb6542e92611ebd85275801a8e441055",
+  "runtime": "iOS 26.2",
+  "source_artifact": "paperkit-renders-1",
+  "images": [
+    {
+      "file": "mixed-note-restored-again.png",
+      "attachment": "0BF94773-3988-4CEC-879D-568D78CF2E19.png",
+      "device": "iPhone 16e",
+      "test": "PaperRoundTripTests/testMixedCompositionSurvivesNativeRoundTrip()",
+      "sha256": "a3171c67d6d72642338372df5ff4a0b855e461df5ea1917cf1dcf274db1edc84"
+    },
+    {
+      "file": "mixed-note-restored.png",
+      "attachment": "DEB0D4DB-6FBC-49DC-81DD-3D5D74D1E846.png",
+      "device": "iPhone 16e",
+      "test": "PaperRoundTripTests/testMixedCompositionSurvivesNativeRoundTrip()",
+      "sha256": "a3171c67d6d72642338372df5ff4a0b855e461df5ea1917cf1dcf274db1edc84"
+    },
+    {
+      "file": "mixed-note-before.png",
+      "attachment": "FB786389-BF0D-4DDE-A959-56913E183F94.png",
+      "device": "iPhone 16e",
+      "test": "PaperRoundTripTests/testMixedCompositionSurvivesNativeRoundTrip()",
+      "sha256": "1e46437beb6e9b3a3b521715b3fc1928a5b9fb141ed2faa81029178795b67192"
+    }
+  ]
+}

@@ -2,6 +2,8 @@
 
 Alcance: continuar M0/M1 sin Mac propio. El workflow `PairNotes CI` se activa al subir cambios a `main`, abrir/actualizar un pull request o ejecutar **Actions → PairNotes CI → Run workflow**. No requiere secretos Apple ni Firebase: compila para simulador sin firma.
 
+**Resultado verificado el 4 de octubre de 2026:** [ejecución 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f870cb6542e92611ebd85275801a8e441055`, ambos jobs aprobados. Pasaron 15 tests Python del selector y 15 XCTest Swift en Linux; `build-for-testing` de app, extensión y tests con Xcode 26.0.1/SDK 26.0; y los 2 tests PaperKit en iPhone 16e simulado con iOS 26.2/Xcode 26.2. Incluye el icono oscuro. Los [PNG exportados e inspeccionados](evidence/m0/README.md) se conservan en el repositorio.
+
 ## Qué comprueba
 
 1. En Ubuntu, ejecuta tests del selector de simulador y la suite XCTest portable en la imagen Swift fijada por digest. El selector se prueba con inventarios sintéticos; no simula haber ejecutado Xcode.
@@ -48,7 +50,9 @@ Verificado localmente: 15 tests del selector, actionlint y ShellCheck. El verifi
 
 El repositorio privado [Niiihuel/pairnotes](https://github.com/Niiihuel/pairnotes) ya está creado. En la [ejecución 37221416769](https://github.com/Niiihuel/pairnotes/actions/runs/37221416769), commit `b9cbb7a`, pasaron las pruebas Linux y la compilación de app, widget y tests con Xcode 26.0.1/SDK 26.0. En el simulador iPhone 16e/iOS 26.2 pasó el rechazo de fuente corrupta; el roundtrip falló exclusivamente por comparación exacta del raster.
 
-La inspección de los PNG confirmó los tres elementos completos y orientados correctamente. Imagen y trazo son idénticos. El texto conserva sus 1287 píxeles de tinta con desplazamiento vertical uniforme de un píxel tras la primera restauración. El test refinado exige igualdad exacta fuera del texto, permite únicamente esa traslación vertical de hasta un píxel, compara el texto indexable y exige que una segunda restauración sea estable. El guardado ahora genera los derivados desde la fuente serializada y restaurada. Su ejecución y la compilación del nuevo icono se registrarán al terminar el siguiente run; aún no se dan por aprobadas.
+La inspección de los PNG confirmó los tres elementos completos y orientados correctamente. Imagen y trazo son idénticos. El texto conserva sus 1287 píxeles de tinta con desplazamiento vertical uniforme de un píxel tras la primera restauración. El test refinado exige igualdad exacta fuera del texto, permite únicamente esa traslación vertical de hasta un píxel, compara el texto indexable y exige que una segunda restauración sea estable. El guardado ahora genera los derivados desde la fuente serializada y restaurada. **Todo ese test pasó en `37222564964`**, junto con el rechazo de fuente corrupta. También compiló el catálogo del nuevo icono con el SDK mínimo; el runtime instalado fue iOS 26.0, build `23A343`. El runner real fue macOS 26.6.2 arm64, imagen `20260907.0351.1`.
+
+Queda una advertencia no bloqueante de catálogo: el setting generado de `AccentColor` no tiene aún un color definido. Se mantiene el acento del sistema; definir la paleta pertenece al siguiente trabajo de interfaz. No hubo fallos de tests en la ejecución final. No se ejecutaron pruebas interactivas de PhotosPicker, edición con dedo, accesibilidad, App Group firmado, widget visible ni pruebas físicas de push/consumo. Esas validaciones necesitan interacción y/o configuración de desarrollo/dispositivos, como detalla la validación inicial. La build de simulador tampoco acredita instalación en iPhone o distribución TestFlight.
 
 El próximo corte de producto es **M2: identidad y vinculación segura**, empezando por contratos y Firebase Emulator Suite sin credenciales de producción, con tests negativos de invitaciones, pertenencia y acceso de un tercer usuario. El login Google/Apple real requiere configuración autorizada y se distinguirá de la prueba emulada. No se implementó M2 en este corte ni se avanzó a M3/Studio.
 
@@ -59,6 +63,7 @@ El próximo corte de producto es **M2: identidad y vinculación segura**, empeza
 - Editor corregido: `PaperProbeController.swift`, `PaperProbeDocument.swift`, `NativePaperProbe.swift` y `PaperRoundTripTests.swift` (inserción compatible con SDK 26, fixture, coordenadas de render, derivados de la fuente persistida y evidencia del roundtrip).
 - Icono: original `icon.png` conservado; `PairNotes/App/Assets.xcassets/Contents.json` y `AppIcon.appiconset/{Contents.json,AppIcon.png}` agregados.
 - Registro y exclusiones: `README.md`, `docs/VALIDACION_INICIAL.md`, `docs/REFERENCIAS_M0.md` y `.gitignore` actualizados. El plan recibido permanece intacto.
+- Evidencia persistente: tres PNG reales del roundtrip y su procedencia en `docs/evidence/m0/`.
 
 Comandos efectivamente utilizados en Linux, además de los de inspección y pruebas de la entrega inicial:
 

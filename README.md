@@ -4,6 +4,8 @@ App iOS nativa en preparación, basada en [el plan recibido](Plan_app_pareja_Swi
 
 El alcance incluye cuatro pestañas con datos ficticios, un experimento PaperKit para texto/imagen/trazo, guardado explícito de un borrador local, render y una extensión de widget local. El experimento conserva un único borrador. No hay autenticación, pareja real, publicación, servidor, seguimiento de ubicación ni motor Studio.
 
+**CI aprobada:** [run 37222564964](https://github.com/Niiihuel/pairnotes/actions/runs/37222564964), commit `7c60f87`: 15 tests Swift y 15 Python en Linux, compilación de app/widget con SDK 26.0 y 2 tests PaperKit en simulador iOS 26.2. [Evidencia visual](docs/evidence/m0/README.md). Firma, widget visible y validación interactiva en dispositivos continúan pendientes.
+
 ## Estructura
 
 - `PairNotes.xcodeproj`: proyecto listo para abrir, con scheme compartido `PairNotes`.
