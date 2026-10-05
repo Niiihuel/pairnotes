@@ -1,19 +1,28 @@
 import PairNotesCore
 import SwiftUI
+import UIKit
 
 extension CoupleTheme {
-    var accent: Color { Color(rgb: accentRGB) }
-    var paper: Color { Color(rgb: paperRGB) }
+    var accent: Color { adaptive(accentRGB, dark: self == .cream ? 0xE0BB95 : self == .rose ? 0xE7A5BB : 0xD8B6EE) }
+    var paper: Color { adaptive(paperRGB, dark: 0x26282E) }
     var canvas: Color {
         switch self {
-        case .cream: return Color(rgb: 0xFBF7EE)
-        case .rose: return Color(rgb: 0xFCF3F5)
-        case .lavender: return Color(rgb: 0xF6F3FB)
+        case .cream: return adaptive(0xFBF7EE, dark: 0x1C1D24)
+        case .rose: return adaptive(0xFCF3F5, dark: 0x1C1D24)
+        case .lavender: return adaptive(0xF6F3FB, dark: 0x1C1D24)
         case .night: return Color(rgb: 0x1C1D24)
         }
     }
-    var card: Color { self == .night ? Color(rgb: 0x30313A) : Color.white.opacity(0.86) }
-    var ink: Color { self == .night ? Color(rgb: 0xF9F0E8) : Color(rgb: 0x382D35) }
+    var card: Color { self == .night ? Color(rgb: 0x30313A) : adaptive(0xFFFFFF, dark: 0x30313A) }
+    var ink: Color { self == .night ? Color(rgb: 0xF9F0E8) : adaptive(0x382D35, dark: 0xF9F0E8) }
+    private func adaptive(_ light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((rgb >> 16) & 255) / 255,
+                           green: CGFloat((rgb >> 8) & 255) / 255,
+                           blue: CGFloat(rgb & 255) / 255, alpha: 1)
+        })
+    }
 }
 
 extension Color {

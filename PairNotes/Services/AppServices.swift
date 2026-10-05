@@ -184,7 +184,7 @@ final class AppServices: NSObject, ObservableObject {
         let newPair = try Self.membership(from: response, for: uid)
         if membership?.id != newPair?.id || membership?.pairEpoch != newPair?.pairEpoch {
             // The first membership fetch after relaunch must keep the disk cache.
-            if membershipResolved { Task { await privateImages.clear() } }
+            if membershipResolved { forgetTheme(); Task { await privateImages.clear() } }
             coupleSpace = nil
             spaceSequence &+= 1
             spaceError = nil
@@ -194,6 +194,7 @@ final class AppServices: NSObject, ObservableObject {
         else { profileAvatar = nil }
         identity = SessionIdentity(uid: uid, displayName: name)
         membership = newPair
+        if newPair == nil { forgetTheme() }
         membershipResolved = true
         lastError = nil
     }

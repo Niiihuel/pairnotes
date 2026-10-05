@@ -1,9 +1,74 @@
 import XCTest
 import Foundation
+import AVFoundation
+import SwiftUI
+import UIKit
 import PairNotesCore
 @testable import PairNotes
 
 final class ServiceConfigurationTests: XCTestCase {
+    func testThemeSurvivesRelaunchAndSeparatesAccountsAndServers() throws {
+        let suite = "theme-tests-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let original = CoupleThemePreference(baseURL: "https://a.example", uid: "one", defaults: defaults)
+        XCTAssertNil(original.load())
+        original.save(.night)
+        XCTAssertEqual(CoupleThemePreference(baseURL: "https://a.example", uid: "one", defaults: defaults).load(), .night)
+        XCTAssertNil(CoupleThemePreference(baseURL: "https://a.example", uid: "two", defaults: defaults).load())
+        XCTAssertNil(CoupleThemePreference(baseURL: "https://b.example", uid: "one", defaults: defaults).load())
+        original.clear()
+        XCTAssertNil(original.load())
+        defaults.set("unknown-future-theme", forKey: original.key)
+        XCTAssertNil(original.load())
+    }
+
+    @MainActor
+    func testEverySharedPaletteHasDarkSurfacesAndReadableInk() {
+        let dark = UITraitCollection(userInterfaceStyle: .dark)
+        for theme in CoupleTheme.allCases {
+            var background: CGFloat = 1, foreground: CGFloat = 0
+            let canvas = UIColor(theme.canvas).resolvedColor(with: dark)
+            let ink = UIColor(theme.ink).resolvedColor(with: dark)
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            canvas.getRed(&r, green: &g, blue: &b, alpha: &a); background = (r + g + b) / 3
+            ink.getRed(&r, green: &g, blue: &b, alpha: &a); foreground = (r + g + b) / 3
+            XCTAssertLessThan(background, 0.2, theme.rawValue)
+            XCTAssertGreaterThan(foreground, 0.8, theme.rawValue)
+        }
+    }
+
+    @MainActor
+    func testVoicePreparationSeekingAndPausePreservePositionWithoutAutoplay() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16000))
+        buffer.frameLength = 16000
+        for index in 0..<16000 { buffer.int16ChannelData![0][index] = 0 }
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
+            try file.write(from: buffer)
+        }
+        let data = try Data(contentsOf: url)
+        let controller = VoiceNoteController()
+        controller.prepare(data)
+        XCTAssertNil(controller.error)
+        XCTAssertFalse(controller.playing)
+        XCTAssertEqual(controller.duration, 1, accuracy: 0.02)
+        controller.seek(to: 0.5)
+        controller.pause()
+        controller.prepare(data)
+        XCTAssertEqual(controller.elapsed, 0.5, accuracy: 0.02)
+        controller.seek(to: .nan)
+        XCTAssertEqual(controller.elapsed, 0.5, accuracy: 0.02)
+        controller.seek(to: -1)
+        XCTAssertEqual(controller.elapsed, 0)
+        controller.stopAll()
+        XCTAssertEqual(controller.duration, 0)
+        XCTAssertFalse(controller.playing)
+    }
+
     func testMissingOrInsecureConfigurationNeverSelectsDemoBackend() {
         for url in ["", "$(PAIRNOTES_API_BASE_URL)", "http://127.0.0.1:3000", "https://localhost/",
                     "https://user:secret@example.test", "https://example.test/?token=secret", "https://example.test/#fragment"] {

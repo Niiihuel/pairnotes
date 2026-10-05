@@ -52,7 +52,7 @@ struct RootView: View {
             }.tabItem { Label("Nosotros", systemImage: "person.2") }.tag(AppTab.couple)
         }
         .tint(services.personalization.theme.accent)
-        .preferredColorScheme(services.personalization.theme == .night ? .dark : .light)
+        .preferredColorScheme(services.personalization.theme == .night ? .dark : nil)
         .sheet(item: $editor, onDismiss: { Task { await model.reloadDrafts() } }) { route in
             NativePaperEditorView(store: route.store, draft: route.draft, theme: services.personalization.theme,
                                   onSaved: { Task { await model.reloadDrafts() } },

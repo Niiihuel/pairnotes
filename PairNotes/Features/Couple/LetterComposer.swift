@@ -41,6 +41,8 @@ struct LetterComposer: View {
     @State private var finished = false
     @State private var confirm = false
     @State private var confirmDiscard = false
+    @State private var confirmRerecord = false
+    @FocusState private var writing: Bool
     @State private var error: String?
 
     init(services: AppServices, notes: [RemoteNote], catalog: DraftCatalogStore? = nil, original: TimeCapsuleLetter? = nil) {
@@ -60,17 +62,44 @@ struct LetterComposer: View {
             (!draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || photo != nil || audio != nil || drawing != nil || (original?.drawing != nil && draft.removeDrawing != true) ||
              !draft.noteID.isEmpty || (original?.photo != nil && !draft.removePhoto) || (original?.audio != nil && !draft.removeAudio))))
     }
+    private var sendHint: String {
+        if draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Poné un título para reconocer esta carta." }
+        if draft.title.utf16.count > 120 { return "El título puede tener hasta 120 caracteres." }
+        if draft.body.utf16.count > 6000 { return "Tu carta puede tener hasta 6000 caracteres." }
+        if draft.opensAt <= Date() { return "Elegí una fecha futura para abrir el sobre." }
+        if loadingPhoto { return "Estamos preparando la foto." }
+        return "Sumá unas palabras, una foto, un dibujo o tu voz."
+    }
     var body: some View {
         NavigationStack {
             Form {
                 Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Para " + services.partnerNickname, systemImage: "envelope.badge")
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(services.personalization.theme.accent)
+                        Text("Algo tuyo, para su momento").font(.system(.title2, design: .serif))
+                        Text("Escribí con calma. El borrador se conserva en este iPhone.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }.padding(.vertical, 8)
+                }.listRowBackground(services.personalization.theme.paper)
+                Section {
                     TextField("Un título sólo para ustedes", text: $draft.title)
-                    TextField("Querido amor…", text: $draft.body, axis: .vertical).lineLimit(8...18)
+                        .font(.system(.title3, design: .serif)).focused($writing)
+                    TextField("Querido amor…", text: $draft.body, axis: .vertical).lineLimit(6...18).font(.system(.body, design: .serif)).lineSpacing(5).focused($writing)
                     Text("\(draft.body.utf16.count)/6000").font(.caption).foregroundStyle(.secondary)
+                } header: { Label("Tu carta", systemImage: "text.alignleft") }
+                  .disabled(busy || draft.sealAttempted)
+                Section {
+                    Menu("Elegir un momento", systemImage: "calendar.badge.clock") {
+                        Button("Mañana a esta hora") { draft.opensAt = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date().addingTimeInterval(86400) }
+                        Button("Dentro de una semana") { draft.opensAt = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date().addingTimeInterval(604800) }
+                    }
                     DatePicker("Se abre", selection: $draft.opensAt, in: Date()...Date().addingTimeInterval(5 * 365 * 86400))
+                    Text("Hora de " + (TimeZone.current.localizedName(for: .generic, locale: .current) ?? TimeZone.current.identifier))
+                        .font(.caption).foregroundStyle(.secondary)
                     Text("Tu pareja verá un sobre cerrado. El contenido aparecerá a la hora elegida.").font(.footnote).foregroundStyle(.secondary)
                 }.disabled(busy || draft.sealAttempted)
-                Section("Una foto y un dibujo") {
+                Section("Detalles para acompañarla") {
                     if let photo, let image = UIImage(data: photo) {
                         Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220)
                     } else if original?.photo != nil && !draft.removePhoto { Label("Foto adjunta guardada", systemImage: "photo") }
@@ -97,25 +126,32 @@ struct LetterComposer: View {
                         ForEach(notes) { note in Text(note.serverPublishedAt.formatted(date: .abbreviated, time: .shortened)).tag(note.id) }
                     }
                 }.disabled(busy || draft.sealAttempted)
-                Section("Tu voz, hasta un minuto") {
+                Section {
                     if voice.recording {
-                        Label("Grabando · \(Int(voice.elapsed)) s", systemImage: "mic.fill").foregroundStyle(.red)
-                        Button("Terminar grabación", systemImage: "stop.circle") { voice.finishRecording() }
+                        VoiceRecordingMeter(controller: voice)
                     } else {
-                        Button(audio == nil ? "Grabar nota de voz" : "Volver a grabar", systemImage: "mic") { Task { await voice.record() } }
-                            .disabled(voice.requestingPermission)
-                    }
-                    if let audio {
-                        VoiceWaveformView(data: audio, progress: voice.duration > 0 ? voice.elapsed / voice.duration : 0)
-                        Button(voice.playing ? "Detener" : "Escuchar grabación", systemImage: voice.playing ? "stop.fill" : "play.fill") {
-                            if voice.playing { voice.stopAll() } else { voice.play(audio) }
-                        }.disabled(voice.recording)
-                    } else if original?.audio != nil && !draft.removeAudio { Label("Nota de voz guardada", systemImage: "waveform") }
-                    if audio != nil || (original?.audio != nil && !draft.removeAudio) {
-                        Button("Quitar audio", role: .destructive) { voice.stopAll(); audio = nil; draft.removeAudio = true; persistAudio() }
+                        if let audio {
+                            VoicePlaybackControls(player: voice, data: audio, title: "Así va a escuchar tu voz")
+                        } else if let original, original.audio != nil && !draft.removeAudio && !voice.requestingPermission {
+                            LetterVoicePlayer(services: services, letter: original)
+                        } else {
+                            Label("A veces, escucharte lo dice todo.", systemImage: "waveform")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Button(audio == nil && original?.audio == nil ? "Grabar mi voz" : "Grabar otra vez", systemImage: "mic.fill") {
+                            writing = false
+                            if audio != nil || (original?.audio != nil && !draft.removeAudio) { confirmRerecord = true }
+                            else { Task { await voice.record() } }
+                        }.disabled(voice.requestingPermission)
+                        if voice.requestingPermission { ProgressView("Esperando permiso del micrófono…") }
+                        if audio != nil || (original?.audio != nil && !draft.removeAudio) {
+                            Button("Quitar audio", role: .destructive) { voice.stopAll(); audio = nil; draft.removeAudio = true; persistAudio() }
+                        }
                     }
                     if let error = voice.error { Text(error).font(.footnote).foregroundStyle(.secondary) }
-                }.disabled(busy || draft.sealAttempted)
+                } header: { Label("Un poquito de tu voz", systemImage: "waveform") }
+                  footer: { Text("Opcional · hasta 1 minuto. Tu pareja lo escuchará al abrir la carta.") }
+                  .disabled(busy || draft.sealAttempted)
                 if let error { Text(error).foregroundStyle(.secondary) }
                 if draft.sealAttempted { Text("El envío quedó sin confirmar. Verificá su estado antes de seguir editando para evitar dos cartas.").font(.footnote) }
                 if busy { ProgressView("Preparando tu sorpresa…") }
@@ -123,19 +159,36 @@ struct LetterComposer: View {
                     Section { Button("Descartar borrador", role: .destructive) { confirmDiscard = true }.disabled(busy) }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
+            .scrollContentBackground(.hidden)
+            .background(services.personalization.theme.canvas)
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 8) {
+                    if !canSend && !busy && !voice.recording && !draft.sealAttempted {
+                        Text(sendHint).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button {
+                        writing = false
+                        if draft.sealAttempted { send() } else { confirm = true }
+                    } label: {
+                        Label(busy ? "Preparando tu sorpresa…" : draft.sealAttempted ? "Confirmar envío" : "Revisar y cerrar el sobre",
+                              systemImage: "envelope.fill").frame(maxWidth: .infinity)
+                    }.buttonStyle(.borderedProminent).controlSize(.large).disabled(!canSend)
+                }.padding().background(.regularMaterial)
+            }
             .navigationTitle("Una carta para después").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Guardar y salir") { voice.stopAll(); if persist() { dismiss() } }.disabled(busy) }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(draft.sealAttempted ? "Confirmar envío" : "Cerrar sobre") {
-                        if draft.sealAttempted { send() } else { confirm = true }
-                    }.disabled(!canSend)
-                }
+                ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Listo") { writing = false } }
             }
+            .confirmationDialog("¿Grabar una nueva nota de voz?", isPresented: $confirmRerecord, titleVisibility: .visible) {
+                Button("Grabar otra vez") { Task { await voice.record() } }
+                Button("Conservar la actual", role: .cancel) {}
+            } message: { Text("La grabación actual se reemplazará cuando termines la nueva.") }
             .confirmationDialog("¿Cerrar y enviar esta carta?", isPresented: $confirm, titleVisibility: .visible) {
                 Button("Enviar para el \(draft.opensAt.formatted(date: .abbreviated, time: .shortened))") { send() }
                 Button("Seguir escribiendo", role: .cancel) {}
-            } message: { Text("Una vez enviada, el contenido y la fecha quedan guardados en el sobre.") }
+            } message: { Text("Para " + services.partnerNickname + " · " + draft.title + "\nSe abre el " + draft.opensAt.formatted(date: .long, time: .shortened) + ".\nUna vez enviada, no se puede cambiar el contenido ni la fecha.") }
             .confirmationDialog("¿Descartar esta carta en borrador?", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("Descartar borrador", role: .destructive) { deleteDraft() }
                 Button("Seguir escribiendo", role: .cancel) {}

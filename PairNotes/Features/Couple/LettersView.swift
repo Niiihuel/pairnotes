@@ -36,7 +36,9 @@ struct LettersView: View {
                 }
                 if !loading && visible.isEmpty && (filter != "sent" || localDraftID == nil) {
                     ContentUnavailableView(filter == "received" ? "Un lugar para sus cartas" : "Tu próxima sorpresa",
-                        systemImage: "envelope", description: Text("Escribí una carta, sumale una foto o tu voz y elegí cuándo podrá abrirla."))
+                        systemImage: "envelope", description: Text(filter == "received" ? "Las cartas que te escriba tu pareja van a esperar acá, hasta su momento especial." : "Escribí una carta, sumale una foto o tu voz y elegí cuándo podrá abrirla."))
+                    Button(localDraftID == nil ? "Escribir una carta" : "Retomar mi borrador", systemImage: "square.and.pencil") { composing = true }
+                        .buttonStyle(.borderedProminent).controlSize(.large).frame(maxWidth: .infinity)
                 }
                 ForEach(visible) { letter in
                     Button { selected = letter } label: { LetterEnvelope(services: services, letter: letter) }
@@ -101,7 +103,15 @@ struct LetterEnvelope: View {
                 .font(.caption).foregroundStyle(.secondary)
             Text(letter.status == "draft" ? "Carta en borrador" : "De \(author), con cariño")
                 .font(.system(.title3, design: .serif))
-            if letter.canOpen { Text("Lista para abrir").font(.subheadline.bold()) }
+            if letter.status == "draft" {
+                Text("Sólo vos podés verla · seguí escribiendo").font(.subheadline)
+            } else if letter.openedAt != nil {
+                Label("Ya abierta · volver a leer", systemImage: "heart.text.clipboard").font(.subheadline)
+            } else if letter.authorId == services.identity?.uid {
+                Text("Enviada con cariño").font(.subheadline.bold())
+                Text("Se abre el " + letter.opensAt.formatted(date: .long, time: .shortened))
+                    .font(.footnote).multilineTextAlignment(.center)
+            } else if letter.canOpen { Text("Tu sorpresa está lista para abrir").font(.subheadline.bold()) }
             else {
                 Text("Para el \(letter.opensAt.formatted(date: .long, time: .shortened))")
                     .font(.subheadline).multilineTextAlignment(.center)
@@ -148,8 +158,13 @@ struct LetterDetailView: View {
                         Text("Guardada para este momento, escrita con amor.").font(.caption).foregroundStyle(.secondary)
                     } else {
                         LetterEnvelope(services: services, letter: original)
-                        Button(original.authorId == services.identity?.uid ? "Ver lo que escribiste" : "Abrir mi carta", systemImage: "envelope.open") { open() }
-                            .buttonStyle(.borderedProminent).frame(maxWidth: .infinity).disabled(busy)
+                        SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
+                            let available = original.authorId == services.identity?.uid || original.canOpen || context.date >= original.opensAt
+                            Button(original.authorId == services.identity?.uid ? "Ver lo que escribiste" : available ? "Abrir mi carta" : "Esperando su momento",
+                                   systemImage: available ? "envelope.open" : "lock") { open() }
+                                .buttonStyle(.borderedProminent).controlSize(.large)
+                                .frame(maxWidth: .infinity).disabled(busy || !available)
+                        }
                         if !original.canOpen && original.authorId != services.identity?.uid {
                             Text("Su contenido se guarda en secreto hasta la fecha elegida.").font(.footnote).foregroundStyle(.secondary)
                         }

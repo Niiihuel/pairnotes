@@ -352,6 +352,32 @@ final class NativeEditorPersistenceTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testLetterComposerLayoutInLightAndDarkAppearance() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        for appearance in [UIUserInterfaceStyle.light, .dark] {
+            let host = UIHostingController(rootView: LetterComposer(services: AppServices(), notes: []))
+            let window = UIWindow(windowScene: scene)
+            window.frame = scene.screen.bounds
+            window.overrideUserInterfaceStyle = appearance
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+            try await Task.sleep(for: .milliseconds(400))
+            host.view.layoutIfNeeded()
+            var drawn = false
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                drawn = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            XCTAssertTrue(drawn)
+            let attachment = XCTAttachment(image: image)
+            attachment.name = appearance == .dark ? "letter-composer-dark" : "letter-composer-light"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+    }
+
     /// These capture the hosting window's navigation and paper layout, not any
     /// floating tool-picker windows. Device interaction is checked separately.
     @MainActor

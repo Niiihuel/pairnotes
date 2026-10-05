@@ -4,6 +4,8 @@ import Foundation
 
 @MainActor
 final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDelegate, AVAudioPlayerDelegate {
+    @Published private(set) var levels = Array(repeating: 0.05, count: 32)
+    private var playbackData: Data?
     @Published private(set) var recording = false
     @Published private(set) var playing = false
     @Published private(set) var requestingPermission = false
@@ -34,6 +36,8 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
                 AVSampleRateKey: 16000.0, AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
                 AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false])
             value.delegate = self
+            value.isMeteringEnabled = true
+            levels = Array(repeating: 0.05, count: 32)
             recorder = value
             guard value.record(forDuration: 60) else { throw CocoaError(.fileWriteUnknown) }
             elapsed = 0; recording = true
@@ -49,24 +53,47 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
         do {
             let data = try Data(contentsOf: url)
             guard data.count > 44, data.count <= 2_000_000 else { throw CocoaError(.fileReadCorruptFile) }
+            duration = (try? AVAudioPlayer(data: data).duration) ?? elapsed
+            elapsed = 0
             recordedData = data; didRecord?(data)
         } catch { self.error = "No se pudo conservar la grabación. Volvé a intentar." }
     }
-    func play(_ data: Data) {
+    func prepare(_ data: Data) {
+        guard playbackData != data else { return }
         stopAll(); error = nil
+        do {
+            let value = try AVAudioPlayer(data: data)
+            value.delegate = self; player = value; playbackData = data
+            duration = value.duration; elapsed = 0
+            value.prepareToPlay()
+        } catch { self.error = "No se pudo leer el audio." }
+    }
+    func play(_ data: Data) {
+        prepare(data)
+        guard let player else { return }
+        error = nil
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
             try AVAudioSession.sharedInstance().setActive(true)
-            let value = try AVAudioPlayer(data: data)
-            value.delegate = self; player = value; duration = value.duration; elapsed = 0
-            guard value.play() else { throw CocoaError(.fileReadCorruptFile) }
+            if player.currentTime >= player.duration - 0.05 { player.currentTime = 0 }
+            guard player.play() else { throw CocoaError(.fileReadCorruptFile) }
             playing = true; startClock()
-        } catch { self.error = "No se pudo reproducir el audio."; stopAll() }
+        } catch { self.error = "No se pudo reproducir el audio."; pause() }
+    }
+    func pause() {
+        player?.pause(); playing = false
+        clockTask?.cancel(); clockTask = nil; deactivate()
+    }
+    func seek(to fraction: Double) {
+        guard fraction.isFinite, let player else { return }
+        player.currentTime = min(1, max(0, fraction)) * player.duration
+        elapsed = player.currentTime
     }
     func stopAll() {
         generation += 1; requestingPermission = false
         if recorder != nil { finishRecording() }
-        player?.stop(); player?.delegate = nil; player = nil; playing = false
+        player?.stop(); player?.delegate = nil; player = nil; playbackData = nil; playing = false
+        elapsed = 0; duration = 0
         clockTask?.cancel(); clockTask = nil; deactivate()
     }
     private func deactivate() { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
@@ -75,6 +102,11 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
         clockTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
+                if let recorder = self.recorder {
+                    recorder.updateMeters()
+                    let level = min(1, max(0.05, pow(10, Double(recorder.averagePower(forChannel: 0)) / 40)))
+                    self.levels = Array(self.levels.dropFirst()) + [level]
+                }
                 self.elapsed = self.recorder?.currentTime ?? self.player?.currentTime ?? 0
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             }
@@ -90,7 +122,8 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor [weak self] in
             guard let self, self.player === player else { return }
-            self.stopAll()
+            self.pause(); self.elapsed = self.duration
+            if !flag { self.error = "La reproducción se interrumpió. Podés volver a escucharla." }
         }
     }
 }

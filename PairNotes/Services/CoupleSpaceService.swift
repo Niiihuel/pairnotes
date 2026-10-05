@@ -36,6 +36,7 @@ extension AppServices {
         try CoupleWidgetSnapshot(profiles: value.profiles, startedOn: value.startedOn,
             latestMessage: value.latestMessage, distance: value.location.distance, personalization: value.personalization, latestGesture: value.latestGesture).validate(for: uid)
         coupleSpace = value
+        rememberTheme(value.personalization?.theme ?? .rose)
         // Warm both portraits once; subsequent views and foreground refreshes
         // reuse the same content hash and coalesced request.
         Task { [weak self] in
@@ -56,7 +57,18 @@ extension AppServices {
         return personalization.name(for: partner.uid, fallback: partner.displayName)
     }
 
-    var personalization: CouplePersonalization { coupleSpace?.personalization ?? CouplePersonalization() }
+    // Read the account-scoped appearance synchronously, before the first network refresh.
+    // Only the theme is cached here; names and other private content stay out of defaults.
+    private var themePreference: CoupleThemePreference? {
+        guard let uid = identity?.uid, let url = widgetBaseURL else { return nil }
+        return CoupleThemePreference(baseURL: url.absoluteString, uid: uid)
+    }
+    var savedTheme: CoupleTheme? { themePreference?.load() }
+    func rememberTheme(_ theme: CoupleTheme) { themePreference?.save(theme) }
+    func forgetTheme() { themePreference?.clear() }
+    var personalization: CouplePersonalization {
+        coupleSpace?.personalization ?? CouplePersonalization(theme: savedTheme ?? .rose)
+    }
 
     func updatePersonalization(_ value: CouplePersonalization) async throws {
         let uid = try requireUID(), pair = try requirePair()
@@ -72,6 +84,7 @@ extension AppServices {
         let saved: Response = try decodeSpace(response)
         // A failed subsequent refresh must not turn an acknowledged save into a conflict.
         coupleSpace?.personalization = saved.personalization
+        rememberTheme(saved.personalization.theme)
         try? await refreshCoupleSpace()
         WidgetCenter.shared.reloadAllTimelines()
     }
@@ -247,4 +260,17 @@ extension AppServices {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
         return try decoder.decode(T.self, from: JSONSerialization.data(withJSONObject: object))
     }
+}
+
+/// Synchronous first-frame preference; stores no profiles, letters or credentials.
+struct CoupleThemePreference {
+    let key: String
+    let defaults: UserDefaults
+    init(baseURL: String, uid: String, defaults: UserDefaults = .standard) {
+        key = "couple-theme:" + ContentDigest.sha256(Data((baseURL + ":" + uid).utf8))
+        self.defaults = defaults
+    }
+    func load() -> CoupleTheme? { defaults.string(forKey: key).flatMap(CoupleTheme.init(rawValue:)) }
+    func save(_ theme: CoupleTheme) { defaults.set(theme.rawValue, forKey: key) }
+    func clear() { defaults.removeObject(forKey: key) }
 }
