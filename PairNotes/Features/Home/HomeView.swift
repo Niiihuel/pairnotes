@@ -52,7 +52,7 @@ struct HomeView: View {
                         Image(systemName: "arrow.up.right")
                     }.foregroundStyle(.white).padding(22)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(LinearGradient(colors: [theme == .night ? Color(rgb: 0x73558A) : theme.accent, Color(rgb: 0x482C4F)],
+                        .background(LinearGradient(colors: [theme == .night ? Color(rgb: 0x73558A) : Color(rgb: theme.accentRGB), Color(rgb: 0x482C4F)],
                             startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 26))
                 }.buttonStyle(.plain).accessibilityLabel("Crear un dibujo")
 

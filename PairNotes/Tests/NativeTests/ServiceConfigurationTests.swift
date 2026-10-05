@@ -39,13 +39,13 @@ final class ServiceConfigurationTests: XCTestCase {
     }
 
     @MainActor
-    func testVoicePreparationSeekingAndPausePreservePositionWithoutAutoplay() throws {
+    func testVoicePreparationSeekingAndPausePreservePositionWithoutAutoplay() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
         defer { try? FileManager.default.removeItem(at: url) }
         let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true))
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16000))
         buffer.frameLength = 16000
-        for index in 0..<16000 { buffer.int16ChannelData![0][index] = 0 }
+        for index in 0..<16000 { buffer.int16ChannelData![0][index] = Int16(sin(Double(index) / 20) * Double(index % 1600) * 10) }
         do {
             let file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
             try file.write(from: buffer)
@@ -67,6 +67,38 @@ final class ServiceConfigurationTests: XCTestCase {
         controller.stopAll()
         XCTAssertEqual(controller.duration, 0)
         XCTAssertFalse(controller.playing)
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        for appearance in [UIUserInterfaceStyle.light, .dark] {
+            let content = VStack(alignment: .leading, spacing: 24) {
+                Text("Un poquito de tu voz").font(.system(.title, design: .serif))
+                VoicePlaybackControls(player: controller, data: data, title: "Así va a escuchar tu voz")
+                    .padding(20).background(CoupleTheme.rose.card, in: RoundedRectangle(cornerRadius: 22))
+                Text("Opcional · hasta 1 minuto. Tu pareja lo escuchará al abrir la carta.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(CoupleTheme.rose.canvas).tint(CoupleTheme.rose.accent)
+            let host = UIHostingController(rootView: content)
+            let window = UIWindow(windowScene: scene)
+            window.frame = scene.screen.bounds
+            window.overrideUserInterfaceStyle = appearance
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+            try await Task.sleep(for: .milliseconds(400))
+            host.view.layoutIfNeeded()
+            var drawn = false
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                drawn = window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            XCTAssertTrue(drawn)
+            XCTAssertFalse(controller.playing, "Rendering and seeking must never autoplay")
+            let attachment = XCTAttachment(image: image)
+            attachment.name = appearance == .dark ? "voice-player-dark" : "voice-player-light"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
     }
 
     func testMissingOrInsecureConfigurationNeverSelectsDemoBackend() {
