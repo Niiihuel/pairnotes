@@ -89,6 +89,10 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
         player.currentTime = min(1, max(0, fraction)) * player.duration
         elapsed = player.currentTime
     }
+    func suspend() {
+        if recording || requestingPermission { stopAll() }
+        else { pause() }
+    }
     func stopAll() {
         generation += 1; requestingPermission = false
         if recorder != nil { finishRecording() }

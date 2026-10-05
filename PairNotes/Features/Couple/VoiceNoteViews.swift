@@ -120,8 +120,8 @@ struct LetterVoicePlayer: View {
         .padding(18)
         .background(services.personalization.theme.card, in: RoundedRectangle(cornerRadius: 22))
         .onChange(of: key) { _, _ in player.stopAll(); data = nil; loadedKey = nil }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { player.stopAll() } }
-        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in player.stopAll() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { player.suspend() } }
+        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in player.suspend() }
         .onAppear { visible = true }
         .onDisappear { visible = false; player.stopAll() }
     }

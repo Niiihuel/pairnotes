@@ -198,8 +198,8 @@ struct LetterComposer: View {
             .onAppear {
                 voice.didRecord = { data in audio = data; draft.removeAudio = false; persistAudio() }
             }
-            .onChange(of: scenePhase) { _, phase in if phase == .background || (phase == .inactive && !voice.requestingPermission) { voice.stopAll(); _ = persist() } }
-            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in voice.stopAll() }
+            .onChange(of: scenePhase) { _, phase in if phase == .background || (phase == .inactive && !voice.requestingPermission) { voice.suspend(); _ = persist() } }
+            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { _ in voice.suspend() }
             .onDisappear { voice.stopAll(); if !finished { _ = persist() }; voice.didRecord = nil }
             .onChange(of: services.privateImageKey("letters")) { _, value in if value != scope { voice.stopAll(); dismiss() } }
             .sheet(isPresented: $makingDrawing) {
