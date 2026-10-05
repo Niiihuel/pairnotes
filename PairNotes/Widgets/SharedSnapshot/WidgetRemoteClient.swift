@@ -8,15 +8,17 @@ struct WidgetRefreshResult: Sendable {
     let message: String
     let cached: Bool
     let expiresAt: Date?
+    let needsAuthorization: Bool
 
     init(snapshot: NoteWidgetSnapshot?, couple: CoupleWidgetSnapshot? = nil, avatars: [String: Data] = [:],
-         message: String, cached: Bool, expiresAt: Date?) {
+         message: String, cached: Bool, expiresAt: Date?, needsAuthorization: Bool = false) {
         self.snapshot = snapshot; self.couple = couple; self.avatars = avatars
         self.message = message; self.cached = cached; self.expiresAt = expiresAt
+        self.needsAuthorization = needsAuthorization
     }
 
-    static func empty(_ message: String) -> Self {
-        Self(snapshot: nil, message: message, cached: false, expiresAt: nil)
+    static func empty(_ message: String, needsAuthorization: Bool = false) -> Self {
+        Self(snapshot: nil, message: message, cached: false, expiresAt: nil, needsAuthorization: needsAuthorization)
     }
 }
 
@@ -36,6 +38,9 @@ private struct ServerWidgetSnapshot: Decodable {
     let note: ServerWidgetNote?
     let generatedAt: Date
     let validUntil: Date?
+    let credentialExpiresAt: Date?
+    let latestGesture: CoupleGesture?
+    let personalization: CouplePersonalization?
     let profiles: [CoupleProfile]?
     let startedOn: CoupleDate?
     let latestMessage: CoupleMessage?
@@ -63,6 +68,7 @@ actor WidgetRemoteClient {
     static let shared = WidgetRemoteClient()
     private let session: URLSession
     private let authorizationProvider: @Sendable () -> WidgetAuthorization?
+    private let authorizationSaver: @Sendable (WidgetAuthorization) throws -> Void
     private let directoryProvider: @Sendable () -> URL?
     private var inFlight: Task<WidgetRefreshResult, Never>?
     private var flightID: UUID?
@@ -72,8 +78,10 @@ actor WidgetRemoteClient {
 
     init(session: URLSession? = nil,
          authorization: @escaping @Sendable () -> WidgetAuthorization? = { WidgetAccessStore.load() },
+         saveAuthorization: @escaping @Sendable (WidgetAuthorization) throws -> Void = { try WidgetAccessStore.save($0) },
          directory: @escaping @Sendable () -> URL? = { SharedWidgetContainer.directory() }) {
         authorizationProvider = authorization
+        authorizationSaver = saveAuthorization
         directoryProvider = directory
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 8
@@ -115,7 +123,8 @@ actor WidgetRemoteClient {
     }
 
     private func current(_ authorization: WidgetAuthorization, generation captured: Int) -> Bool {
-        generation == captured && !Task.isCancelled && authorizationProvider() == authorization && authorization.isUsable()
+        guard generation == captured, !Task.isCancelled, let latest = authorizationProvider() else { return false }
+        return latest.hasSameCredential(as: authorization) && latest.isUsable()
     }
 
     private func request(_ name: String, authorization: WidgetAuthorization, noteID: String? = nil,
@@ -133,19 +142,27 @@ actor WidgetRemoteClient {
         return request
     }
 
+    private func cachedContent(for authorization: WidgetAuthorization) -> AuthorizedWidgetCache? {
+        guard let url = cacheURL, let bytes = try? Data(contentsOf: url),
+              let cache = try? JSONDecoder().decode(AuthorizedWidgetCache.self, from: bytes),
+              cache.credentialHash == authorizationHash(authorization), cache.expiresAt > Date(),
+              cacheIsValid(cache, for: authorization.uid) else { return nil }
+        return cache
+    }
+
     private func performRefresh() async -> WidgetRefreshResult {
         guard cacheURL != nil, let authorization = authorizationProvider(), authorization.isUsable() else {
             removeCache()
-            return .empty("Abrí PairNotes para conectar el widget.")
+            return .empty("Tu espacio aparecerá al iniciar sesión y vincular sus cuentas.", needsAuthorization: true)
         }
         let captured = generation
         do {
             let (data, response) = try await session.data(for: request("widgetSnapshot", authorization: authorization))
-            guard current(authorization, generation: captured) else { return .empty("Abrí PairNotes para actualizar la sesión.") }
+            guard current(authorization, generation: captured) else { return .empty("Actualizando su espacio…") }
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 || status == 403 {
                 removeCache()
-                return .empty("Abrí PairNotes para volver a conectar el widget.")
+                return .empty("Actualizando su espacio…", needsAuthorization: true)
             }
             guard status == 200, data.count < 64 * 1024 else { throw URLError(.badServerResponse) }
             let decoder = JSONDecoder()
@@ -154,12 +171,12 @@ actor WidgetRemoteClient {
             guard remote.schemaVersion == 1, remote.pairId == authorization.pairID,
                   remote.pairEpoch == authorization.pairEpoch else {
                 removeCache()
-                return .empty("La pareja cambió. Abrí PairNotes para reconectar.")
+                return .empty("Actualizando su espacio…", needsAuthorization: true)
             }
             var couple: CoupleWidgetSnapshot?
             if let profiles = remote.profiles, let distance = remote.distance {
                 let value = CoupleWidgetSnapshot(profiles: profiles, startedOn: remote.startedOn,
-                                                  latestMessage: remote.latestMessage, distance: distance)
+                                                  latestMessage: remote.latestMessage, distance: distance, personalization: remote.personalization, latestGesture: remote.latestGesture)
                 do { try value.validate(for: authorization.uid) }
                 catch { removeCache(); return .empty("Abrí PairNotes para actualizar el espacio compartido.") }
                 couple = value
@@ -168,11 +185,11 @@ actor WidgetRemoteClient {
             if let note = remote.note {
                 guard let noteID = UUID(uuidString: note.id) else { throw URLError(.cannotParseResponse) }
                 let (png, imageResponse) = try await session.data(for: request("widgetImage", authorization: authorization, noteID: note.id))
-                guard current(authorization, generation: captured) else { return .empty("La sesión cambió. Abrí PairNotes.") }
+                guard current(authorization, generation: captured) else { return .empty("Actualizando su espacio…") }
                 let imageStatus = (imageResponse as? HTTPURLResponse)?.statusCode ?? 0
                 if imageStatus == 401 || imageStatus == 403 {
                     removeCache()
-                    return .empty("Abrí PairNotes para volver a conectar el widget.")
+                    return .empty("Actualizando su espacio…", needsAuthorization: true)
                 }
                 guard imageStatus == 200, !png.isEmpty, png.count <= maximumImageBytes,
                       ContentDigest.sha256(png) == note.imageSHA256 else { throw URLError(.cannotDecodeContentData) }
@@ -182,27 +199,41 @@ actor WidgetRemoteClient {
                 try value.validate()
                 snapshot = value
             }
+            let previousCache = cachedContent(for: authorization)
             var avatars: [String: Data] = [:]
             for profile in couple?.profiles ?? [] {
                 guard let avatar = profile.avatar else { continue }
-                // Missing/replaced/offline photos fall back to initials, never a
-                // stale photo belonging to another credential or previous pair.
+                if let bytes = previousCache?.avatars?[profile.uid], ContentDigest.sha256(bytes) == avatar.sha256 {
+                    avatars[profile.uid] = bytes
+                    continue
+                }
+                // Replaced photos never reuse pixels from an older avatar.
                 guard let (bytes, response) = try? await session.data(for: request("widgetAvatar", authorization: authorization,
                                                         avatarUID: profile.uid, avatarID: avatar.id)) else { continue }
-                guard current(authorization, generation: captured) else { return .empty("La sesión cambió. Abrí PairNotes.") }
+                guard current(authorization, generation: captured) else { return .empty("Actualizando su espacio…") }
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 if status == 401 || status == 403 {
-                    removeCache(); return .empty("Abrí PairNotes para volver a conectar el widget.")
+                    removeCache(); return .empty("Actualizando su espacio…", needsAuthorization: true)
                 }
                 if status == 200, bytes.count <= 512 * 1024,
                    ContentDigest.sha256(bytes) == avatar.sha256,
                    bytes.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) { avatars[profile.uid] = bytes }
             }
-            let expiration = min(authorization.expiresAt, remote.validUntil ?? authorization.expiresAt,
-                                 Date().addingTimeInterval(15 * 60))
+            var cacheAuthorization = authorization
+            if let renewed = remote.credentialExpiresAt, renewed > authorization.expiresAt {
+                let updated = WidgetAuthorization(token: authorization.token, expiresAt: renewed,
+                    baseURL: authorization.baseURL, uid: authorization.uid, pairID: authorization.pairID,
+                    pairEpoch: authorization.pairEpoch, deviceID: authorization.deviceID,
+                    apnsEnvironment: authorization.apnsEnvironment)
+                guard current(authorization, generation: captured) else { return .empty("La sesión cambió.") }
+                try authorizationSaver(updated)
+                cacheAuthorization = updated
+            }
+            let expiration = min(cacheAuthorization.expiresAt, remote.validUntil ?? cacheAuthorization.expiresAt,
+                                 Date().addingTimeInterval(24 * 60 * 60))
             guard expiration > Date() else { throw WidgetAccessError.invalidCredential }
-            guard current(authorization, generation: captured) else { return .empty("La sesión cambió. Abrí PairNotes.") }
-            let cache = AuthorizedWidgetCache(credentialHash: authorizationHash(authorization),
+            guard current(cacheAuthorization, generation: captured) else { return .empty("Actualizando su espacio…") }
+            let cache = AuthorizedWidgetCache(credentialHash: authorizationHash(cacheAuthorization),
                                              expiresAt: expiration, snapshot: snapshot, couple: couple, avatars: avatars)
             if let url = cacheURL {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -217,7 +248,7 @@ actor WidgetRemoteClient {
                   let cache = try? JSONDecoder().decode(AuthorizedWidgetCache.self, from: bytes),
                   cache.credentialHash == authorizationHash(authorization), cache.expiresAt > Date(),
                   cacheIsValid(cache, for: authorization.uid) else {
-                return .empty("No se pudo actualizar. Abrí PairNotes para reintentar.")
+                return .empty("Esperando conexión para actualizar…")
             }
             return WidgetRefreshResult(snapshot: cache.snapshot, couple: cache.couple, avatars: cache.avatars ?? [:],
                                        message: "Datos guardados; sin conexión", cached: true, expiresAt: cache.expiresAt)
@@ -227,9 +258,10 @@ actor WidgetRemoteClient {
     private func authorizationHash(_ authorization: WidgetAuthorization) -> String {
         // Bind every private cache to the account, pair generation, endpoint and
         // credential, including locally changed configuration with the same token.
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        return ContentDigest.sha256((try? encoder.encode(authorization)) ?? Data())
+        guard let data = try? JSONEncoder().encode(authorization),
+              var fields = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return "" }
+        fields.removeValue(forKey: "expiresAt")
+        return ContentDigest.sha256((try? JSONSerialization.data(withJSONObject: fields, options: .sortedKeys)) ?? Data())
     }
 
     private func cacheIsValid(_ cache: AuthorizedWidgetCache, for uid: String) -> Bool {

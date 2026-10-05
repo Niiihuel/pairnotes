@@ -13,6 +13,13 @@ struct WidgetAuthorization: Codable, Equatable, Sendable {
     let deviceID: String
     let apnsEnvironment: String
 
+    // Renewal changes only the deadline, never the account or pair scope.
+    func hasSameCredential(as other: WidgetAuthorization) -> Bool {
+        token == other.token && baseURL == other.baseURL && uid == other.uid &&
+        pairID == other.pairID && pairEpoch == other.pairEpoch && deviceID == other.deviceID &&
+        apnsEnvironment == other.apnsEnvironment
+    }
+
     func isUsable(at date: Date = Date()) -> Bool {
         guard token.count >= 32, expiresAt > date, !uid.isEmpty,
               !pairID.isEmpty, pairEpoch > 0, !deviceID.isEmpty,
@@ -37,7 +44,7 @@ enum WidgetAccessError: Error, LocalizedError {
         switch self {
         case .notConfigured: return "El acceso compartido del widget aún no está configurado en esta instalación."
         case .keychain: return "No se pudo guardar el acceso del widget de forma segura."
-        case .invalidCredential: return "El acceso del widget venció. Volvé a conectarlo desde la app."
+        case .invalidCredential: return "El acceso del widget se actualizará automáticamente desde la app."
         }
     }
 }

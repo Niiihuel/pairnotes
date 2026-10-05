@@ -7,19 +7,26 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0029A48A26BF698DE25B15E1 /* PrivateImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E6E8D2520119FF6A7129CA9 /* PrivateImageCache.swift */; };
 		002D2CF70F0AA1C0E28F8F22 /* RemoteNote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F940871290E8CD621DF8546 /* RemoteNote.swift */; };
 		02D44C6E33A2DE693888A8EC /* Pairing.swift in Sources */ = {isa = PBXBuildFile; fileRef = AED09771DC5C95B2CA2188C8 /* Pairing.swift */; };
+		0304076149229364E38CB8A8 /* VoiceNoteController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A35627F4212DEE028F9A0A0 /* VoiceNoteController.swift */; };
 		04EFD805A274646B6B61CB88 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 63D622475F5207FBC9CC5DB8 /* Foundation.framework */; };
 		082316070D15852F88D5836D /* MonthlyReminderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A061225091C922828138034 /* MonthlyReminderService.swift */; };
+		08B9B7250A5F1D3AB80389D8 /* PaperCreativeTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68B19DEE060E1AB6B62F737 /* PaperCreativeTools.swift */; };
+		0DEC0115B0D9DA1B73F96C41 /* PhotoViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793761937193EC6D4C5C9CBB /* PhotoViewer.swift */; };
 		0F61CF87EDE4A90A1199E917 /* PairNotesCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B25DE4C1C0C616CF87F162ED /* PairNotesCore.framework */; };
 		10FE16011A699A54FFAC018B /* ServiceConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0F14FACD03AE562D4EC20F /* ServiceConfigurationTests.swift */; };
 		12AEA75BE6E4A1D23A4EA94B /* PairNotesWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB6F33F5AF7D0DF57D4B8FE7 /* PairNotesWidgetBundle.swift */; };
 		14C873D16082CC2CEF87526C /* CoupleSpaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A57427CCCC7FFA4AFA9F9E /* CoupleSpaceViews.swift */; };
 		19C622A29F7264D2CF1AC4FF /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04751BC41DA7A76476262C15 /* HomeView.swift */; };
 		1EEA8035D03B88C53F44210A /* NativePaperProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E97C967520D23D216F9943B /* NativePaperProbe.swift */; };
+		1FD3E1137929B10B01688F4D /* CoupleThemeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F602F69962A6ED07CD1F136 /* CoupleThemeStyle.swift */; };
 		21750373F2760378F8EDA237 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 63D622475F5207FBC9CC5DB8 /* Foundation.framework */; };
 		22435CCAA6650525D26CEECD /* PairNotesCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B25DE4C1C0C616CF87F162ED /* PairNotesCore.framework */; };
+		2C520D41EAAB762B6BA2836F /* CoupleThemeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F602F69962A6ED07CD1F136 /* CoupleThemeStyle.swift */; };
 		2C960753364A837F40EEAEFC /* AppServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C0F66992450B0DB7430EAD /* AppServices.swift */; };
+		2CD053BF5695F5EE88025B51 /* VoiceNoteViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F3F9A9DB9D9B675C7B0F55C /* VoiceNoteViews.swift */; };
 		31B6D8BF4F60374775F5D89F /* DraftLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47D0DE72CD3C7FB46CDDF48 /* DraftLibraryView.swift */; };
 		31F218F886F6F1BADA75071C /* SharedMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CE9F33F0A958C047B5C0BC /* SharedMemory.swift */; };
 		37B8E44A005ACEC0247FE5DA /* WidgetAccessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E6159B88137BF21592FC1F5 /* WidgetAccessStore.swift */; };
@@ -29,6 +36,7 @@
 		3E8A96562BD6BBFCC7DF8950 /* AppleSignInRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D121EEBCF3007D4F9EF373 /* AppleSignInRequest.swift */; };
 		40743ED38405792ED5FE3BB6 /* FileDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68BACBE62DC8C7E676F8B77D /* FileDraftStore.swift */; };
 		47E38CF330814F694AEFE54A /* LocationSharingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C4562AA80463903AAA2C49 /* LocationSharingController.swift */; };
+		58E292D37564894D87CB330E /* CouplePersonalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CD92B990CCA77A8143AC1CE /* CouplePersonalization.swift */; };
 		5B006E734F3B73855F87435E /* WidgetRemoteClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 231DFAA5F216363FBBAE49C4 /* WidgetRemoteClient.swift */; };
 		632D1DDBD3E314F3AE98B526 /* PairNotesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE06981EDF620B0EEAAA7043 /* PairNotesApp.swift */; };
 		64BF25EEB3D7C0AFAF57ACA6 /* DurableOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DCF6C102BAA62894E83BAA1 /* DurableOutbox.swift */; };
@@ -41,14 +49,20 @@
 		865B63DA869E0AF90471A42A /* WidgetRemoteClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 231DFAA5F216363FBBAE49C4 /* WidgetRemoteClient.swift */; };
 		8F16032F50054AF3855AC6FD /* Providers.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A54131955750C398A51DFB /* Providers.swift */; };
 		94A56CF38D2351DA60B7D94D /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 63D622475F5207FBC9CC5DB8 /* Foundation.framework */; };
+		960B2FB4FD85643E8EA96DD1 /* AffectionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE147033D7E25C2944104CF /* AffectionViews.swift */; };
 		98348072FE98C67CC0BE51F8 /* CoupleSpaceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 666F2B72ACDF047A95A05C22 /* CoupleSpaceService.swift */; };
+		98C4615C621D3840E52F3CFC /* PersonalizationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9674146EDF6DC10AE7F7BEA9 /* PersonalizationView.swift */; };
 		9C948EB654F009A72B1DAABC /* RailwayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4104C7DEF0DDD767AD74D20 /* RailwayClient.swift */; };
+		9E52D62D35778255BAEF098A /* AffectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B91A62138F779982E65E1D /* AffectionService.swift */; };
+		9EEDEF9113F62548B216AE08 /* Affection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C49FCD3ED919F063C71DE7AF /* Affection.swift */; };
+		9F5FDE47C8C9E4F638B785C6 /* MemoryCompositionDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F5188C3712C9017AC5B1702 /* MemoryCompositionDraft.swift */; };
 		9F6C8E670D04875353F6B142 /* CoupleWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB99EC200A7C100DA6EA4F0E /* CoupleWidgets.swift */; };
 		A3CB52786405DFAB1E53BAD2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = DCE447FE6429388523897240 /* PrivacyInfo.xcprivacy */; };
 		AA8D9E605E258260AE2F0197 /* PaperProbeController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58815EE31066D1D0180B769C /* PaperProbeController.swift */; };
 		AC0B099AE24AE666C6054E8D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1944EA3B4183DB4530BE5656 /* Assets.xcassets */; };
 		B1806D56245935C0409D20A6 /* PaperRoundTripTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9FB2741ED063F800FE66070 /* PaperRoundTripTests.swift */; };
 		B5FB13A7464865821D01EC40 /* MockProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E0A88EF19929165A710182E /* MockProviders.swift */; };
+		BB97D018F5BE1224C691C65D /* LettersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53B7191D3DCAEFCE33D93DB6 /* LettersView.swift */; };
 		BC68F1E277A8F2A719BC36C4 /* PairNotesWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 309D5AF2D9342A78FEB8FAED /* PairNotesWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		BC81A6597B89DDDB7FA0D06F /* CoupleSpace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D00FDCBFAB2505F9B37BC10 /* CoupleSpace.swift */; };
 		BD4C0469097F2C486A4D3BB6 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = F996176B4DB95C808F341726 /* GoogleSignIn */; };
@@ -59,6 +73,9 @@
 		CE4216EE35FB5D04F465EB7F /* NoteDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = E97617BE31D80E880ECB90B9 /* NoteDocument.swift */; };
 		D2AB2A64F1DFFEECB674CF24 /* MonthlyReminderServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62C27CCE5C14D5AA8DE64E6F /* MonthlyReminderServiceTests.swift */; };
 		D5BCB0EC59992EB6321689EE /* ContentDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F37D725A6BCF6564D33E8D /* ContentDigest.swift */; };
+		D7776262650E80BE51D59EE9 /* ScrapbookPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC08FD4A214D6C5E699DC121 /* ScrapbookPage.swift */; };
+		DB4D127AF48A87B047DAD355 /* VoiceWaveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFACE15E812B2AF8B10A8942 /* VoiceWaveform.swift */; };
+		DEDD3E8A33E872580E1C6B28 /* LetterComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 810B43FB67E2D187E3A04D41 /* LetterComposer.swift */; };
 		E209665E34AF86BF40C50524 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F957D8C89CC5EF61E44D3AE0 /* AppModel.swift */; };
 		E5A27A14FD6D9CD74EE820CA /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 63D622475F5207FBC9CC5DB8 /* Foundation.framework */; };
 		E9401E196FA0DC80F2767265 /* ServiceConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBDDABCBE8D47E0205D0AF9F /* ServiceConfiguration.swift */; };
@@ -132,8 +149,10 @@
 		13C4562AA80463903AAA2C49 /* LocationSharingController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocationSharingController.swift; path = PairNotes/Services/LocationSharingController.swift; sourceTree = "<group>"; };
 		17CE9F33F0A958C047B5C0BC /* SharedMemory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SharedMemory.swift; path = PairNotes/Core/Domain/SharedMemory.swift; sourceTree = "<group>"; };
 		1944EA3B4183DB4530BE5656 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = PairNotes/App/Assets.xcassets; sourceTree = "<group>"; };
+		1E6E8D2520119FF6A7129CA9 /* PrivateImageCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PrivateImageCache.swift; path = PairNotes/Core/Persistence/PrivateImageCache.swift; sourceTree = "<group>"; };
 		20A57427CCCC7FFA4AFA9F9E /* CoupleSpaceViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CoupleSpaceViews.swift; path = PairNotes/Features/Couple/CoupleSpaceViews.swift; sourceTree = "<group>"; };
 		231DFAA5F216363FBBAE49C4 /* WidgetRemoteClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetRemoteClient.swift; path = PairNotes/Widgets/SharedSnapshot/WidgetRemoteClient.swift; sourceTree = "<group>"; };
+		2CD92B990CCA77A8143AC1CE /* CouplePersonalization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CouplePersonalization.swift; path = PairNotes/Core/Domain/CouplePersonalization.swift; sourceTree = "<group>"; };
 		2D00FDCBFAB2505F9B37BC10 /* CoupleSpace.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CoupleSpace.swift; path = PairNotes/Core/Domain/CoupleSpace.swift; sourceTree = "<group>"; };
 		2F940871290E8CD621DF8546 /* RemoteNote.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RemoteNote.swift; path = PairNotes/Core/Domain/RemoteNote.swift; sourceTree = "<group>"; };
 		309D5AF2D9342A78FEB8FAED /* PairNotesWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PairNotesWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -141,20 +160,30 @@
 		3B0294E36D0B60C73BA4E982 /* PairNotes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PairNotes.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3E2CA06401CEB5C521B470C2 /* PhotoCropEditor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PhotoCropEditor.swift; path = PairNotes/Canvas/NativePaper/PhotoCropEditor.swift; sourceTree = "<group>"; };
 		3E97C967520D23D216F9943B /* NativePaperProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NativePaperProbe.swift; path = PairNotes/Canvas/NativePaper/NativePaperProbe.swift; sourceTree = "<group>"; };
+		53B7191D3DCAEFCE33D93DB6 /* LettersView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LettersView.swift; path = PairNotes/Features/Couple/LettersView.swift; sourceTree = "<group>"; };
 		58815EE31066D1D0180B769C /* PaperProbeController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PaperProbeController.swift; path = PairNotes/Canvas/NativePaper/PaperProbeController.swift; sourceTree = "<group>"; };
 		58CBEEFDE6F4C6C9F6F7C598 /* CoupleView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CoupleView.swift; path = PairNotes/Features/Couple/CoupleView.swift; sourceTree = "<group>"; };
 		5A061225091C922828138034 /* MonthlyReminderService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MonthlyReminderService.swift; path = PairNotes/Services/MonthlyReminderService.swift; sourceTree = "<group>"; };
+		5F3F9A9DB9D9B675C7B0F55C /* VoiceNoteViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceNoteViews.swift; path = PairNotes/Features/Couple/VoiceNoteViews.swift; sourceTree = "<group>"; };
 		619125B37D59C85FF3161A4A /* PairNotesNativeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PairNotesNativeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		62C27CCE5C14D5AA8DE64E6F /* MonthlyReminderServiceTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MonthlyReminderServiceTests.swift; path = PairNotes/Tests/NativeTests/MonthlyReminderServiceTests.swift; sourceTree = "<group>"; };
 		63D622475F5207FBC9CC5DB8 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		666F2B72ACDF047A95A05C22 /* CoupleSpaceService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CoupleSpaceService.swift; path = PairNotes/Services/CoupleSpaceService.swift; sourceTree = "<group>"; };
 		68BACBE62DC8C7E676F8B77D /* FileDraftStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = FileDraftStore.swift; path = PairNotes/Core/Persistence/FileDraftStore.swift; sourceTree = "<group>"; };
+		6A35627F4212DEE028F9A0A0 /* VoiceNoteController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceNoteController.swift; path = PairNotes/Services/VoiceNoteController.swift; sourceTree = "<group>"; };
 		6BF2920A57ECD97A9EEDCF9D /* SharedWidgetContainer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SharedWidgetContainer.swift; path = PairNotes/Widgets/SharedSnapshot/SharedWidgetContainer.swift; sourceTree = "<group>"; };
+		6F5188C3712C9017AC5B1702 /* MemoryCompositionDraft.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MemoryCompositionDraft.swift; path = PairNotes/Features/Timeline/MemoryCompositionDraft.swift; sourceTree = "<group>"; };
+		6F602F69962A6ED07CD1F136 /* CoupleThemeStyle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CoupleThemeStyle.swift; path = PairNotes/Widgets/SharedSnapshot/CoupleThemeStyle.swift; sourceTree = "<group>"; };
 		71D121EEBCF3007D4F9EF373 /* AppleSignInRequest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppleSignInRequest.swift; path = PairNotes/Services/AppleSignInRequest.swift; sourceTree = "<group>"; };
+		793761937193EC6D4C5C9CBB /* PhotoViewer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PhotoViewer.swift; path = PairNotes/Features/Timeline/PhotoViewer.swift; sourceTree = "<group>"; };
 		7E255A1974FAD74DE28CBDD2 /* Base.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Base.xcconfig; path = Config/Base.xcconfig; sourceTree = "<group>"; };
+		810B43FB67E2D187E3A04D41 /* LetterComposer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LetterComposer.swift; path = PairNotes/Features/Couple/LetterComposer.swift; sourceTree = "<group>"; };
 		8D0037017CA46317C7DE86B8 /* NoteWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NoteWidget.swift; path = PairNotes/Widgets/NoteWidget/NoteWidget.swift; sourceTree = "<group>"; };
 		90C0F66992450B0DB7430EAD /* AppServices.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppServices.swift; path = PairNotes/Services/AppServices.swift; sourceTree = "<group>"; };
+		9674146EDF6DC10AE7F7BEA9 /* PersonalizationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PersonalizationView.swift; path = PairNotes/Features/Couple/PersonalizationView.swift; sourceTree = "<group>"; };
+		9AE147033D7E25C2944104CF /* AffectionViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AffectionViews.swift; path = PairNotes/Features/Couple/AffectionViews.swift; sourceTree = "<group>"; };
 		9C52C05971195800ECE84BBE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = PairNotes/Widgets/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A2B91A62138F779982E65E1D /* AffectionService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AffectionService.swift; path = PairNotes/Services/AffectionService.swift; sourceTree = "<group>"; };
 		A6DD900A021F89A8BB269FDD /* NotificationServices.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NotificationServices.swift; path = PairNotes/Services/NotificationServices.swift; sourceTree = "<group>"; };
 		A7A11698F57327E9770EA541 /* PaperProbeDocument.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PaperProbeDocument.swift; path = PairNotes/Canvas/NativePaper/PaperProbeDocument.swift; sourceTree = "<group>"; };
 		A9AE94CEF9B8DC555EC613B6 /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RootView.swift; path = PairNotes/App/RootView.swift; sourceTree = "<group>"; };
@@ -166,11 +195,14 @@
 		BE0F14FACD03AE562D4EC20F /* ServiceConfigurationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ServiceConfigurationTests.swift; path = PairNotes/Tests/NativeTests/ServiceConfigurationTests.swift; sourceTree = "<group>"; };
 		C4104C7DEF0DDD767AD74D20 /* RailwayClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RailwayClient.swift; path = PairNotes/Services/RailwayClient.swift; sourceTree = "<group>"; };
 		C47D0DE72CD3C7FB46CDDF48 /* DraftLibraryView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DraftLibraryView.swift; path = PairNotes/Features/Editor/DraftLibraryView.swift; sourceTree = "<group>"; };
+		C49FCD3ED919F063C71DE7AF /* Affection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Affection.swift; path = PairNotes/Core/Domain/Affection.swift; sourceTree = "<group>"; };
 		C5F37D725A6BCF6564D33E8D /* ContentDigest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ContentDigest.swift; path = PairNotes/Core/Persistence/ContentDigest.swift; sourceTree = "<group>"; };
+		C68B19DEE060E1AB6B62F737 /* PaperCreativeTools.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PaperCreativeTools.swift; path = PairNotes/Canvas/NativePaper/PaperCreativeTools.swift; sourceTree = "<group>"; };
 		C9FB2741ED063F800FE66070 /* PaperRoundTripTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PaperRoundTripTests.swift; path = PairNotes/Tests/NativeTests/PaperRoundTripTests.swift; sourceTree = "<group>"; };
 		CE06981EDF620B0EEAAA7043 /* PairNotesApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PairNotesApp.swift; path = PairNotes/App/PairNotesApp.swift; sourceTree = "<group>"; };
 		D4170A70B36FB74E36AF316E /* WidgetRemoteClientTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetRemoteClientTests.swift; path = PairNotes/Tests/NativeTests/WidgetRemoteClientTests.swift; sourceTree = "<group>"; };
 		DBDDABCBE8D47E0205D0AF9F /* ServiceConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ServiceConfiguration.swift; path = PairNotes/Services/ServiceConfiguration.swift; sourceTree = "<group>"; };
+		DC08FD4A214D6C5E699DC121 /* ScrapbookPage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScrapbookPage.swift; path = PairNotes/Features/Timeline/ScrapbookPage.swift; sourceTree = "<group>"; };
 		DCE447FE6429388523897240 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = PairNotes/App/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E97617BE31D80E880ECB90B9 /* NoteDocument.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NoteDocument.swift; path = PairNotes/Core/Domain/NoteDocument.swift; sourceTree = "<group>"; };
 		EB6F33F5AF7D0DF57D4B8FE7 /* PairNotesWidgetBundle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PairNotesWidgetBundle.swift; path = PairNotes/Widgets/NoteWidget/PairNotesWidgetBundle.swift; sourceTree = "<group>"; };
@@ -178,6 +210,7 @@
 		EDC4E1984EE70769B13889BB /* SharedMemoryViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SharedMemoryViews.swift; path = PairNotes/Features/Timeline/SharedMemoryViews.swift; sourceTree = "<group>"; };
 		F6A54131955750C398A51DFB /* Providers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Providers.swift; path = PairNotes/Core/Domain/Providers.swift; sourceTree = "<group>"; };
 		F957D8C89CC5EF61E44D3AE0 /* AppModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppModel.swift; path = PairNotes/App/AppModel.swift; sourceTree = "<group>"; };
+		FFACE15E812B2AF8B10A8942 /* VoiceWaveform.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VoiceWaveform.swift; path = PairNotes/Core/Domain/VoiceWaveform.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -291,6 +324,22 @@
 				1944EA3B4183DB4530BE5656 /* Assets.xcassets */,
 				DCE447FE6429388523897240 /* PrivacyInfo.xcprivacy */,
 				9C52C05971195800ECE84BBE /* PrivacyInfo.xcprivacy */,
+				1E6E8D2520119FF6A7129CA9 /* PrivateImageCache.swift */,
+				2CD92B990CCA77A8143AC1CE /* CouplePersonalization.swift */,
+				9674146EDF6DC10AE7F7BEA9 /* PersonalizationView.swift */,
+				6F5188C3712C9017AC5B1702 /* MemoryCompositionDraft.swift */,
+				DC08FD4A214D6C5E699DC121 /* ScrapbookPage.swift */,
+				6F602F69962A6ED07CD1F136 /* CoupleThemeStyle.swift */,
+				C49FCD3ED919F063C71DE7AF /* Affection.swift */,
+				FFACE15E812B2AF8B10A8942 /* VoiceWaveform.swift */,
+				A2B91A62138F779982E65E1D /* AffectionService.swift */,
+				6A35627F4212DEE028F9A0A0 /* VoiceNoteController.swift */,
+				9AE147033D7E25C2944104CF /* AffectionViews.swift */,
+				5F3F9A9DB9D9B675C7B0F55C /* VoiceNoteViews.swift */,
+				53B7191D3DCAEFCE33D93DB6 /* LettersView.swift */,
+				810B43FB67E2D187E3A04D41 /* LetterComposer.swift */,
+				793761937193EC6D4C5C9CBB /* PhotoViewer.swift */,
+				C68B19DEE060E1AB6B62F737 /* PaperCreativeTools.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -496,6 +545,18 @@
 				CCA534419DD2586DFA9AC143 /* SharedWidgetContainer.swift in Sources */,
 				37B8E44A005ACEC0247FE5DA /* WidgetAccessStore.swift in Sources */,
 				865B63DA869E0AF90471A42A /* WidgetRemoteClient.swift in Sources */,
+				98C4615C621D3840E52F3CFC /* PersonalizationView.swift in Sources */,
+				9F5FDE47C8C9E4F638B785C6 /* MemoryCompositionDraft.swift in Sources */,
+				D7776262650E80BE51D59EE9 /* ScrapbookPage.swift in Sources */,
+				1FD3E1137929B10B01688F4D /* CoupleThemeStyle.swift in Sources */,
+				9E52D62D35778255BAEF098A /* AffectionService.swift in Sources */,
+				0304076149229364E38CB8A8 /* VoiceNoteController.swift in Sources */,
+				960B2FB4FD85643E8EA96DD1 /* AffectionViews.swift in Sources */,
+				2CD053BF5695F5EE88025B51 /* VoiceNoteViews.swift in Sources */,
+				BB97D018F5BE1224C691C65D /* LettersView.swift in Sources */,
+				DEDD3E8A33E872580E1C6B28 /* LetterComposer.swift in Sources */,
+				0DEC0115B0D9DA1B73F96C41 /* PhotoViewer.swift in Sources */,
+				08B9B7250A5F1D3AB80389D8 /* PaperCreativeTools.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -515,6 +576,10 @@
 				64BF25EEB3D7C0AFAF57ACA6 /* DurableOutbox.swift in Sources */,
 				40743ED38405792ED5FE3BB6 /* FileDraftStore.swift in Sources */,
 				C576966A5A3D3BC7EB5C18CE /* WidgetSnapshotStore.swift in Sources */,
+				0029A48A26BF698DE25B15E1 /* PrivateImageCache.swift in Sources */,
+				58E292D37564894D87CB330E /* CouplePersonalization.swift in Sources */,
+				9EEDEF9113F62548B216AE08 /* Affection.swift in Sources */,
+				DB4D127AF48A87B047DAD355 /* VoiceWaveform.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -528,6 +593,7 @@
 				792EC88070547DA186B79BA9 /* SharedWidgetContainer.swift in Sources */,
 				EB06584FDC08EF358CF89DC8 /* WidgetAccessStore.swift in Sources */,
 				5B006E734F3B73855F87435E /* WidgetRemoteClient.swift in Sources */,
+				2C520D41EAAB762B6BA2836F /* CoupleThemeStyle.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

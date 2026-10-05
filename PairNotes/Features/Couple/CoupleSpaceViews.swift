@@ -103,71 +103,16 @@ struct CouplePortraits: View {
             HStack(spacing: 18) {
                 VStack(spacing: 6) {
                     ProfileAvatarView(services: services, uid: own.uid, name: own.displayName, reference: services.profileAvatar, size: 66)
-                    Text(own.displayName).lineLimit(1).font(.subheadline.weight(.medium))
+                    Text(services.personalization.name(for: own.uid, fallback: own.displayName)).lineLimit(1).font(.subheadline.weight(.medium))
                 }.frame(maxWidth: .infinity)
                 Image(systemName: "heart.fill").font(.title2).foregroundStyle(.pink).accessibilityHidden(true)
                 VStack(spacing: 6) {
                     ProfileAvatarView(services: services, uid: pair.partner.uid, name: pair.partner.displayName,
                         reference: services.coupleSpace?.profiles.first(where: { $0.uid == pair.partner.uid })?.avatar, size: 66)
-                    Text(pair.partner.displayName).lineLimit(1).font(.subheadline.weight(.medium))
+                    Text(services.personalization.name(for: pair.partner.uid, fallback: pair.partner.displayName)).lineLimit(1).font(.subheadline.weight(.medium))
                 }.frame(maxWidth: .infinity)
             }.padding(.vertical, 10)
         }
-    }
-}
-
-struct CoupleHomeSections: View {
-    @ObservedObject var services: AppServices
-    @State private var composing = false
-    @State private var dateSheet = false
-    @State private var distanceSheet = false
-    var body: some View {
-        if services.membership != nil {
-            Section {
-                CouplePortraits(services: services)
-                Button { dateSheet = true } label: {
-                    if let started = services.coupleSpace?.startedOn,
-                       let days = started.daysTogether(on: Date(), calendar: .current) {
-                        HStack {
-                            Label("Juntos desde \(started.date(in: .current)?.formatted(date: .abbreviated, time: .omitted) ?? started.rawValue)", systemImage: "calendar.badge.clock")
-                                .font(.subheadline)
-                            Spacer()
-                            Text("\(days) días").font(.headline).monospacedDigit()
-                        }
-                    } else { Label("Elegir cuándo empezó su historia", systemImage: "calendar.badge.plus") }
-                }.buttonStyle(.plain)
-            }
-            Section("Un mensaje para vos") {
-                if let message = services.coupleSpace?.latestMessage {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(message.text).font(.title3).privacySensitive()
-                        Text(message.sentAt, format: .dateTime.day().month().hour().minute()).font(.caption).foregroundStyle(.secondary)
-                    }.padding(.vertical, 8)
-                } else { Text("Unas palabras también pueden alegrar el día.").foregroundStyle(.secondary) }
-                Button("Enviar un mensaje", systemImage: "bubble.left.and.text.bubble.right") { composing = true }
-            }
-            Section {
-                Button { distanceSheet = true } label: {
-                    HStack {
-                        Image(systemName: "location.circle.fill").font(.title).foregroundStyle(.pink)
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("Nuestra distancia").font(.headline)
-                            DistanceSummary(distance: services.coupleSpace?.location.distance)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                    }.padding(.vertical, 4)
-                }.buttonStyle(.plain)
-            }
-            if let error = services.spaceError { Section { Text(error).font(.footnote).foregroundStyle(.secondary) } }
-        }
-        // Each form captures its pair; RootView dismisses when the account changes.
-        Color.clear.frame(height: 0).listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
-            .sheet(isPresented: $composing) { MessageComposer(services: services) }
-            .sheet(isPresented: $dateSheet) { TogetherDateEditor(services: services) }
-            .sheet(isPresented: $distanceSheet) { NavigationStack { DistanceSettingsView(services: services) } }
-            .onChange(of: services.membership?.id) { _, _ in composing = false; dateSheet = false; distanceSheet = false }
-            .onChange(of: services.identity?.uid) { _, _ in composing = false; dateSheet = false; distanceSheet = false }
     }
 }
 
@@ -299,7 +244,22 @@ struct MessageComposer: View {
     @State private var submittedText: String?
     @FocusState private var focused: Bool
     private let pairID: String?
-    init(services: AppServices) { self.services = services; pairID = services.membership?.id }
+    private let storage: MemoryCompositionStorage
+    @State private var finished = false
+    private struct Draft: Codable {
+        let text: String
+        let id: UUID
+        let submittedText: String?
+    }
+    init(services: AppServices) {
+        self.services = services; pairID = services.membership?.id
+        let storage = MemoryCompositionStorage(key: services.privateImageKey("message-draft"))
+        self.storage = storage
+        let draft: Draft? = storage.loadValue()
+        _text = State(initialValue: draft?.text ?? "")
+        _messageID = State(initialValue: draft?.id ?? UUID())
+        _submittedText = State(initialValue: draft?.submittedText)
+    }
     private var clean: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     var body: some View {
         NavigationStack {
@@ -317,29 +277,39 @@ struct MessageComposer: View {
             .navigationTitle("Un mensaje").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancelar") { if clean.isEmpty { dismiss() } else { discard = true } }.disabled(sending)
+                    Button("Cerrar") { if clean.isEmpty { finished = true; storage.clear(); dismiss() } else { discard = true } }.disabled(sending)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Enviar", systemImage: "paperplane.fill") { send() }.disabled(sending || clean.isEmpty || text.utf16.count > 500)
                 }
             }
             .interactiveDismissDisabled(sending || !clean.isEmpty)
-            .confirmationDialog("¿Descartar este mensaje?", isPresented: $discard, titleVisibility: .visible) {
-                Button("Descartar", role: .destructive) { dismiss() }
+            .confirmationDialog("Tu mensaje todavía no está enviado", isPresented: $discard, titleVisibility: .visible) {
+                Button("Guardar borrador y salir") { if persistMessage() { dismiss() } }
+                Button("Descartar", role: .destructive) { finished = true; storage.clear(); dismiss() }
                 Button("Seguir escribiendo", role: .cancel) {}
             }
+            .onChange(of: text) { _, _ in _ = persistMessage() }
+            .onDisappear { if !finished { _ = persistMessage() } }
             .task { focused = true }
         }
     }
+    private func persistMessage() -> Bool {
+        guard !finished else { return true }
+        do { try storage.saveValue(Draft(text: text, id: messageID, submittedText: submittedText)); return true }
+        catch { self.error = "No se pudo guardar el borrador en este iPhone."; return false }
+    }
     private func send() {
-        guard !sending, !clean.isEmpty, text.utf16.count <= 500, services.membership?.id == pairID else { return }
+        guard !sending, !clean.isEmpty, text.utf16.count <= 500, services.membership?.id == pairID,
+              storage.key == services.privateImageKey("message-draft") else { return }
         if let submittedText, submittedText != clean { messageID = UUID() }
         submittedText = clean
+        guard persistMessage() else { return }
         sending = true; error = nil
         let captured = clean
         Task { @MainActor in
             defer { sending = false }
-            do { try await services.sendMessage(id: messageID, text: captured); dismiss() }
+            do { try await services.sendMessage(id: messageID, text: captured); finished = true; storage.clear(); dismiss() }
             catch { self.error = "No se pudo confirmar el envío. Podés reintentar sin duplicar el mismo mensaje." }
         }
     }

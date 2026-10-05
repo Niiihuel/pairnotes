@@ -125,6 +125,10 @@ struct PhotoCropEditor: View {
                 if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
             }
             .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(uiColor: .systemBackground))
+            .toolbarBackground(Color(uiColor: .systemBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .navigationTitle("Recortar foto").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar", action: onCancel) }
@@ -139,6 +143,7 @@ struct PhotoCropEditor: View {
                 }
             }
         }
+        .presentationBackground(Color(uiColor: .systemBackground))
     }
 
     private func cropOverlay(size: CGSize) -> some View {

@@ -90,6 +90,26 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
       } catch (error) {sendError(response, error, false);}
     });
   }
+  for (const role of ['photo', 'drawing', 'audio'] as const) {
+    const route = role === 'photo' ? '/letterPhoto' : role === 'drawing' ? '/letterDrawing' : '/letterAudio';
+    app.put(route, async (request, response, next) => {
+      try {response.locals.caller = await options.auth.authenticate(bearer(request)); next();}
+      catch (error) {sendError(response, error, false);}
+    }, express.raw({type: role !== 'audio' ? ['image/png', 'image/jpeg'] : ['audio/wav'], limit: role !== 'audio' ? '5mb' : '2mb'}), async (request, response) => {
+      try {
+        if (!Buffer.isBuffer(request.body)) fail('invalid_asset', 'invalid-argument');
+        response.json(await options.service.affection.letterAsset(response.locals.caller, {...request.query, pairEpoch: Number(request.query.pairEpoch)},
+          role, request.body, request.header('content-type')));
+      } catch (error) {sendError(response, error, false);}
+    });
+    app.get(route, async (request, response) => {
+      try {
+        const caller = await options.auth.authenticate(bearer(request));
+        const bytes = await options.service.affection.letterAsset(caller, {...request.query, pairEpoch: Number(request.query.pairEpoch)}, role);
+        response.type(role !== 'audio' ? 'image/png' : 'audio/wav').send(bytes);
+      } catch (error) {sendError(response, error, false);}
+    });
+  }
   app.use(express.json({limit: '32kb', strict: true}));
   for (const name of ['challenge', 'exchange', 'refresh'] as const) {
     app.post(`/auth/${name}`, async (request, response) => {
@@ -135,7 +155,8 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
   });
   const operations = ['upsertProfile', 'getPairState', 'createInvite', 'acceptInvite', 'revokeInvite', 'closePair',
     'createUploadSession', 'finalizeNote', 'timeline', 'note', 'latestReceivedNote', 'markNoteViewed', 'registerDevice', 'unregisterDevice', 'issueWidgetSession',
-    'getCoupleSpace', 'updatePairDetails', 'upsertMemory', 'memories', 'deleteMemory', 'deleteMemoryPhoto', 'deleteProfileAvatar',
+    'getCoupleSpace', 'updatePersonalization', 'restoreMemory', 'updatePairDetails', 'upsertMemory', 'memories', 'deleteMemory', 'deleteMemoryPhoto', 'deleteProfileAvatar',
+    'sendGesture', 'reactions', 'setReaction', 'letters', 'saveLetterDraft', 'sealLetter', 'openLetter', 'deleteLetterDraft', 'removeLetterAsset',
     'sendMessage', 'messages', 'setLocationConsent', 'updateLocation'] as const;
   for (const name of operations) {
     app.post(`/${name}`, async (request, response) => {

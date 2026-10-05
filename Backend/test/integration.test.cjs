@@ -200,7 +200,13 @@ test('widget credentials return last received only, rotate, expire, unregister, 
   const f = await prepare(a, pair); await upload(a, f); const {note} = await finalize(a, pair, f);
   const snap = await (await request('/widgetSnapshot', userToken, undefined, 'GET')).json();
   assert.equal(snap.note.id, note.id); assert.equal(snap.note.paths, undefined);
-  assert.ok(snap.validUntil <= session.expiresAt && snap.validUntil <= Date.now() + 15 * 60_000);
+  assert.ok(snap.validUntil <= snap.credentialExpiresAt && snap.validUntil <= Date.now() + 24 * 60 * 60_000);
+  assert.ok(snap.credentialExpiresAt >= session.expiresAt);
+  // A device near expiry renews without opening the app or rotating its token.
+  await db.doc(`widgetSessions/${digest(session.token)}`).update({expiresAt: Timestamp.fromMillis(Date.now() + 60_000)});
+  const renewed = await (await request('/widgetSnapshot', userToken, undefined, 'GET')).json();
+  assert.ok(renewed.credentialExpiresAt > Date.now() + 29 * 86_400_000);
+  assert.equal((await db.doc(`widgetSessions/${digest(session.token)}`).get()).data().expiresAt.toMillis(), renewed.credentialExpiresAt);
   const response = await request(`/widgetImage?noteId=${note.id}`, userToken, undefined, 'GET');
   assert.equal(digest(Buffer.from(await response.arrayBuffer())), snap.note.imageSHA256);
   assert.equal((await request('/widgetImage?noteId=old', userToken, undefined, 'GET')).status, 409);

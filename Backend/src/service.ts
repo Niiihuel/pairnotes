@@ -3,6 +3,7 @@ import {Database, Timestamp, Transaction, DocumentData, FieldValue} from './data
 import {AssetStore} from './assets';
 import {HttpsError} from './errors';
 import sharp from 'sharp';
+import {AffectionFeatures} from './affection';
 import {CoupleFeatures, publicProfile} from './couple';
 import {revokeLocationDevice} from './location';
 
@@ -39,9 +40,21 @@ export function publicNote(note: DocumentData): DocumentData {
 
 /** Each HTTP operation independently authorizes its caller and relationship generation. */
 export class PairNotesService {
+  readonly affection = new AffectionFeatures(this);
   readonly couple = new CoupleFeatures(this);
   constructor(readonly db: Database, readonly bucket: AssetStore, readonly now: () => number = Date.now) {}
+  async sendGesture(caller: Caller, input: Input) {return this.affection.sendGesture(caller, input);}
+  async reactions(caller: Caller, input: Input) {return this.affection.reactions(caller, input);}
+  async setReaction(caller: Caller, input: Input) {return this.affection.setReaction(caller, input);}
+  async letters(caller: Caller, input: Input) {return this.affection.letters(caller, input);}
+  async saveLetterDraft(caller: Caller, input: Input) {return this.affection.saveLetterDraft(caller, input);}
+  async sealLetter(caller: Caller, input: Input) {return this.affection.sealLetter(caller, input);}
+  async openLetter(caller: Caller, input: Input) {return this.affection.openLetter(caller, input);}
+  async deleteLetterDraft(caller: Caller, input: Input) {return this.affection.deleteLetterDraft(caller, input);}
+  async removeLetterAsset(caller: Caller, input: Input) {return this.affection.removeLetterAsset(caller, input);}
   async getCoupleSpace(caller: Caller, input: Input) {return this.couple.getCoupleSpace(caller, input);}
+  async updatePersonalization(caller: Caller, input: Input) {return this.couple.updatePersonalization(caller, input);}
+  async restoreMemory(caller: Caller, input: Input) {return this.couple.restoreMemory(caller, input);}
   async updatePairDetails(caller: Caller, input: Input) {return this.couple.updatePairDetails(caller, input);}
   async upsertMemory(caller: Caller, input: Input) {return this.couple.upsertMemory(caller, input);}
   async memories(caller: Caller, input: Input) {return this.couple.memories(caller, input);}
@@ -445,7 +458,7 @@ export class PairNotesService {
     return {};
   }
   async issueWidgetSession(caller: Caller, input: Input): Promise<Input> {
-    const deviceId = identifier(input.deviceId, 'device_id'), secret = token(), hash = digest(secret), expiresAt = this.now() + 7 * 86_400_000;
+    const deviceId = identifier(input.deviceId, 'device_id'), secret = token(), hash = digest(secret), expiresAt = this.now() + 30 * 86_400_000;
     await this.rate(caller.uid, 'widget_session', 20, 60_000);
     await this.db.runTransaction(async tx => {
       const user = (await tx.get(this.db.doc(`users/${caller.uid}`))).data();
@@ -470,17 +483,20 @@ export class PairNotesService {
       const note = view?.latestNoteId ? (await tx.get(this.db.doc(`pairs/${session.pairId}/notes/${view.latestNoteId}`))).data() : null;
       const profile = note ? (await tx.get(this.db.doc(`pairs/${session.pairId}/profiles/${note.authorId}`))).data() : null;
       const space = await this.couple.space(tx, session.uid, pair);
-      const distanceExpiry = space.location.distance.meters === null ? Infinity : space.location.distance.updatedAt + 30 * 60_000;
+      // Renew the device-scoped credential on successful use. Pair closure,
+      // sign-out and device revocation are still checked on every request.
+      const credentialExpiresAt = this.now() + 30 * 86_400_000;
+      tx.update(this.db.doc(`widgetSessions/${hash}`), {expiresAt: Timestamp.fromMillis(credentialExpiresAt)});
       return {schemaVersion: 1, pairId: session.pairId, pairEpoch: session.pairEpoch, note: note ? publicNote(note) : null,
         authorDisplayName: profile?.displayName ?? null, imageSHA256: note?.widgetSHA256 ?? null, generatedAt: this.now(),
-        validUntil: Math.min(session.expiresAt.toMillis(), this.now() + 15 * 60_000, distanceExpiry), uid: session.uid, deviceId: session.deviceId,
-        profiles: space.profiles, startedOn: space.startedOn, latestMessage: space.latestMessage, distance: space.location.distance};
+        credentialExpiresAt, validUntil: this.now() + 24 * 60 * 60_000, uid: session.uid, deviceId: session.deviceId,
+        latestGesture: space.latestGesture, personalization: space.personalization, profiles: space.profiles, startedOn: space.startedOn, latestMessage: space.latestMessage, distance: space.location.distance};
     });
   }
   async widgetSnapshot(secret: string): Promise<DocumentData> {
     const state = await this.widgetState(secret), note = state.note;
-    return {schemaVersion: 1, pairId: state.pairId, pairEpoch: state.pairEpoch, generatedAt: state.generatedAt, validUntil: state.validUntil,
-      profiles: state.profiles, startedOn: state.startedOn, latestMessage: state.latestMessage, distance: state.distance,
+    return {schemaVersion: 1, pairId: state.pairId, pairEpoch: state.pairEpoch, generatedAt: state.generatedAt, validUntil: state.validUntil, credentialExpiresAt: state.credentialExpiresAt,
+      latestGesture: state.latestGesture, personalization: state.personalization, profiles: state.profiles, startedOn: state.startedOn, latestMessage: state.latestMessage, distance: state.distance,
       note: note ? {id: note.id, revision: note.revision, revisionHash: note.revisionHash, publishedAt: note.publishedAt,
         authorDisplayName: state.authorDisplayName, imageSHA256: state.imageSHA256} : null};
   }

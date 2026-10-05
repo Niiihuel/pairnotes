@@ -10,7 +10,7 @@ struct CoupleEntry: TimelineEntry {
     let message: String
     let cached: Bool
 
-    static func empty(at date: Date = Date(), message: String = "Abrí PairNotes para conectar el widget.") -> Self {
+    static func empty(at date: Date = Date(), message: String = "Tu espacio aparecerá al iniciar sesión y vincular sus cuentas.") -> Self {
         Self(date: date, snapshot: nil, avatars: [:], message: message, cached: false)
     }
 }
@@ -39,28 +39,30 @@ struct CoupleProvider: TimelineProvider {
             if let midnight = Calendar.current.dateInterval(of: .day, for: now)?.end,
                midnight > now, midnight < expiry { dates.append(midnight) }
             var entries = Array(Set(dates)).sorted().map { entry(result, at: $0) }
-            if result.couple != nil, expiry > now { entries.append(.empty(at: expiry)) }
-            completion(Timeline(entries: entries, policy: .after(max(now.addingTimeInterval(30), expiry))))
+            if result.couple != nil, expiry > now { entries.append(.empty(at: expiry, message: "Esperando conexión para actualizar…")) }
+            completion(Timeline(entries: entries, policy: .after(min(now.addingTimeInterval(15 * 60), max(now.addingTimeInterval(30), expiry)))))
         }
     }
 
     private func entry(_ result: WidgetRefreshResult, at date: Date) -> CoupleEntry {
         CoupleEntry(date: date, snapshot: result.couple, avatars: result.avatars,
-                    message: result.couple == nil ? "Abrí PairNotes para conectar el widget." : result.message,
+                    message: result.message,
                     cached: result.cached)
     }
 }
 
-private enum CoupleWidgetContent { case message, together, anniversary, distance }
+private enum CoupleWidgetContent { case message, together, anniversary, distance, gesture }
 
 private struct CoupleWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: CoupleEntry
     let content: CoupleWidgetContent
+    private var theme: CoupleTheme { entry.snapshot?.personalization?.theme ?? .rose }
     private var accessory: Bool { family == .accessoryRectangular }
 
     private var title: String {
         switch content {
+        case .gesture: return "Te estoy pensando"
         case .message: return "Un mensaje para vos"
         case .together: return "Juntos desde"
         case .anniversary: return "Su aniversario"
@@ -82,19 +84,41 @@ private struct CoupleWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .containerBackground(.background, for: .widget)
-        .widgetURL(URL(string: content == .message ? "pairnotes://messages" : "pairnotes://couple"))
+        .foregroundStyle(theme.ink)
+        .containerBackground(theme.paper, for: .widget)
+        .widgetURL(URL(string: content == .gesture ? "pairnotes://home" : (content == .message ? "pairnotes://messages" : "pairnotes://couple")))
     }
 
     @ViewBuilder
     private func contentView(_ snapshot: CoupleWidgetSnapshot) -> some View {
         switch content {
+        case .gesture:
+            if let gesture = snapshot.latestGesture {
+                HStack(spacing: 12) {
+                    if let sender = snapshot.profiles.first(where: { $0.uid == gesture.authorId }) { avatar(sender, size: accessory ? 24 : 42) }
+                    Text(gesture.kind.symbol).font(accessory ? .title3 : .largeTitle)
+                }
+                Text(gesture.kind.title).font(.headline)
+                Text("Tocá para mandar otro detalle").font(.caption2).foregroundStyle(.secondary)
+            } else { Text("Un corazón, un abrazo, un beso. Tocá para acercarte.").font(.caption) }
         case .message:
             if let message = snapshot.latestMessage {
-                Text(message.text).font(accessory ? .caption : .body).lineLimit(accessory ? 2 : 4)
-                if !accessory {
-                    Text(snapshot.profiles.first(where: { $0.uid == message.authorID })?.displayName ?? "Tu pareja")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                HStack(alignment: .bottom, spacing: 8) {
+                    if let sender = snapshot.profiles.first(where: { $0.uid == message.authorID }) {
+                        avatar(sender, size: accessory ? 24 : 38)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(message.text)
+                            .font(accessory ? .caption : .body)
+                            .lineLimit(accessory ? 2 : 4)
+                        if !accessory {
+                            Text(snapshot.personalization?.name(for: message.authorID, fallback: snapshot.profiles.first(where: { $0.uid == message.authorID })?.displayName ?? "Tu pareja") ?? snapshot.profiles.first(where: { $0.uid == message.authorID })?.displayName ?? "Tu pareja")
+                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    .padding(accessory ? 5 : 10)
+                    .background(theme.accent.opacity(0.12), in: UnevenRoundedRectangle(
+                        topLeadingRadius: 14, bottomLeadingRadius: 3, bottomTrailingRadius: 14, topTrailingRadius: 14))
                 }
             } else { Text("Tu próximo mensaje recibido aparecerá acá.").font(.caption).lineLimit(2) }
         case .together:
@@ -111,18 +135,25 @@ private struct CoupleWidgetView: View {
                 if !accessory { avatars(snapshot) }
             } else { Text("Elegí su fecha en Nosotros.").font(.caption).lineLimit(2) }
         case .distance:
-            HStack(spacing: 5) {
-                avatars(snapshot)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(distanceText(snapshot.distance)).font(accessory ? .caption.weight(.semibold) : .headline).lineLimit(2)
-                    if let updated = snapshot.distance.updatedAt,
-                       snapshot.distance.displayMeters(at: entry.date) != nil {
-                        HStack(spacing: 3) {
-                            Text(snapshot.distance.displayStatus(at: entry.date) == .stale ? "Dato anterior" : "Actualizada")
-                            Text(updated, style: .relative)
-                        }.font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            VStack(spacing: accessory ? 2 : 10) {
+                HStack(spacing: 4) {
+                    if let first = snapshot.profiles.first { avatar(first, size: accessory ? 24 : (family == .systemSmall ? 36 : 48)) }
+                    VStack(spacing: 5) {
+                        Text(distanceText(snapshot.distance))
+                            .font(accessory ? .caption2 : .caption.weight(.semibold))
+                            .minimumScaleFactor(0.7).lineLimit(2).multilineTextAlignment(.center)
+                        GeometryReader { geometry in
+                            Path { path in
+                                path.move(to: CGPoint(x: 0, y: 3))
+                                path.addLine(to: CGPoint(x: geometry.size.width, y: 3))
+                            }.stroke(theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 5]))
+                        }.frame(height: 6)
+                    }.frame(maxWidth: .infinity)
+                    if let last = snapshot.profiles.last, snapshot.profiles.count > 1 {
+                        avatar(last, size: accessory ? 24 : (family == .systemSmall ? 36 : 48))
                     }
                 }
+                if !accessory { Text("Siempre cerquita").font(.caption2).foregroundStyle(.secondary) }
             }
         }
     }
@@ -133,29 +164,30 @@ private struct CoupleWidgetView: View {
         case .waiting: return "Esperando ubicación"
         case .available, .stale:
             guard let meters = distance.displayMeters(at: entry.date) else { return "Sin ubicación reciente" }
-            if meters < 100 { return "Aprox. menos de 100 m" }
-            if meters < 1_000 { return "Aprox. \(Int((meters / 100).rounded()) * 100) m" }
-            return "Aprox. \((meters / 1_000).formatted(.number.precision(.fractionLength(1)))) km"
+            if meters < 100 { return "< 100 m" }
+            if meters < 1_000 { return "\(Int((meters / 100).rounded()) * 100) m" }
+            return "\((meters / 1_000).formatted(.number.precision(.fractionLength(1)))) km"
         }
     }
 
-    private func avatars(_ snapshot: CoupleWidgetSnapshot) -> some View {
-        HStack(spacing: -4) {
-            ForEach(snapshot.profiles) { profile in
-                Group {
-                    if let data = entry.avatars[profile.uid], let image = UIImage(data: data) {
-                        Image(uiImage: image).resizable().scaledToFill()
-                    } else {
-                        ZStack {
-                            Circle().fill(.secondary.opacity(0.18))
-                            Text(profile.initials.isEmpty ? "♡" : profile.initials).font(.system(size: accessory ? 9 : 13, weight: .semibold))
-                        }
-                    }
+    private func avatar(_ profile: CoupleProfile, size: CGFloat) -> some View {
+        Group {
+            if let data = entry.avatars[profile.uid], let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().widgetAccentedRenderingMode(.fullColor).scaledToFill()
+            } else {
+                ZStack {
+                    Circle().fill(Color(uiColor: .secondarySystemBackground))
+                    Text(profile.initials.isEmpty ? "♡" : profile.initials).font(.system(size: size * 0.35, weight: .semibold))
                 }
-                .frame(width: accessory ? 22 : 34, height: accessory ? 22 : 34)
-                .clipShape(Circle())
-                .accessibilityLabel(profile.displayName)
             }
+        }
+        .frame(width: size, height: size).clipShape(Circle())
+        .accessibilityLabel(profile.displayName)
+    }
+
+    private func avatars(_ snapshot: CoupleWidgetSnapshot) -> some View {
+        HStack(spacing: 6) {
+            ForEach(snapshot.profiles) { profile in avatar(profile, size: accessory ? 22 : 34) }
         }
     }
 }
@@ -203,7 +235,19 @@ struct DistanceWidget: Widget {
         }
         .configurationDisplayName("Nuestra distancia")
         .description("Distancia aproximada con sus avatares, cuando ambos comparten ubicación. Puede estar desactualizada.")
-        .supportedFamilies([.systemSmall, .accessoryRectangular])
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
+        .pushHandler(PairNotesWidgetPushHandler.self)
+    }
+}
+
+struct ThinkingOfYouWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: SharedWidgetContainer.gestureKind, provider: CoupleProvider()) {
+            CoupleWidgetView(entry: $0, content: .gesture)
+        }
+        .configurationDisplayName("Te estoy pensando")
+        .description("El último corazón, abrazo o beso entre ustedes. Tocá para responder desde Inicio.")
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
         .pushHandler(PairNotesWidgetPushHandler.self)
     }
 }

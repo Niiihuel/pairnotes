@@ -1,11 +1,93 @@
 import XCTest
 import PaperKit
+import PencilKit
 import PairNotesCore
 import UIKit
 import SwiftUI
 @testable import PairNotes
 
 final class NativeEditorPersistenceTests: XCTestCase {
+    @MainActor
+    func testEyedropperAndAlignmentUseTopLeftPixelCoordinates() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100), format: format).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 10, y: 20, width: 30, height: 40))
+        }
+        let cg = try XCTUnwrap(image.cgImage)
+        let bounds = try XCTUnwrap(PaperPixelSampler.contentBounds(cg))
+        XCTAssertEqual(bounds.minX, 0.1, accuracy: 0.01)
+        XCTAssertEqual(bounds.minY, 0.2, accuracy: 0.01)
+        XCTAssertEqual(bounds.width, 0.3, accuracy: 0.01)
+        XCTAssertEqual(bounds.height, 0.4, accuracy: 0.01)
+        let sampled = try XCTUnwrap(PaperPixelSampler.color(cg, at: CGPoint(x: 0.2, y: 0.3)))
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        sampled.getRed(&r, green: &g, blue: &b, alpha: &a)
+        XCTAssertEqual(r, 1, accuracy: 0.01); XCTAssertEqual(g, 0, accuracy: 0.01)
+        XCTAssertNil(PaperPixelSampler.color(cg, at: CGPoint(x: 0.8, y: 0.8)))
+    }
+
+    func testLetterDraftKeepsVoiceAndPrivateDrawingWhenTextChanges() throws {
+        let storage = MemoryCompositionStorage(key: "letter-test:" + UUID().uuidString)
+        let other = MemoryCompositionStorage(key: "other-letter:" + UUID().uuidString)
+        defer { storage.clear(); other.clear() }
+        var draft = LetterComposition(id: UUID().uuidString, title: "Para mañana", body: "Te quiero",
+            opensAt: Date().addingTimeInterval(86400), noteID: "")
+        try storage.saveValue(draft)
+        let audio = Data("voice fixture".utf8), drawing = Data("private drawing fixture".utf8)
+        try storage.saveAudio(audio); try storage.saveDrawing(drawing)
+        draft.body += " mucho"; draft.sealAttempted = true
+        try storage.saveValue(draft)
+        let restored: LetterComposition? = storage.loadValue()
+        XCTAssertEqual(restored, draft)
+        XCTAssertEqual(storage.audio(), audio); XCTAssertEqual(storage.drawing(), drawing)
+        XCTAssertNil(other.audio()); XCTAssertNil(other.drawing())
+        storage.clear()
+        XCTAssertNil(storage.audio()); XCTAssertNil(storage.drawing())
+    }
+
+    func testCompositionDraftSurvivesReopeningAndSeparatesAccountAndPair() throws {
+        let key = UUID().uuidString
+        let storage = MemoryCompositionStorage(key: "account-a:pair-a:" + key)
+        let other = MemoryCompositionStorage(key: "account-b:pair-a:" + key)
+        let nextPair = MemoryCompositionStorage(key: "account-a:pair-b:" + key)
+        defer { storage.clear(); other.clear(); nextPair.clear() }
+        var draft = MemoryCompositionDraft(id: "draft", title: "Nuestro viaje", date: Date(timeIntervalSince1970: 100),
+            body: "Todavía estoy escribiendo", recursYearly: false, noteID: "", removePhoto: false,
+            decoration: MemoryDecoration(layout: .journal, sticker: .flower))
+        try storage.save(draft)
+        let bytes = Data("private photo fixture".utf8)
+        try storage.savePhoto(bytes)
+        XCTAssertEqual(MemoryCompositionStorage(key: storage.key).load(), draft)
+        XCTAssertEqual(storage.photo(), bytes)
+        XCTAssertNil(other.load()); XCTAssertNil(other.photo()); XCTAssertNil(nextPair.load())
+        draft.body += " más palabras"
+        try storage.save(draft)
+        XCTAssertEqual(storage.photo(), bytes, "Typing never rewrites or removes the photo")
+        XCTAssertEqual(storage.load()?.body, draft.body)
+        storage.clear()
+        XCTAssertNil(storage.load()); XCTAssertNil(storage.photo())
+    }
+
+    @MainActor
+    func testSharedThemeOnlyChangesNewPaperAndGuidesDoNotChangeSource() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DraftCatalogStore(directory: directory, account: .guest)
+        let editor = NativePaperSession(store: store, draft: nil, theme: .night)
+        await editor.load()
+        XCTAssertEqual(editor.paperBackground, .charcoal)
+        editor.controller.showsAlignmentGuides = true
+        let saved = await editor.save()
+        let archive = try XCTUnwrap(saved)
+        let source = try PaperProbeDocument.decode(archive.source.data, editorVersion: archive.document.minimumEditorVersion)
+        XCTAssertEqual(source.background, .charcoal)
+        let summaries = try await store.list()
+        let reopened = NativePaperSession(store: store, draft: try XCTUnwrap(summaries.first), theme: .cream)
+        await reopened.load()
+        XCTAssertEqual(reopened.paperBackground, .charcoal)
+        XCTAssertFalse(reopened.controller.showsAlignmentGuides)
+    }
+
     @MainActor
     func testNewCanvasIsBlankAndSavedMixedDraftReopensWithoutChangingPublicationCapture() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -56,8 +138,7 @@ final class NativeEditorPersistenceTests: XCTestCase {
         editor.controller.loadViewIfNeeded()
         XCTAssertEqual(editor.paperBackground, .white)
         XCTAssertEqual(editor.controller.canvas.overrideUserInterfaceStyle, .light)
-        let visiblePaperColor = try XCTUnwrap(editor.controller.canvas.contentView?.backgroundColor)
-        XCTAssertEqual(PaperBackground(color: visiblePaperColor), .white)
+        XCTAssertEqual(editor.controller.paperBackground, .white)
 
         let initial = await editor.save()
         let white = try XCTUnwrap(initial)
@@ -68,7 +149,7 @@ final class NativeEditorPersistenceTests: XCTestCase {
         let saved = await editor.save()
         let colored = try XCTUnwrap(saved)
         try colored.validateIntegrity()
-        XCTAssertEqual(colored.document.minimumEditorVersion, 2)
+        XCTAssertEqual(colored.document.minimumEditorVersion, 3)
         for kind in RenderKind.allCases {
             try assertPaperPixels(colored.image(for: kind)?.pngData, background: .cream)
         }
@@ -122,7 +203,8 @@ final class NativeEditorPersistenceTests: XCTestCase {
             XCTFail("No capture reached persistence: \(editor.status)")
             return
         }
-        XCTAssertTrue(editor.busy)
+        XCTAssertFalse(editor.busy, "Recovery saves must leave the editor interactive")
+        editor.controller.replaceMarkup(PaperProbeDocument.fixture(), actionName: "Editar mientras se guarda")
         editor.title = "Edición durante el guardado"
         editor.paperBackground = .rose
         let secondStarted = expectation(description: "Explicit Save joins active persistence")
@@ -134,7 +216,7 @@ final class NativeEditorPersistenceTests: XCTestCase {
         first.cancel()
         // A cancelled waiter must return even while the shared write is gated.
         await fulfillment(of: [firstFinished], timeout: 2)
-        XCTAssertTrue(editor.busy, "Cancelling one caller must not release the writer's ownership")
+        XCTAssertFalse(editor.busy, "Waiting for persistence must not interrupt editing")
         await store.release()
         let firstResult = await first.value
         XCTAssertNil(firstResult)
@@ -152,6 +234,10 @@ final class NativeEditorPersistenceTests: XCTestCase {
         XCTAssertEqual(summaries.first?.title, "Edición durante el guardado")
         let persisted = try await catalog.load(id: saved.document.id)
         XCTAssertEqual(persisted, saved)
+        let newest = try PaperProbeDocument.decode(saved.source.data, editorVersion: saved.document.minimumEditorVersion)
+        let newestText = await newest.markup.indexableContent
+        XCTAssertTrue(newestText?.contains("Un recuerdo inventado") == true,
+                      "Edits made while autosave is suspended at disk must survive in the next capture")
         try captured.validateIntegrity()
         try saved.validateIntegrity()
         editor.suspendAutosave()
@@ -181,7 +267,7 @@ final class NativeEditorPersistenceTests: XCTestCase {
         editor.paperBackground = .sky
         let saved = await editor.save()
         let migrated = try XCTUnwrap(saved)
-        XCTAssertEqual(migrated.document.minimumEditorVersion, 2)
+        XCTAssertEqual(migrated.document.minimumEditorVersion, 3)
         let restored = try PaperProbeDocument.decode(migrated.source.data, editorVersion: 2)
         XCTAssertEqual(restored.background, .sky)
         let text = await restored.markup.indexableContent
@@ -192,7 +278,7 @@ final class NativeEditorPersistenceTests: XCTestCase {
     @MainActor
     func testUnknownPaperEnvelopeAndInvalidColorAreRejectedInsteadOfLosingData() async throws {
         let source = try await PaperProbeDocument.encode(PaperProbeDocument.fixture(), background: .white)
-        XCTAssertThrowsError(try PaperProbeDocument.decode(source, editorVersion: 3))
+        XCTAssertThrowsError(try PaperProbeDocument.decode(source, editorVersion: 99))
         let value = try PropertyListSerialization.propertyList(from: source, format: nil)
         let envelope = try XCTUnwrap(value as? [String: Any])
         let mutations: [([String: Any]) -> [String: Any]] = [
@@ -204,6 +290,60 @@ final class NativeEditorPersistenceTests: XCTestCase {
             let invalid = try PropertyListSerialization.data(fromPropertyList: mutation(envelope),
                                                              format: .binary, options: 0)
             XCTAssertThrowsError(try PaperProbeDocument.decode(invalid, editorVersion: 2))
+        }
+    }
+
+    @MainActor
+    func testLayerOrderSurvivesSaveAndReopenWithAllLayersEditable() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DraftCatalogStore(directory: directory, account: .guest)
+        let editor = NativePaperSession(store: store, draft: nil)
+        await editor.load()
+        editor.controller.loadViewIfNeeded()
+        func layer(_ name: String, _ color: UIColor) throws -> PaperLayer {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+            }
+            var markup = PaperMarkup(bounds: PaperProbeDocument.bounds)
+            markup.insertNewImage(try XCTUnwrap(image.cgImage), frame: PaperProbeDocument.bounds)
+            return PaperLayer(name: name, markup: markup)
+        }
+        let red = try layer("Rojo", .red), blue = try layer("Azul", .blue)
+        editor.controller.restoreLayers([red, blue])
+        editor.changed()
+        let first = try await PaperProbeDocument.render(editor.controller.composedMarkup(), side: 64)
+        try assertPaperPixels(first, background: PaperBackground(red: 0, green: 0, blue: 255))
+        editor.controller.moveLayer(red.id, by: 1)
+        let reordered = try await PaperProbeDocument.render(editor.controller.composedMarkup(), side: 64)
+        try assertPaperPixels(reordered, background: PaperBackground(red: 255, green: 0, blue: 0))
+        let saved = await editor.save()
+        let archive = try XCTUnwrap(saved)
+        let restored = try PaperProbeDocument.decode(archive.source.data, editorVersion: archive.document.minimumEditorVersion)
+        XCTAssertEqual(restored.layers?.map(\.id), [blue.id, red.id])
+        XCTAssertEqual(restored.layers?.map(\.name), ["Azul", "Rojo"])
+        let summaries = try await store.list()
+        let reopened = NativePaperSession(store: store, draft: try XCTUnwrap(summaries.first))
+        await reopened.load()
+        XCTAssertEqual(reopened.controller.capturedLayers().map(\.id), [blue.id, red.id])
+        reopened.controller.selectLayer(blue.id)
+        XCTAssertEqual(reopened.controller.activeLayerID, blue.id)
+        reopened.controller.removeLayer(red.id)
+        let remaining = try await PaperProbeDocument.render(reopened.controller.composedMarkup(), side: 64)
+        try assertPaperPixels(remaining, background: PaperBackground(red: 0, green: 0, blue: 255))
+    }
+
+    @MainActor
+    func testPickerAndCanvasUseLiteralColorsForEverySheetInDarkAppearance() {
+        let controller = PaperProbeController()
+        controller.overrideUserInterfaceStyle = .dark
+        controller.loadViewIfNeeded()
+        for background in [PaperBackground.white, .cream, .rose, .sky, .mint, .charcoal] {
+            controller.paperBackground = background
+            XCTAssertEqual(controller.canvas.overrideUserInterfaceStyle, .light)
+            XCTAssertEqual(controller.pencilKitResponderState.activeToolPicker?.colorUserInterfaceStyle, .light)
+            XCTAssertEqual(controller.pencilKitResponderState.activeToolPicker?.overrideUserInterfaceStyle, .light)
         }
     }
 

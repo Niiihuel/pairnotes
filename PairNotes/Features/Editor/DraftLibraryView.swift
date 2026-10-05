@@ -5,11 +5,37 @@ import UIKit
 struct DraftLibraryView: View {
     @ObservedObject var model: AppModel
     let openDraft: (DraftSummary?) -> Void
+    let openNote: (RemoteNote) -> Void
+    @State private var tab = LibraryTab.drafts
+    private enum LibraryTab: String, CaseIterable, Identifiable {
+        case drafts = "Borradores", sent = "Enviados"
+        var id: String { rawValue }
+    }
+    private var visibleDrafts: [DraftSummary] {
+        model.drafts.filter { draft in
+            !model.outbox.contains { $0.status == .sent && $0.archive.document.id == draft.id && $0.archive.document.revision == draft.revision }
+        }
+    }
+    private var visibleOperations: [OutboxOperation] {
+        model.outbox.reversed().filter { !model.hiddenSentIDs.contains($0.id.uuidString.lowercased()) }
+    }
+    private var otherSentNotes: [RemoteNote] {
+        let localIDs = Set(model.outbox.map { $0.id.uuidString.lowercased() })
+        return model.notes.filter {
+            $0.authorID == model.identity?.uid && !localIDs.contains($0.id) && !model.hiddenSentIDs.contains($0.id)
+        }
+    }
     @State private var copyingGuest: UUID?
     @State private var copiedGuest: Set<UUID> = []
 
     var body: some View {
         List {
+            Section {
+                Picker("Mis dibujos", selection: $tab) {
+                    ForEach(LibraryTab.allCases) { tab in Text(tab.rawValue).tag(tab) }
+                }.pickerStyle(.segmented).accessibilityIdentifier("library.tabs")
+            }.listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
+            if tab == .drafts {
             Section {
                 Button { openDraft(nil) } label: {
                     Label("Nuevo dibujo", systemImage: "square.and.pencil")
@@ -44,10 +70,10 @@ struct DraftLibraryView: View {
             }
 
             Section("Mis borradores") {
-                if model.drafts.isEmpty {
-                    Text("Todavía no guardaste dibujos. Creá uno para empezar.").foregroundStyle(.secondary)
+                if visibleDrafts.isEmpty {
+                    Text("No tenés borradores pendientes. Creá un dibujo para empezar.").foregroundStyle(.secondary)
                 }
-                ForEach(model.drafts) { draft in
+                ForEach(visibleDrafts) { draft in
                     Button { openDraft(draft) } label: {
                         HStack(spacing: 14) {
                             if let catalog = model.catalog {
@@ -65,6 +91,18 @@ struct DraftLibraryView: View {
                         .padding(.vertical, 4)
                     }
                     .buttonStyle(.plain)
+                    .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 16))
+                    .contextMenu {
+                        Button("Abrir borrador", systemImage: "pencil") { openDraft(draft) }
+                        Button("Eliminar borrador", systemImage: "trash", role: .destructive) {
+                            Task { await model.deleteDraft(draft) }
+                        }
+                    } preview: {
+                        if let catalog = model.catalog {
+                            DraftThumbnail(catalog: catalog, draft: draft).frame(width: 280, height: 280)
+                                .background(Color(uiColor: .systemBackground))
+                        }
+                    }
                     .swipeActions {
                         Button("Eliminar", role: .destructive) {
                             Task { await model.deleteDraft(draft) }
@@ -73,9 +111,14 @@ struct DraftLibraryView: View {
                 }
             }
 
-            if !model.outbox.isEmpty {
+            } else {
+            if visibleOperations.isEmpty && otherSentNotes.isEmpty {
+                ContentUnavailableView("Tus dibujos enviados", systemImage: "paperplane",
+                    description: Text("Cuando envíes un dibujo, aparecerá acá. Los borradores quedan en su propia pestaña."))
+            }
+            if !visibleOperations.isEmpty {
                 Section {
-                    ForEach(model.outbox.reversed()) { operation in
+                    ForEach(visibleOperations) { operation in
                         HStack(spacing: 14) {
                             if let data = operation.archive.image(for: .thumbnail)?.pngData,
                                let image = UIImage(data: data) {
@@ -98,20 +141,85 @@ struct DraftLibraryView: View {
                                     .accessibilityLabel("Reintentar el envío del dibujo")
                             }
                         }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if let note = operation.publishedNote { openNote(note) }
+                        }
+                        .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 16))
+                        .contextMenu {
+                            if let note = operation.publishedNote {
+                                Button("Ver dibujo", systemImage: "eye") { openNote(note) }
+                            }
+                            if let draft = model.drafts.first(where: { $0.id == operation.archive.document.id }) {
+                                Button("Seguir editando", systemImage: "pencil") { openDraft(draft) }
+                            }
+                            if operation.status == .sent || operation.status == .cancelled {
+                                Button("Quitar de esta lista", systemImage: "trash", role: .destructive) {
+                                    model.hideSent(id: operation.id.uuidString.lowercased())
+                                }
+                            }
+                            if operation.status == .failed {
+                                Button("Reintentar", systemImage: "arrow.clockwise") { Task { await model.retry(operation) } }
+                                    .disabled(!model.canSend)
+                            }
+                        } preview: {
+                            if let bytes = operation.archive.image(for: .thumbnail)?.pngData, let image = UIImage(data: bytes) {
+                                Image(uiImage: image).resizable().scaledToFit().frame(width: 280, height: 280)
+                            }
+                        }
                     }
                 } header: {
-                    Text("Envíos")
+                    Text("Tus envíos")
                 } footer: {
-                    Text("Enviado significa que el servidor confirmó la publicación. Las notificaciones y los widgets se actualizan según la conexión y los tiempos de iOS.")
+                    Text("Mantené presionado un dibujo para ver sus opciones. Quitar de esta lista no elimina el recuerdo compartido ni la copia de tu pareja.")
                 }
+            }
+            if !otherSentNotes.isEmpty {
+                Section("También compartiste") {
+                    ForEach(otherSentNotes) { note in
+                        Button { openNote(note) } label: {
+                            HStack(spacing: 14) {
+                                AsyncNoteImage(path: note.assets.thumbnail, services: model.services)
+                                    .frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: 12))
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text("Un dibujo para \(model.membership?.partner.displayName ?? "tu pareja")").font(.headline)
+                                    Text(note.serverPublishedAt, format: .dateTime.day().month().hour().minute())
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }.buttonStyle(.plain)
+                        .contextMenu {
+                            Button("Ver dibujo", systemImage: "eye") { openNote(note) }
+                            Button("Quitar de esta lista", systemImage: "trash", role: .destructive) { model.hideSent(id: note.id) }
+                        } preview: {
+                            AsyncNoteImage(path: note.assets.widget, services: model.services).frame(width: 280, height: 280)
+                        }
+                    }
+                }
+            }
+            if model.nextCursor != nil {
+                Button("Ver más enviados") { Task { await model.loadMore() } }.disabled(model.isLoadingMore)
+            }
             }
             if let status = model.status {
                 Section { Text(status).font(.footnote).foregroundStyle(.secondary) }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if let title = model.undoRemovalTitle {
+                HStack {
+                    Text(title).font(.subheadline)
+                    Spacer()
+                    Button("Deshacer") { Task { await model.undoLastRemoval() } }.disabled(model.isUndoingRemoval)
+                }.padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding()
+            }
+        }
         .navigationTitle("Crear")
         .onChange(of: model.identity?.uid) { _, _ in copiedGuest = []; copyingGuest = nil }
-        .refreshable { await model.reloadDrafts() }
+        .refreshable {
+            await model.reloadDrafts()
+            if tab == .sent { await model.foreground() }
+        }
     }
 
     private func title(_ status: OutboxStatus) -> String {

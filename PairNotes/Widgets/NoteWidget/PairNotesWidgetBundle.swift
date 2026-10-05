@@ -9,5 +9,6 @@ struct PairNotesWidgetBundle: WidgetBundle {
         TogetherWidget()
         AnniversaryWidget()
         DistanceWidget()
+        ThinkingOfYouWidget()
     }
 }

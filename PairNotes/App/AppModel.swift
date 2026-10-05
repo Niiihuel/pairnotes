@@ -11,6 +11,16 @@ final class AppModel: ObservableObject {
     @Published private(set) var catalog: DraftCatalogStore?
     @Published private(set) var drafts: [DraftSummary] = []
     @Published private(set) var guestDrafts: [DraftSummary] = []
+    @Published private(set) var hiddenSentIDs: Set<String> = []
+    @Published private(set) var undoRemovalTitle: String?
+    @Published private(set) var isUndoingRemoval = false
+    private enum RemovedItem {
+        case draft(DraftCatalogStore, DraftSummary, DraftArchive)
+        case sent(String)
+    }
+    private var removedItem: RemovedItem?
+    private var removalID = UUID()
+    private var removalTask: Task<Void, Never>?
     @Published private(set) var outbox: [OutboxOperation] = []
     @Published private(set) var notes: [RemoteNote] = []
     @Published private(set) var latestReceived: RemoteNote?
@@ -80,6 +90,7 @@ final class AppModel: ObservableObject {
         let relationshipChanged = membershipResolved != resolved || activeContext != newContext
         let oldQueue = queueStore
         if accountChanged || relationshipChanged {
+            clearRemovalUndo()
             generation &+= 1
             stopProcessor()
             timelineRequest &+= 1
@@ -96,6 +107,7 @@ final class AppModel: ObservableObject {
             status = nil
         }
         identity = newIdentity
+        if accountChanged { hiddenSentIDs = Set(UserDefaults.standard.stringArray(forKey: hiddenSentKey) ?? []) }
         membership = newPair
         membershipResolved = resolved
         activeContext = newContext
@@ -224,17 +236,67 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private var hiddenSentKey: String {
+        "PairNotes.hiddenSent." + ContentDigest.sha256(Data((identity?.uid ?? "guest").utf8))
+    }
+
+    func hideSent(id: String) {
+        offerRemovalUndo(.sent(id), title: "Dibujo ocultado")
+        hiddenSentIDs.insert(id)
+        UserDefaults.standard.set(Array(hiddenSentIDs), forKey: hiddenSentKey)
+    }
+
     func deleteDraft(_ draft: DraftSummary) async {
         let currentGeneration = generation
         guard let catalog else { return }
+        var backup: DraftArchive?
         do {
+            guard let archive = try await catalog.load(id: draft.id), currentGeneration == generation else { return }
+            backup = archive
             try await catalog.remove(id: draft.id)
             guard currentGeneration == generation else { return }
+            offerRemovalUndo(.draft(catalog, draft, archive), title: "Borrador eliminado")
             await reloadDrafts()
         } catch {
             guard currentGeneration == generation else { return }
-            status = "No se pudo eliminar el borrador."
+            if let backup, (try? await catalog.load(id: draft.id)) == nil, currentGeneration == generation {
+                offerRemovalUndo(.draft(catalog, draft, backup), title: "Borrador eliminado")
+                await reloadDrafts()
+            }
+            status = "No se pudo completar la limpieza del borrador."
         }
+    }
+
+    private func clearRemovalUndo() {
+        removalTask?.cancel(); removalTask = nil; removalID = UUID()
+        removedItem = nil; undoRemovalTitle = nil
+    }
+    private func offerRemovalUndo(_ item: RemovedItem, title: String) {
+        clearRemovalUndo(); removedItem = item; undoRemovalTitle = title
+        let id = removalID
+        removalTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            guard let self, self.removalID == id else { return }
+            self.clearRemovalUndo()
+        }
+    }
+    func undoLastRemoval() async {
+        guard !isUndoingRemoval, let removedItem else { return }
+        let id = removalID, currentGeneration = generation
+        isUndoingRemoval = true
+        defer { isUndoingRemoval = false }
+        do {
+            switch removedItem {
+            case let .draft(store, summary, archive):
+                try await store.restoreRemoved(archive, summary: summary)
+                guard currentGeneration == generation else { return }
+                await reloadDrafts()
+            case let .sent(noteID):
+                hiddenSentIDs.remove(noteID)
+                UserDefaults.standard.set(Array(hiddenSentIDs), forKey: hiddenSentKey)
+            }
+            if id == removalID { clearRemovalUndo() }
+        } catch { if currentGeneration == generation { status = "No se pudo deshacer. El dibujo puede haberse restaurado o editado antes." } }
     }
 
     func refreshTimeline() async {

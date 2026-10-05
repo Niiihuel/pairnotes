@@ -12,7 +12,10 @@ struct TimelineView: View {
 
     var body: some View {
         List {
-            SharedMemoriesSection(services: model.services, notes: model.notes, openNote: openNote)
+            if model.membership != nil {
+                NavigationLink("Cartitas para después", systemImage: "envelope") { LettersView(services: model.services, notes: model.notes, catalog: model.catalog) }
+            }
+            SharedMemoriesSection(services: model.services, notes: model.notes, catalog: model.catalog, openNote: openNote)
             if model.notes.isEmpty {
                 Section {
                     if model.isLoading {

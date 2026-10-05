@@ -13,6 +13,15 @@
                 <string>CA92.1</string>
             </array>
         </dict>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <!-- Evict old cached photos within this app's private container. -->
+                <string>C617.1</string>
+            </array>
+        </dict>
     </array>
 </dict>
 </plist>

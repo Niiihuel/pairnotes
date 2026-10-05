@@ -50,9 +50,19 @@ struct PaperBackground: Codable, Equatable {
     }
 }
 
+struct PaperLayer: Identifiable {
+    let id: UUID
+    var name: String
+    var markup: PaperMarkup
+
+    init(id: UUID = UUID(), name: String, markup: PaperMarkup) {
+        self.id = id; self.name = name; self.markup = markup
+    }
+}
+
 @MainActor
 enum PaperProbeDocument {
-    static let editorVersion = 2
+    static let editorVersion = 3
     static let bounds = CGRect(x: 0, y: 0, width: 1536, height: 1536)
     static var supportedFeatures: FeatureSet {
         var features = FeatureSet.version1
@@ -60,32 +70,49 @@ enum PaperProbeDocument {
         return features
     }
 
+    private struct StoredLayer: Codable {
+        let id: UUID
+        let name: String
+        let nativeData: Data
+    }
+
     private struct SourceEnvelope: Codable {
         let format: String
         let version: Int
         let background: PaperBackground
         let nativeData: Data
+        let layers: [StoredLayer]?
     }
 
-    static func encode(_ markup: PaperMarkup, background: PaperBackground) async throws -> Data {
+    static func encode(_ markup: PaperMarkup, background: PaperBackground, layers: [PaperLayer]? = nil) async throws -> Data {
+        var stored: [StoredLayer] = []
+        for layer in layers ?? [] {
+            stored.append(StoredLayer(id: layer.id, name: layer.name, nativeData: try await layer.markup.dataRepresentation()))
+        }
         let nativeData = try await markup.dataRepresentation()
         let envelope = SourceEnvelope(format: "pairnotes.paper", version: 1,
-                                      background: background, nativeData: nativeData)
+                                      background: background, nativeData: nativeData, layers: stored.isEmpty ? nil : stored)
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         return try encoder.encode(envelope)
     }
 
-    static func decode(_ source: Data, editorVersion: Int) throws -> (markup: PaperMarkup, background: PaperBackground) {
+    static func decode(_ source: Data, editorVersion: Int) throws -> (markup: PaperMarkup, background: PaperBackground, layers: [PaperLayer]?) {
         switch editorVersion {
         case 1:
             // TestFlight 1.0 (3.1) stored raw PaperKit bytes and exported on white.
-            return (try PaperMarkup(dataRepresentation: source), .white)
-        case Self.editorVersion:
+            return (try PaperMarkup(dataRepresentation: source), .white, nil)
+        case 2, Self.editorVersion:
             let envelope = try PropertyListDecoder().decode(SourceEnvelope.self, from: source)
             guard envelope.format == "pairnotes.paper", envelope.version == 1,
                   !envelope.nativeData.isEmpty else { throw ProbeError.incompatibleDocument }
-            return (try PaperMarkup(dataRepresentation: envelope.nativeData), envelope.background)
+            let layers = try envelope.layers?.map {
+                PaperLayer(id: $0.id, name: $0.name, markup: try PaperMarkup(dataRepresentation: $0.nativeData))
+            }
+            if let layers {
+                guard !layers.isEmpty, Set(layers.map(\.id)).count == layers.count else { throw ProbeError.incompatibleDocument }
+            }
+            return (try PaperMarkup(dataRepresentation: envelope.nativeData), envelope.background, layers)
         default:
             throw ProbeError.incompatibleDocument
         }
@@ -128,7 +155,7 @@ enum PaperProbeDocument {
         return markup
     }
 
-    static func render(_ markup: PaperMarkup, side: Int, background: PaperBackground = .white) async throws -> Data {
+    static func render(_ markup: PaperMarkup, side: Int, background: PaperBackground? = .white) async throws -> Data {
         guard (1...2048).contains(side),
               let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: side, height: side,
@@ -138,8 +165,10 @@ enum PaperProbeDocument {
             throw ProbeError.renderFailed
         }
         let frame = CGRect(x: 0, y: 0, width: side, height: side)
-        context.setFillColor(background.uiColor.cgColor)
-        context.fill(frame)
+        if let background {
+            context.setFillColor(background.uiColor.cgColor)
+            context.fill(frame)
+        }
         let canvas = markup.bounds
         guard canvas.width > 0, canvas.height > 0 else { throw ProbeError.renderFailed }
         // Paper coordinates use a top-left origin. Render in model coordinates

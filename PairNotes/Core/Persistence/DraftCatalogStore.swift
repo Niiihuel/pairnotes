@@ -53,6 +53,39 @@ public actor DraftCatalogStore {
         }
     }
 
+    /// Stickers share the account namespace with drafts, never the guest/other account library.
+    public func stickerIDs() throws -> [String] {
+        let folder = directory.appendingPathComponent("Stickers", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: folder.path) else { return [] }
+        return try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "png" }.map { $0.deletingPathExtension().lastPathComponent }.sorted()
+    }
+
+    public func saveSticker(_ png: Data) throws -> String {
+        guard !png.isEmpty, png.count <= 5 * 1024 * 1024,
+              png.prefix(8) == Data([137, 80, 78, 71, 13, 10, 26, 10]) else { throw LocalStoreError.corruptData }
+        let id = ContentDigest.sha256(png)
+        let folder = directory.appendingPathComponent("Stickers", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        if !FileManager.default.fileExists(atPath: folder.appendingPathComponent(id + ".png").path) {
+            guard try stickerIDs().count < 100 else { throw LocalStoreError.invalidDocument }
+            try png.write(to: folder.appendingPathComponent(id + ".png"), options: .atomic)
+        }
+        return id
+    }
+
+    public func sticker(_ id: String) throws -> Data {
+        guard id.count == 64, id.allSatisfy({ "0123456789abcdef".contains($0) }) else { throw LocalStoreError.corruptData }
+        let data = try Data(contentsOf: directory.appendingPathComponent("Stickers/" + id + ".png"))
+        guard ContentDigest.sha256(data) == id else { throw LocalStoreError.corruptData }
+        return data
+    }
+
+    public func removeSticker(_ id: String) throws {
+        _ = try sticker(id)
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("Stickers/" + id + ".png"))
+    }
+
     public func load(id: UUID) throws -> DraftArchive? {
         guard let summary = try readIndex().drafts.first(where: { $0.id == id }) else { return nil }
         return try load(summary)
@@ -101,6 +134,23 @@ public actor DraftCatalogStore {
             where url.lastPathComponent.hasPrefix(id.uuidString + "-") && url.pathExtension == "pairnote" {
             try FileManager.default.removeItem(at: url)
         }
+    }
+
+    /// Undo restores the exact removed archive, including read-only future sources.
+    /// It never overwrites a draft that has since been recreated or edited.
+    public func restoreRemoved(_ archive: DraftArchive, summary: DraftSummary) throws {
+        try archive.validateIntegrity()
+        guard archive.document.id == summary.id, archive.document.revision == summary.revision,
+              archive.document.revisionHash == summary.revisionHash else { throw LocalStoreError.inconsistentRevision }
+        var index = try readIndex()
+        guard !index.drafts.contains(where: { $0.id == summary.id }) else { throw LocalStoreError.obsoleteRevision }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = archiveURL(summary)
+        if FileManager.default.fileExists(atPath: url.path) {
+            guard try decodeArchive(Data(contentsOf: url)) == archive else { throw LocalStoreError.inconsistentRevision }
+        } else { try JSONEncoder().encode(archive).write(to: url, options: .atomic) }
+        index.drafts.append(summary)
+        try writeIndex(index)
     }
 
     /// Explicitly copying a note retains its native source but creates a new draft identity.

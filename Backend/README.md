@@ -176,20 +176,36 @@ la sesión. Los IDs de recuerdos y mensajes admiten de 1 a 128 caracteres ASCII
 `A-Z`, `a-z`, `0-9`, `_` y `-`. Los límites de texto se cuentan en unidades UTF-16.
 
 - `getCoupleSpace {pairId,pairEpoch}` → `{profiles,startedOn,latestMessage,
-  memories,location}`. Devuelve los dos perfiles públicos, hasta 200 recuerdos
+  memories,location,personalization}`. Devuelve los dos perfiles públicos, hasta 200 recuerdos
   ordenados por `date` y el último mensaje **recibido** por la sesión, o `null`.
 - `updatePairDetails {pairId,pairEpoch,startedOn,timeZone?}` → `{pair}`.
   `startedOn` es una fecha de calendario `YYYY-MM-DD` válida o `null`; no contiene
   hora. Rechaza fechas futuras usando la zona IANA indicada, o UTC si se omite.
 - `upsertMemory {pairId,pairEpoch,memoryId,title,date,kind,recursYearly?,body?,
-  noteId?}` → `{memory}`. `kind` es `date` o `memory`; título obligatorio hasta
+  noteId?,decoration?}` → `{memory}`. `kind` es `date` o `memory`; título obligatorio hasta
   120 unidades, cuerpo hasta 2000, fecha `YYYY-MM-DD`. Admite hasta 200 elementos
   por pareja. Ambos miembros pueden editarlos; conserva autor y fecha de creación.
   `noteId` debe pertenecer a la misma pareja; `null` quita el vínculo. Una foto y
   una nota vinculada pueden coexistir. Los campos opcionales omitidos conservan
   su valor anterior; una foto se modifica mediante su ruta específica.
+  `decoration` contiene `layout` (`polaroid`, `postcard`, `journal`) y `sticker`
+  (`""`, `heart`, `sparkles`, `flower`, `star`, `moon`). Clientes anteriores pueden
+  omitirlo sin perder la decoración guardada.
 - `memories {pairId,pairEpoch}` → `{memories}`; `deleteMemory
-  {pairId,pairEpoch,memoryId}` → `{}`. El borrado retira también su foto para limpieza.
+  {pairId,pairEpoch,memoryId}` → `{}`. El borrado oculta inmediatamente el recuerdo
+  y conserva una copia privada durante 60 segundos para deshacer.
+- `restoreMemory {pairId,pairEpoch,memoryId}` → `{memory}`. Restaura exactamente
+  autor, fechas, decoración, vínculo y foto, sólo con membresía/época vigentes.
+  No sobrescribe un ID recreado ni supera el límite de 200 recuerdos. El worker
+  elimina copias vencidas de `memoryTrash` y retira sus imágenes para limpieza.
+- `updatePersonalization {pairId,pairEpoch,revision,theme,phrase,nicknames,
+  coverMemoryId,homeOrder}` → `{personalization}`. Temas `cream`, `rose`,
+  `lavender`, `night`; frase de hasta 160 unidades y apodos de hasta 40, sólo de
+  miembros de la pareja. `coverMemoryId` es `null` o un recuerdo con foto en esa
+  pareja. `homeOrder` es una permutación de `story,message,drawing,distance`.
+  `revision` comienza en 0; cada guardado incrementa la revisión y rechaza
+  escrituras obsoletas con `personalization_changed`. Notifica a los widgets.
+  Una portada cuya foto fue eliminada se omite visualmente hasta elegir otra.
 - `PUT /profileAvatar` recibe PNG/JPEG del perfil de la sesión y devuelve
   `{profile}`. `GET /profileAvatar?uid=<uid>&avatarId=<id>` devuelve PNG sólo del
   propio usuario o de su pareja activa. `avatarId` es opcional; al enviarlo, un
@@ -206,8 +222,50 @@ la sesión. Los IDs de recuerdos y mensajes admiten de 1 a 128 caracteres ASCII
   `{messages,nextCursor}`. Página predeterminada de 30, máximo 50, orden descendente
   por envío e ID. No admite acceso desde una credencial del widget.
 
+### Gestos, reacciones y cartas programadas
+
+- `sendGesture {pairId,pairEpoch,gestureId,kind,replyTo?}` → `{gesture}`.
+  `kind`: `heart`, `hug`, `kiss`. El ID hace idempotentes los reintentos; `replyTo`
+  sólo puede señalar un gesto recibido por quien responde. Máximo 12 por minuto.
+  `getCoupleSpace` y el snapshot del widget incluyen `latestGesture`.
+- `reactions {pairId,pairEpoch,noteId}` → `{reactions}` y
+  `setReaction {pairId,pairEpoch,noteId,kind,reply}`. Sólo el receptor del dibujo
+  puede reaccionar; ambos miembros pueden leer. `kind`: vacío, `heart`, `hug`,
+  `sparkles`; respuesta hasta 280 unidades UTF-16. Ambos vacíos eliminan la reacción.
+  Repetir el mismo contenido no genera otra notificación.
+- `letters {pairId,pairEpoch}` → `{letters,serverNow}`. Hasta 200 cartas por pareja,
+  incluidos borradores. Los borradores sólo aparecen al autor. Un sobre cerrado
+  expone ID, remitente/receptor, estado y fechas, **no** título, cuerpo, vínculo,
+  foto, dibujo ni audio. `canOpen` procede exclusivamente del reloj del servidor.
+- `saveLetterDraft {pairId,pairEpoch,letterId,title,body,opensAt,noteId?}` → `{letter}`.
+  Título hasta 120, cuerpo hasta 6000 unidades, fecha en ms Unix hasta cinco años.
+  `noteId` opcional pertenece a la pareja; es un dibujo ya compartido. El dibujo
+  privado nuevo usa la ruta independiente `letterDrawing`.
+- `PUT /letterPhoto`, `PUT /letterDrawing`, `PUT /letterAudio`, con query
+  `pairId,pairEpoch,letterId`. Fotos/dibujos se normalizan como PNG sin metadatos;
+  audio acepta WAV PCM16 mono a 16 kHz, hasta 60 segundos y 2 MB. El servidor
+  valida RIFF/formato/duración y elimina chunks de metadatos al reconstruir WAV.
+  Sólo el autor puede adjuntar mientras sea borrador. Los `GET` agregan `assetId`;
+  revalidan permisos y versión tras descargar S3. No aceptan tokens de widgets.
+- `removeLetterAsset {pairId,pairEpoch,letterId,role}` retira `photo`, `drawing` o
+  `audio` de un borrador. `deleteLetterDraft` elimina un borrador propio y retira
+  sus adjuntos para el worker de limpieza.
+- `sealLetter {pairId,pairEpoch,letterId}` cierra el sobre, exige fecha futura y
+  contenido, y crea en la misma transacción un evento APNs con `nextAttemptAt`
+  igual a `opensAt`. Reintentar el cierre devuelve la misma carta. Después no
+  se permite modificar contenido, fecha ni adjuntos.
+- `openLetter {pairId,pairEpoch,letterId}` permite vista previa al autor y lectura
+  al receptor sólo después de `opensAt`; registra su primera apertura. Cambiar
+  la hora del teléfono o enviar un parámetro `now` no adelanta esa autorización.
+
+El worker reutiliza leases y confirmaciones por canal para `gesture`, `reaction`
+y `letter`. Los avisos contienen identificadores y texto genérico, nunca el texto
+privado ni las imágenes. El aviso de carta no se despacha antes de su fecha;
+APNs/iOS determinan su entrega efectiva. Desvincular revoca cartas, adjuntos,
+reacciones, gestos y eventos pendientes mediante la comprobación de pareja/época.
+
 Un recuerdo contiene `id,pairId,pairEpoch,authorId,title,date,kind,recursYearly,
-body,noteId,photo,createdAt,updatedAt`; `photo` es `null` o `{id,sha256}`. Un mensaje
+body,noteId,photo,decoration,createdAt,updatedAt`; `photo` es `null` o `{id,sha256}`. Un mensaje
 contiene `id,pairId,pairEpoch,authorId,recipientId,text,sentAt`. Los tiempos son ms Unix.
 
 Las fotos entrantes se limitan a 5 MiB y 4096² píxeles, se decodifican y normalizan
@@ -249,16 +307,18 @@ en segundo plano; esas decisiones y restricciones corresponden a la app y a iOS.
 
 ## Widget y notificaciones
 
-`issueWidgetSession {deviceId}` devuelve `{token,expiresAt}`: siete días, rotación
+`issueWidgetSession {deviceId}` devuelve `{token,expiresAt}`: 30 días renovables con cada consulta válida, rotación
 que invalida el token anterior de ese dispositivo. Autoriza exclusivamente:
 
 - `GET /widgetSnapshot` → `{schemaVersion:1,pairId,pairEpoch,generatedAt,
-  validUntil,note:null|{id,revision,revisionHash,publishedAt,authorDisplayName,
+  validUntil,credentialExpiresAt,note:null|{id,revision,revisionHash,publishedAt,authorDisplayName,
   imageSHA256},profiles,startedOn,latestMessage,distance}`. Los campos adicionales
   conservan `schemaVersion:1`; usan las formas públicas descritas arriba. El mensaje
   es sólo el último recibido y la distancia nunca incluye coordenadas.
-  `validUntil` vence en un máximo de 15 minutos, antes si vence el bearer o si la
-  distancia mostrable alcanza los 30 minutos de antigüedad.
+  `credentialExpiresAt` permite renovar automáticamente el acceso del dispositivo.
+  `validUntil` limita la caché privada a 24 horas; los widgets solicitan refresco
+  cada 15 minutos y por push. La distancia se oculta independientemente al alcanzar
+  los 30 minutos de antigüedad, sin desconectar los otros widgets.
 - `GET /widgetImage?noteId=<última recibida>` → PNG; 409 si la última nota cambió.
 - `GET /widgetAvatar?uid=<miembro>&avatarId=<id>` → PNG actual de uno de los dos
   miembros. `avatarId` es opcional y permite rechazar una foto sustituida con 409.
@@ -274,6 +334,10 @@ la pareja. Un Bearer del widget tampoco autentica las rutas de la app. Al cerrar
 rotar la credencial o quitar dispositivo fallan inmediatamente nuevas consultas;
 la caché del dispositivo puede permanecer hasta su vencimiento y la actualización
 que iOS permita ejecutar.
+
+Cambios de fecha, avatar y consentimiento generan avisos sólo para widgets de ambos
+miembros, sin alertas de la app. Las nuevas distancias agrupan estos avisos en
+intervalos de cinco minutos.
 
 El worker consulta la outbox cada cinco segundos. Un lease transaccional y
 confirmaciones por dispositivo/canal permiten varios workers; los fallos se

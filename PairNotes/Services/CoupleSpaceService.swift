@@ -13,8 +13,10 @@ struct CoupleSpaceState: Decodable, Equatable {
     let profiles: [CoupleProfile]
     let startedOn: CoupleDate?
     let latestMessage: CoupleMessage?
-    let memories: [SharedMemory]
+    var memories: [SharedMemory]
     let location: CoupleLocationState
+    var latestGesture: CoupleGesture?
+    var personalization: CouplePersonalization?
 }
 
 extension AppServices {
@@ -32,10 +34,60 @@ extension AppServices {
         }
         for memory in value.memories { try memory.validate(for: pair) }
         try CoupleWidgetSnapshot(profiles: value.profiles, startedOn: value.startedOn,
-            latestMessage: value.latestMessage, distance: value.location.distance).validate(for: uid)
+            latestMessage: value.latestMessage, distance: value.location.distance, personalization: value.personalization, latestGesture: value.latestGesture).validate(for: uid)
         coupleSpace = value
+        // Warm both portraits once; subsequent views and foreground refreshes
+        // reuse the same content hash and coalesced request.
+        Task { [weak self] in
+            guard let self else { return }
+            await withTaskGroup(of: Void.self) { group in
+                for profile in value.profiles {
+                    guard let avatar = profile.avatar else { continue }
+                    group.addTask { _ = try? await self.avatar(uid: profile.uid, reference: avatar) }
+                }
+            }
+        }
         spaceError = nil
         await MonthlyReminderService.shared.synchronize(services: self)
+    }
+
+    var partnerNickname: String {
+        guard let partner = membership?.partner else { return "tu pareja" }
+        return personalization.name(for: partner.uid, fallback: partner.displayName)
+    }
+
+    var personalization: CouplePersonalization { coupleSpace?.personalization ?? CouplePersonalization() }
+
+    func updatePersonalization(_ value: CouplePersonalization) async throws {
+        let uid = try requireUID(), pair = try requirePair()
+        try value.validate(memberIDs: pair.memberIDs)
+        guard var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any] else {
+            throw ServiceError.invalidResponse
+        }
+        payload["coverMemoryId"] = value.coverMemoryId ?? (NSNull() as Any)
+        payload.merge(pairPayload(pair)) { _, new in new }
+        let response = try await call("updatePersonalization", payload)
+        try checkSpaceContext(uid: uid, pair: pair)
+        struct Response: Decodable { let personalization: CouplePersonalization }
+        let saved: Response = try decodeSpace(response)
+        // A failed subsequent refresh must not turn an acknowledged save into a conflict.
+        coupleSpace?.personalization = saved.personalization
+        try? await refreshCoupleSpace()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    func restoreMemory(_ memory: SharedMemory) async throws {
+        let uid = try requireUID(), pair = try requirePair()
+        try memory.validate(for: pair)
+        var payload = pairPayload(pair); payload["memoryId"] = memory.id
+        let response = try await call("restoreMemory", payload)
+        try checkSpaceContext(uid: uid, pair: pair)
+        struct Response: Decodable { let memory: SharedMemory }
+        let value: Response = try decodeSpace(response)
+        try value.memory.validate(for: pair)
+        coupleSpace?.memories.removeAll { $0.id == memory.id }
+        coupleSpace?.memories.append(value.memory)
+        try? await refreshCoupleSpace()
     }
 
     func updateProfile(name: String, photo: Data?, removePhoto: Bool) async throws {
@@ -56,9 +108,13 @@ extension AppServices {
         let ownUID = try requireUID()
         let pair = membership
         guard uid == ownUID || uid == pair?.partner.uid else { throw ServiceError.invalidResponse }
-        let bytes = try await requireClient().authenticatedData(path: "profileAvatar", query: [
-            URLQueryItem(name: "uid", value: uid), URLQueryItem(name: "avatarId", value: reference.id)
-        ])
+        let client = try requireClient()
+        let key = privateImageKey("avatar:\(uid):\(reference.id)")
+        let bytes = try await privateImages.data(key: key, expectedSHA256: reference.sha256) {
+            try await client.authenticatedData(path: "profileAvatar", query: [
+                URLQueryItem(name: "uid", value: uid), URLQueryItem(name: "avatarId", value: reference.id)
+            ])
+        }
         try checkUID(ownUID)
         if uid != ownUID {
             guard membership?.id == pair?.id, membership?.pairEpoch == pair?.pairEpoch else { throw ServiceError.sessionChanged }
@@ -93,12 +149,13 @@ extension AppServices {
     }
 
     func saveMemory(id: String, title: String, date: CoupleDate, body: String, recursYearly: Bool,
-                    noteID: String?, photo: Data?, removePhoto: Bool) async throws {
+                    noteID: String?, photo: Data?, removePhoto: Bool, decoration: MemoryDecoration = MemoryDecoration()) async throws {
         let uid = try requireUID(), pair = try requirePair()
         var payload = pairPayload(pair)
         payload.merge(["memoryId": id, "title": title, "date": date.rawValue, "body": body,
                        "kind": recursYearly ? "date" : "memory", "recursYearly": recursYearly,
                        "noteId": noteID ?? (NSNull() as Any)]) { _, new in new }
+        payload["decoration"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(decoration))
         _ = try await call("upsertMemory", payload)
         try checkSpaceContext(uid: uid, pair: pair)
         if let photo {
@@ -110,6 +167,9 @@ extension AppServices {
         }
         try checkSpaceContext(uid: uid, pair: pair)
         try await refreshCoupleSpace()
+        if let memory = coupleSpace?.memories.first(where: { $0.id == id && $0.photo != nil }) {
+            _ = try? await memoryPhoto(memory)
+        }
     }
 
     func deleteMemory(_ memory: SharedMemory) async throws {
@@ -118,15 +178,19 @@ extension AppServices {
         var payload = pairPayload(pair); payload["memoryId"] = memory.id
         _ = try await call("deleteMemory", payload)
         try checkSpaceContext(uid: uid, pair: pair)
-        try await refreshCoupleSpace()
+        coupleSpace?.memories.removeAll { $0.id == memory.id }
+        try? await refreshCoupleSpace()
     }
 
     func memoryPhoto(_ memory: SharedMemory) async throws -> Data {
         let uid = try requireUID(), pair = try requirePair()
         try memory.validate(for: pair)
         guard let photo = memory.photo else { throw ServiceError.invalidResponse }
-        let bytes = try await requireClient().authenticatedData(path: "memoryPhoto",
-            query: memoryQuery(id: memory.id, pair: pair) + [URLQueryItem(name: "photoId", value: photo.id)])
+        let client = try requireClient()
+        let query = memoryQuery(id: memory.id, pair: pair) + [URLQueryItem(name: "photoId", value: photo.id)]
+        let bytes = try await privateImages.data(key: privateImageKey("memory:\(memory.id):\(photo.id)"), expectedSHA256: photo.sha256) {
+            try await client.authenticatedData(path: "memoryPhoto", query: query)
+        }
         try checkSpaceContext(uid: uid, pair: pair)
         guard bytes.count <= 5 * 1_024 * 1_024, ContentDigest.sha256(bytes) == photo.sha256 else { throw ServiceError.invalidResponse }
         return bytes
@@ -157,6 +221,11 @@ extension AppServices {
         try checkSpaceContext(uid: uid, pair: pair)
         try await refreshCoupleSpace()
         WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    func privateImageKey(_ resource: String) -> String {
+        [widgetBaseURL?.absoluteString ?? "", identity?.uid ?? "", membership?.id ?? "",
+         String(membership?.pairEpoch ?? 0), resource].joined(separator: ":")
     }
 
     func requirePair() throws -> PairMembership {

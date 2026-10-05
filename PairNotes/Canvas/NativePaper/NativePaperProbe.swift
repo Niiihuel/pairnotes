@@ -18,6 +18,8 @@ extension DraftCatalogStore: NativePaperDraftStore {}
 @MainActor
 final class NativePaperSession: ObservableObject {
     let controller = PaperProbeController()
+    @Published private(set) var layers: [PaperLayer] = []
+    @Published private(set) var activeLayerID: UUID?
     @Published var busy = false
     @Published var readOnly = false
     @Published var status = "Tu borrador se guarda en este iPhone."
@@ -33,7 +35,7 @@ final class NativePaperSession: ObservableObject {
         }
     }
     @Published var selecting = false {
-        didSet { controller.canvas.directTouchMode = selecting ? .selection : .drawing }
+        didSet { controller.canvas.directTouchMode = selecting ? .selection : .drawing; controller.selectionMode = selecting }
     }
     private let store: any NativePaperDraftStore
     private let documentID: UUID
@@ -51,12 +53,21 @@ final class NativePaperSession: ObservableObject {
     private var autosaveSuspended = false
     private var finished = false
 
-    init(store: any NativePaperDraftStore, draft: DraftSummary?) {
+    init(store: any NativePaperDraftStore, draft: DraftSummary?, theme: CoupleTheme? = nil) {
         self.store = store
         documentID = draft?.id ?? UUID()
         existing = draft != nil
         title = draft?.title ?? "Sin título"
         baselineTitle = draft?.title ?? "Sin título"
+        if draft == nil, let theme {
+            paperBackground = PaperBackground(red: UInt8((theme.paperRGB >> 16) & 255),
+                green: UInt8((theme.paperRGB >> 8) & 255), blue: UInt8(theme.paperRGB & 255))
+            controller.paperBackground = paperBackground
+        }
+        controller.onLayersChanged = { [weak self] layers, active in
+            self?.layers = layers
+            self?.activeLayerID = active
+        }
         controller.onMarkupChanged = { [weak self] in self?.changed() }
         controller.onHistoryChanged = { [weak self] undo, redo in
             self?.canUndo = undo
@@ -79,10 +90,11 @@ final class NativePaperSession: ObservableObject {
             let restored = try PaperProbeDocument.decode(archive.source.data,
                                                         editorVersion: archive.document.minimumEditorVersion)
             let markup = restored.markup
-            guard markup.featureSet.isSubset(of: PaperProbeDocument.supportedFeatures) else {
+            guard markup.featureSet.isSubset(of: PaperProbeDocument.supportedFeatures),
+                  restored.layers?.allSatisfy({ $0.markup.featureSet.isSubset(of: PaperProbeDocument.supportedFeatures) }) != false else {
                 throw ProbeError.incompatibleDocument
             }
-            controller.restoreMarkup(markup)
+            controller.restoreLayers(restored.layers ?? [PaperLayer(name: "Dibujo original", markup: markup)])
             paperBackground = restored.background
             savedMutation = mutation
             status = "Borrador guardado en este iPhone."
@@ -142,14 +154,12 @@ final class NativePaperSession: ObservableObject {
                 guard !Task.isCancelled else { continuation.resume(returning: nil); return }
                 saveWaiters[requestID] = continuation
                 guard saveTask == nil else { return }
-                busy = true
                 saveTask = Task { [self] in
                     var result: DraftArchive?
                     repeat {
                         result = await writeCurrentCapture()
                     } while result != nil && savedMutation != mutation && !finished
                     saveTask = nil
-                    busy = false
                     let waiters = Array(saveWaiters.values)
                     saveWaiters.removeAll()
                     for waiter in waiters { waiter.resume(returning: result) }
@@ -169,12 +179,13 @@ final class NativePaperSession: ObservableObject {
     private func writeCurrentCapture() async -> DraftArchive? {
         let capturedMutation = mutation
         do {
-            guard let captured = controller.canvas.markup else { throw ProbeError.missingMarkup }
+            let capturedLayers = controller.capturedLayers()
+            let captured = controller.composedMarkup()
             let capturedBackground = paperBackground
             let capturedTitle = title
             let (nextRevision, overflow) = revision.addingReportingOverflow(1)
             guard !overflow else { throw LocalStoreError.obsoleteRevision }
-            let source = try await PaperProbeDocument.encode(captured, background: capturedBackground)
+            let source = try await PaperProbeDocument.encode(captured, background: capturedBackground, layers: capturedLayers)
             let persisted = try PaperProbeDocument.decode(source, editorVersion: PaperProbeDocument.editorVersion)
             let full = try await PaperProbeDocument.render(persisted.markup, side: 1536, background: persisted.background)
             let widget = try await PaperProbeDocument.render(persisted.markup, side: 1024, background: persisted.background)
@@ -187,7 +198,7 @@ final class NativePaperSession: ObservableObject {
             savedMutation = capturedMutation
             lastArchive = archive
             preview = UIImage(data: full)
-            status = "Guardado en este iPhone."
+            status = capturedMutation == mutation ? "Guardado en este iPhone." : "Cambios sin guardar…"
             return archive
         } catch {
             status = "No se pudo guardar. Reintentá antes de cerrar."
@@ -211,6 +222,8 @@ final class NativePaperSession: ObservableObject {
         suspendAutosave()
         busy = true
         defer { busy = false }
+        // Drain any recovery write before restoring or deleting the draft.
+        await saveTask?.value
         do {
             if let baseline = baselineArchive {
                 if lastArchive != baseline {
@@ -262,10 +275,11 @@ final class NativePaperSession: ObservableObject {
     }
 
     @discardableResult
-    func insertPhoto(_ image: UIImage) -> Bool {
-        guard loaded, !busy, !readOnly, !finished, let image = image.cgImage,
-              var markup = controller.canvas.markup else { return false }
-        let width: CGFloat = 900
+    func insertPhoto(_ image: UIImage, sticker: Bool = false) -> Bool {
+        guard loaded, !busy, !readOnly, !finished, let image = image.cgImage else { return false }
+        controller.addLayer(name: sticker ? "Mi sticker" : "Foto")
+        guard var markup = controller.canvas.markup else { return false }
+        let width: CGFloat = sticker ? 360 : 900
         let height = width * CGFloat(image.height) / CGFloat(image.width)
         let scale = min(1, 1000 / height)
         let size = CGSize(width: width * scale, height: height * scale)
@@ -284,12 +298,21 @@ final class NativePaperSession: ObservableObject {
 
 struct NativePaperEditorView: View {
     @StateObject private var session: NativePaperSession
+    let sendTitle: String
+    let stickerStore: DraftCatalogStore
+    let onSavedArchive: ((DraftArchive) -> Void)?
     let onSaved: () -> Void
     let onSend: (DraftArchive) async -> Bool
     @Environment(\.dismiss) private var dismiss
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var choosingPhoto = false
     @State private var choosingBackground = false
+    @State private var showingLayers = false
+    @State private var showingGuides = false
+    @State private var showingStickers = false
+    @State private var eyedropperImage: ExportImage?
+    @State private var preparingTool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var renaming = false
     @State private var proposedTitle = ""
     @State private var sending = false
@@ -298,22 +321,23 @@ struct NativePaperEditorView: View {
     @State private var exportImage: ExportImage?
     @State private var cropPhoto: ExportImage?
 
-    init(store: DraftCatalogStore, draft: DraftSummary?, onSaved: @escaping () -> Void,
+    init(store: DraftCatalogStore, draft: DraftSummary?, theme: CoupleTheme? = nil, sendTitle: String = "Enviar dibujo", onSavedArchive: ((DraftArchive) -> Void)? = nil, onSaved: @escaping () -> Void,
          onSend: @escaping (DraftArchive) async -> Bool) {
-        _session = StateObject(wrappedValue: NativePaperSession(store: store, draft: draft))
+        _session = StateObject(wrappedValue: NativePaperSession(store: store, draft: draft, theme: theme))
+        self.sendTitle = sendTitle; self.onSavedArchive = onSavedArchive; self.stickerStore = store
         self.onSaved = onSaved
         self.onSend = onSend
     }
 
-    private var working: Bool { session.busy || sending || closing }
+    private var working: Bool { session.busy || sending || closing || preparingTool }
     private var presentingTools: Bool {
-        choosingPhoto || choosingBackground || renaming || confirmingClose || exportImage != nil || cropPhoto != nil
+        showingStickers || eyedropperImage != nil || showingLayers || choosingPhoto || choosingBackground || renaming || confirmingClose || exportImage != nil || cropPhoto != nil
     }
 
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
-                let paperSide = max(100, min(640, geometry.size.width - 32, geometry.size.height - 224))
+                let paperSide = max(100, min(640, geometry.size.width - 32, geometry.size.height - 272))
                 VStack(spacing: 10) {
                     if !session.readOnly { editingControls }
                     HStack(spacing: 8) {
@@ -331,7 +355,8 @@ struct NativePaperEditorView: View {
                         Button("Exportar imagen", systemImage: "square.and.arrow.up", action: export)
                             .disabled(working)
                     } else {
-                        PaperProbeCanvas(controller: session.controller, enabled: !working && !confirmingClose)
+                        PaperProbeCanvas(controller: session.controller, enabled: !session.busy && !sending && !closing && !confirmingClose)
+                            .allowsHitTesting(!preparingTool)
                             .frame(width: paperSide, height: paperSide)
                             .background(Color(uiColor: session.paperBackground.uiColor))
                             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -373,7 +398,7 @@ struct NativePaperEditorView: View {
                         .accessibilityIdentifier("editor.done")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Enviar dibujo", systemImage: "paperplane.fill", action: send)
+                    Button(sendTitle, systemImage: "paperplane.fill", action: send)
                         .labelStyle(.iconOnly).disabled(session.readOnly || working)
                         .accessibilityIdentifier("editor.send")
                 }
@@ -413,6 +438,16 @@ struct NativePaperEditorView: View {
             } message: {
                 Text("Descartar vuelve al último guardado que confirmaste, aunque haya una copia automática de recuperación.")
             }
+            .sheet(isPresented: $showingLayers) { layerSheet }
+            .sheet(isPresented: $showingStickers) {
+                PersonalStickerLibrary(store: stickerStore) { image in _ = session.insertPhoto(image, sticker: true) }
+            }
+            .sheet(item: $eyedropperImage) { item in
+                PaperEyedropper(image: item.image) { color in
+                    session.controller.useInkColor(color); session.selecting = false
+                    session.status = "Color elegido. Ya podés dibujar con él."
+                }
+            }
             .sheet(isPresented: $choosingBackground) {
                 PaperBackgroundPicker(background: $session.paperBackground)
                     .disabled(session.busy).presentationDetents([.medium, .large])
@@ -426,6 +461,45 @@ struct NativePaperEditorView: View {
             .sheet(item: $exportImage) { ShareImageView(image: $0.image) }
         }
     }
+
+    private var layerSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(Array(session.layers.reversed())) { layer in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Button {
+                                    session.controller.selectLayer(layer.id)
+                                    session.selecting = true; showingLayers = false
+                                } label: {
+                                    Image(systemName: session.activeLayerID == layer.id ? "checkmark.circle.fill" : "circle")
+                                }.buttonStyle(.borderless).accessibilityLabel("Editar " + layer.name)
+                                TextField("Nombre de la capa", text: Binding(
+                                    get: { session.layers.first(where: { $0.id == layer.id })?.name ?? layer.name },
+                                    set: { session.controller.renameLayer(layer.id, name: $0) }))
+                            }
+                            HStack {
+                                Button("Subir", systemImage: "arrow.up") { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { session.controller.moveLayer(layer.id, by: 1) } }
+                                    .disabled(session.layers.last?.id == layer.id)
+                                Button("Bajar", systemImage: "arrow.down") { withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { session.controller.moveLayer(layer.id, by: -1) } }
+                                    .disabled(session.layers.first?.id == layer.id)
+                                Spacer()
+                                Button("Eliminar", systemImage: "trash", role: .destructive) { session.controller.removeLayer(layer.id) }
+                                    .labelStyle(.iconOnly).disabled(session.layers.count < 2)
+                            }.font(.caption).buttonStyle(.borderless)
+                        }.padding(.vertical, 4)
+                    }
+                } footer: {
+                    Text("Las capas de arriba cubren las de abajo. Elegí una capa para editar sus textos, fotos y trazos.")
+                }
+                Button("Agregar capa", systemImage: "plus") { session.controller.addLayer() }
+            }
+            .navigationTitle("Capas").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Listo") { showingLayers = false } } }
+        }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+    }
+
 
     private var editingControls: some View {
         VStack(spacing: 8) {
@@ -441,9 +515,49 @@ struct NativePaperEditorView: View {
             }
             HStack(spacing: 4) {
                 tool("Agregar foto y recortar", icon: "photo.badge.plus", id: "editor.photo") { choosingPhoto = true }
+                tool("Capas", icon: "square.3.layers.3d", id: "editor.layers") { showingLayers = true }
                 tool("Agregar texto", icon: "textformat", id: "editor.text", action: session.controller.insertText)
                 tool("Color de la hoja", icon: "paintpalette", id: "editor.background") { choosingBackground = true }
                 tool("Exportar imagen", icon: "square.and.arrow.up", id: "editor.export", action: export)
+            }
+            HStack(spacing: 4) {
+                Menu {
+                    Section("Stickers") {
+                        ForEach(["♡", "✨", "🌸", "⭐️", "🌙", "💌"], id: \.self) { symbol in
+                            Button(symbol) { session.controller.insertSticker(symbol); session.selecting = true }
+                        }
+                    }
+                    Button("Mis stickers", systemImage: "face.smiling") { showingStickers = true }
+                    Menu("Plantillas", systemImage: "rectangle.on.rectangle") {
+                        ForEach(PaperTemplate.allCases, id: \.self) { style in
+                            Button(style.rawValue) { session.controller.insertPostcardFrame(style: style) }
+                        }
+                    }
+                    Button("Cuentagotas", systemImage: "eyedropper") {
+                        preparingTool = true
+                        Task { @MainActor in
+                            defer { preparingTool = false }
+                            do {
+                                let bytes = try await PaperProbeDocument.render(session.controller.composedMarkup(), side: 1024, background: session.paperBackground)
+                                guard let image = UIImage(data: bytes) else { throw ProbeError.renderFailed }
+                                eyedropperImage = ExportImage(image: image)
+                            } catch { session.status = "No se pudo preparar el cuentagotas. Reintentá." }
+                        }
+                    }
+                    Menu("Alinear capa", systemImage: "align.horizontal.center") {
+                        ForEach(PaperAlignment.allCases, id: \.self) { alignment in
+                            Button(alignment.rawValue) {
+                                preparingTool = true
+                                Task { @MainActor in
+                                    defer { preparingTool = false }
+                                    await session.controller.alignActiveLayer(alignment)
+                                }
+                            }
+                        }
+                    }
+                    Toggle("Guías de centrado", isOn: $showingGuides)
+                } label: { Label("Detalles", systemImage: "sparkles").font(.subheadline) }
+                .onChange(of: showingGuides) { _, value in session.controller.showsAlignmentGuides = value; session.controller.snapsToGuides = value }
                 Spacer(minLength: 0)
                 tool("Alejar", icon: "minus.magnifyingglass", id: "editor.zoomOut") { session.controller.zoom(by: 1 / 1.35) }
                 tool("Ajustar hoja", icon: "arrow.up.left.and.arrow.down.right", id: "editor.fit", action: session.controller.fitPaper)
@@ -477,6 +591,7 @@ struct NativePaperEditorView: View {
             defer { closing = false }
             if let archive = await session.save() {
                 session.commit(archive)
+                onSavedArchive?(archive)
                 onSaved()
                 dismiss()
             } else { session.resumeAutosave() }
@@ -511,6 +626,7 @@ struct NativePaperEditorView: View {
             guard let archive = await session.save() else { return }
             onSaved()
             if await onSend(archive) {
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                 session.commit(archive)
                 dismiss()
             } else { session.status = "El dibujo está guardado. Revisá la cuenta y la pareja vinculada en Nosotros antes de enviar." }

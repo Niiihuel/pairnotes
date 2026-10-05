@@ -3,8 +3,8 @@ import {connect} from 'node:http2';
 import {Database, Timestamp} from './database';
 import {digest} from './service';
 
-export type NotificationPayload = {aps: {alert: {title: string; body: string}; sound: string}; pairId: string; pairEpoch: number}
-  & ({noteId: string; type?: never; messageId?: never} | {type: 'message'; messageId: string; noteId?: never});
+export type NotificationPayload = {aps: {alert: {title: string; body: string}; sound: string}; pairId: string; pairEpoch: number;
+  type?: 'message' | 'gesture' | 'letter' | 'reaction'; noteId?: string; messageId?: string; gestureId?: string; letterId?: string};
 export interface PushTransport {
   app(token: string, payload: NotificationPayload, environment: 'development' | 'production'): Promise<void>;
   widget(token: string, environment: 'development' | 'production'): Promise<void>;
@@ -13,7 +13,7 @@ export type APNsConfiguration = {key: string; keyId: string; teamId: string; bun
 export class LivePushTransport implements PushTransport {
   constructor(readonly apns: () => APNsConfiguration | undefined) {}
   async app(token: string, payload: NotificationPayload, environment: 'development' | 'production'): Promise<void> {
-    await this.send(token, 'alert', payload, environment, payload.noteId ?? digest(`message:${payload.messageId}`));
+    await this.send(token, 'alert', payload, environment, payload.noteId ?? digest(`${payload.type}:${payload.messageId ?? payload.gestureId ?? payload.letterId}`));
   }
   async widget(token: string, environment: 'development' | 'production'): Promise<void> {
     await this.send(token, 'widgets', {aps: {'content-changed': true}}, environment);
@@ -45,15 +45,19 @@ export class LivePushTransport implements PushTransport {
 
 /** Leased outbox + per-channel acknowledgements. A crash after APNs accepted a message
  * and before SQL acknowledgement can duplicate it: delivery is at least once. */
-export async function dispatchNotification(db: Database, eventId: string, transport: PushTransport): Promise<void> {
-  const ref = db.doc(`notificationEvents/${eventId}`), now = Date.now(), leaseOwner = randomUUID();
+export async function dispatchNotification(db: Database, eventId: string, transport: PushTransport, clock: () => number = Date.now): Promise<void> {
+  const ref = db.doc(`notificationEvents/${eventId}`), now = clock(), leaseOwner = randomUUID();
   const event = await db.runTransaction(async tx => {
     const event = (await tx.get(ref)).data();
     if (!event || event.status === 'done' || event.status === 'cancelled' || event.nextAttemptAt.toMillis() > now) return null;
     const pair = (await tx.get(db.doc(`pairs/${event.pairId}`))).data();
-    const note = (await tx.get(db.doc(event.type === 'message'
-      ? `pairs/${event.pairId}/messages/${event.messageId}` : `pairs/${event.pairId}/notes/${event.noteId}`))).data();
-    if (!pair || pair.status !== 'active' || pair.pairEpoch !== event.pairEpoch || !pair.members.includes(event.recipientId) || !note || note.recipientId !== event.recipientId) {
+    const collection = event.type === 'message' ? 'messages' : event.type === 'gesture' ? 'gestures' : event.type === 'letter' ? 'letters' : 'notes';
+    const id = event.messageId ?? event.gestureId ?? event.letterId ?? event.noteId;
+    const note = event.type === 'widget' ? null : (await tx.get(db.doc(`pairs/${event.pairId}/${collection}/${id}`))).data();
+    const validRecipient = event.type === 'reaction' ? note?.authorId === event.recipientId : note?.recipientId === event.recipientId;
+    if (!pair || pair.status !== 'active' || pair.pairEpoch !== event.pairEpoch || !pair.members.includes(event.recipientId) ||
+        (event.type !== 'widget' && (!note || !validRecipient)) ||
+        (event.type === 'letter' && (note?.status !== 'sealed' || note.opensAt > now))) {
       tx.update(ref, {status: 'cancelled'}); return null;
     }
     tx.update(ref, {status: 'pending', leaseOwner, nextAttemptAt: Timestamp.fromMillis(now + 60_000), attempts: event.attempts + 1});
@@ -66,12 +70,18 @@ export async function dispatchNotification(db: Database, eventId: string, transp
   });
   try {
     const devices = await db.collection(`users/${event.recipientId}/devices`).where('active', '==', true).get();
-    const payload: NotificationPayload = {aps: {alert: {title: 'PairNotes', body: event.type === 'message' ? 'Tenés un mensaje nuevo' : 'Tenés un dibujo nuevo'}, sound: 'default'},
+    const copy: Record<string, string> = {message: 'Tenés un mensaje nuevo', gesture: 'Tu pareja está pensando en vos',
+      letter: 'Tenés una carta lista para abrir', reaction: 'Tu pareja reaccionó a tu dibujo'};
+    const payload: NotificationPayload = {aps: {alert: {title: 'PairNotes', body: copy[event.type] ?? 'Tenés un dibujo nuevo'}, sound: 'default'},
       pairId: event.pairId, pairEpoch: event.pairEpoch,
-      ...(event.type === 'message' ? {type: 'message' as const, messageId: event.messageId} : {noteId: event.noteId})};
+      ...(event.type === 'message' ? {type: 'message' as const, messageId: event.messageId}
+        : event.type === 'gesture' ? {type: 'gesture' as const, gestureId: event.gestureId}
+        : event.type === 'letter' ? {type: 'letter' as const, letterId: event.letterId}
+        : event.type === 'reaction' ? {type: 'reaction' as const, noteId: event.noteId} : {noteId: event.noteId})};
     let failed = false;
     for (const device of devices.docs) {
       for (const channel of ['app', 'widget'] as const) {
+        if (event.type === 'widget' && channel === 'app') continue;
         const field = channel === 'app' ? 'apnsToken' : 'widgetPushToken', value = device.data()![field];
         if (!value) continue;
         const delivery = ref.collection('deliveries').doc(digest(`${device.id}:${channel}:${value}`));

@@ -36,6 +36,54 @@ private extension XCTestCase {
 }
 
 final class AccountPersistenceTests: XCTestCase {
+    func testStickersAreDeduplicatedScopedAndDigestChecked() async throws {
+        let root = directory()
+        let alice = DraftCatalogStore(directory: root, account: .user(uid: "alice"))
+        let bob = DraftCatalogStore(directory: root, account: .user(uid: "bob"))
+        let png = Data([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
+        let id = try await alice.saveSticker(png)
+        let duplicate = try await alice.saveSticker(png)
+        XCTAssertEqual(id, duplicate)
+        let ids = try await alice.stickerIDs(), other = try await bob.stickerIDs()
+        XCTAssertEqual(ids, [id]); XCTAssertTrue(other.isEmpty)
+        let restored = try await alice.sticker(id)
+        XCTAssertEqual(restored, png)
+        do { _ = try await alice.sticker("../outside"); XCTFail("Reject path traversal") } catch {}
+        do { _ = try await alice.saveSticker(Data("not an image".utf8)); XCTFail("Reject invalid signature") } catch {}
+        try await alice.removeSticker(id)
+        let remaining = try await alice.stickerIDs()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
+    func testUndoDeletionRestoresExactSourceAndNeverOverwritesNewerDraft() async throws {
+        let store = DraftCatalogStore(directory: directory(), account: .user(uid: "fictional-alex"))
+        let archive = try Fixtures.archive(revision: 3)
+        let summary = try await store.save(archive, title: "Nuestro dibujo")
+        try await store.remove(id: summary.id)
+        try await store.restoreRemoved(archive, summary: summary)
+        let restored = try await store.load(id: summary.id)
+        let listing = try await store.list()
+        XCTAssertEqual(restored, archive)
+        XCTAssertEqual(listing, [summary])
+        let newer = try Fixtures.archive(id: summary.id, revision: 4)
+        try await store.save(newer)
+        do { try await store.restoreRemoved(archive, summary: summary); XCTFail("Undo must not overwrite new edits") }
+        catch { XCTAssertEqual(error as? LocalStoreError, .obsoleteRevision) }
+        let latest = try await store.load(id: summary.id)
+        XCTAssertEqual(latest, newer)
+    }
+
+    func testUndoRejectsArchiveFromAnotherDocument() async throws {
+        let store = DraftCatalogStore(directory: directory(), account: .guest)
+        let archive = try Fixtures.archive()
+        let summary = try await store.save(archive)
+        try await store.remove(id: summary.id)
+        do { try await store.restoreRemoved(Fixtures.archive(), summary: summary); XCTFail("Mismatched source must not be restored") }
+        catch { XCTAssertEqual(error as? LocalStoreError, .inconsistentRevision) }
+        let listing = try await store.list()
+        XCTAssertTrue(listing.isEmpty)
+    }
+
     func testGuestAndAccountsHaveSeparateCatalogsEvenForHostileUID() async throws {
         let root = directory()
         let guest = DraftCatalogStore(directory: root, account: .guest)

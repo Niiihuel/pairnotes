@@ -23,6 +23,16 @@ final class AppServices: NSObject, ObservableObject {
 
     var onOpenNote: ((String) -> Void)?
     var onOpenCouple: (() -> Void)?
+    var onOpenLetters: ((String?) -> Void)?
+    var onOpenHome: (() -> Void)?
+    struct PendingAffectionRoute {
+        let type: String
+        let pairID: String
+        let epoch: UInt64
+        let letterID: String?
+        let noteID: String?
+    }
+    var pendingAffectionRoute: PendingAffectionRoute?
     var onOpenMessages: (() -> Void)?
     var onSessionInvalidated: (() -> Void)?
     var onReceivedNote: (() -> Void)?
@@ -30,6 +40,8 @@ final class AppServices: NSObject, ObservableObject {
     var isConfigured: Bool { client != nil }
     var authProvider: String? { client?.session?.provider }
 
+    let privateImages = PrivateImageCache(directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("PairNotesPrivateImages", isDirectory: true))
     let client: RailwayClient?
     var pendingAPNsToken: Data?
     private var appleRequest: AppleSignInRequest?
@@ -171,6 +183,8 @@ final class AppServices: NSObject, ObservableObject {
               let name = profile["displayName"] as? String else { throw ServiceError.invalidResponse }
         let newPair = try Self.membership(from: response, for: uid)
         if membership?.id != newPair?.id || membership?.pairEpoch != newPair?.pairEpoch {
+            // The first membership fetch after relaunch must keep the disk cache.
+            if membershipResolved { Task { await privateImages.clear() } }
             coupleSpace = nil
             spaceSequence &+= 1
             spaceError = nil
@@ -200,6 +214,7 @@ final class AppServices: NSObject, ObservableObject {
     func closePair() async throws {
         guard let pair = membership else { throw ServiceError.noPair }
         _ = try await call("closePair", ["pairId": pair.id, "pairEpoch": pair.pairEpoch])
+        await privateImages.clear()
         membership = nil
         membershipResolved = true
         onSessionInvalidated?()
@@ -274,6 +289,7 @@ final class AppServices: NSObject, ObservableObject {
     }
 
     private func clearSession() {
+        Task { await privateImages.clear() }
         refreshSequence &+= 1
         identity = nil
         membership = nil

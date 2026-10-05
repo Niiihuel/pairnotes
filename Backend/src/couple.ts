@@ -37,6 +37,7 @@ export function publicProfile(value: DocumentData): DocumentData {
 function publicMemory(value: DocumentData): DocumentData {
   return {id: value.id, pairId: value.pairId, pairEpoch: value.pairEpoch, authorId: value.authorId,
     title: value.title, date: value.date, kind: value.kind, recursYearly: value.recursYearly,
+    decoration: value.decoration ?? null,
     body: value.body, noteId: value.noteId ?? null, photo: value.photo ? {id: value.photo.id, sha256: value.photo.sha256} : null,
     createdAt: value.createdAt.toMillis(), updatedAt: value.updatedAt.toMillis()};
 }
@@ -46,12 +47,20 @@ function publicMessage(value: DocumentData): DocumentData {return {...value, sen
 export class CoupleFeatures {
   constructor(readonly service: PairNotesService) {}
   get db() {return this.service.db;}
+  private notifyWidgets(tx: Transaction, pair: DocumentData): void {
+    for (const recipientId of pair.members as string[]) {
+      tx.create(this.db.doc(`notificationEvents/${randomUUID()}`), {
+        type: 'widget', pairId: pair.id, pairEpoch: pair.pairEpoch, recipientId,
+        status: 'pending', attempts: 0, nextAttemptAt: Timestamp.fromMillis(this.service.now())
+      });
+    }
+  }
   async space(tx: Transaction, uid: string, pair: DocumentData): Promise<DocumentData> {
     const profiles = await tx.getAll(...(pair.members as string[]).map(member => this.db.doc(`users/${member}`)));
     const view = (await tx.get(this.db.doc(`pairs/${pair.id}/views/${uid}`))).data();
     const latest = view?.latestMessageId ? (await tx.get(this.db.doc(`pairs/${pair.id}/messages/${view.latestMessageId}`))).data() : null;
     return {profiles: profiles.map(profile => publicProfile({...profile.data(), uid: profile.id})), startedOn: pair.startedOn ?? null,
-      latestMessage: latest ? publicMessage(latest) : null, location: await this.location(tx, uid, pair)};
+      latestGesture: await this.service.affection.latestGesture(tx, uid, pair), personalization: pair.personalization ?? null, latestMessage: latest ? publicMessage(latest) : null, location: await this.location(tx, uid, pair)};
   }
   async getCoupleSpace(caller: Caller, input: Input): Promise<Input> {
     const {pairId, pairEpoch} = pairInput(input);
@@ -59,6 +68,37 @@ export class CoupleFeatures {
       const pair = await this.service.pair(tx, caller.uid, pairId, pairEpoch);
       const memories = await tx.get(this.db.collection(`pairs/${pairId}/memories`).orderBy('date').limit(200));
       return {...await this.space(tx, caller.uid, pair), memories: memories.docs.map(item => publicMemory(item.data()!))};
+    });
+  }
+  async updatePersonalization(caller: Caller, input: Input): Promise<Input> {
+    const {pairId, pairEpoch} = pairInput(input);
+    const theme = text(input.theme, 'theme', 20), phrase = text(input.phrase, 'phrase', 160, true);
+    if (!['cream', 'rose', 'lavender', 'night'].includes(theme)) fail('invalid_theme', 'invalid-argument');
+    if (!Array.isArray(input.homeOrder) || input.homeOrder.length !== 4 ||
+        new Set(input.homeOrder).size !== 4 || !input.homeOrder.every(value => ['story', 'message', 'drawing', 'distance'].includes(value))) {
+      fail('invalid_home_order', 'invalid-argument');
+    }
+    const homeOrder = input.homeOrder as string[];
+    const coverMemoryId = input.coverMemoryId === null ? null : id(input.coverMemoryId, 'cover_memory_id');
+    const revision = numeric(input.revision, 0, Number.MAX_SAFE_INTEGER - 1, 'revision');
+    if (!Number.isSafeInteger(revision)) fail('invalid_revision', 'invalid-argument');
+    if (!input.nicknames || typeof input.nicknames !== 'object' || Array.isArray(input.nicknames)) fail('invalid_nicknames', 'invalid-argument');
+    await this.service.rate(caller.uid, 'personalization', 20, 60_000);
+    return this.db.runTransaction(async tx => {
+      const pair = await this.service.pair(tx, caller.uid, pairId, pairEpoch);
+      if ((pair.personalization?.revision ?? 0) !== revision) fail('personalization_changed', 'aborted');
+      const nicknames: Record<string, string> = {};
+      for (const [uid, nickname] of Object.entries(input.nicknames as Input)) {
+        if (!pair.members.includes(uid)) fail('invalid_nickname_member', 'invalid-argument');
+        nicknames[uid] = text(nickname, 'nickname', 40, true);
+      }
+      if (coverMemoryId && !(await tx.get(this.db.doc(`pairs/${pairId}/memories/${coverMemoryId}`))).data()?.photo) {
+        fail('cover_unavailable', 'not-found');
+      }
+      const personalization = {theme, phrase, nicknames, coverMemoryId, homeOrder, revision: revision + 1};
+      tx.update(this.db.doc(`pairs/${pairId}`), {personalization});
+      this.notifyWidgets(tx, pair);
+      return {personalization};
     });
   }
   async updatePairDetails(caller: Caller, input: Input): Promise<Input> {
@@ -73,8 +113,9 @@ export class CoupleFeatures {
     } catch {fail('invalid_time_zone', 'invalid-argument');}
     if (startedOn && startedOn > today) fail('future_pair_date', 'invalid-argument');
     await this.db.runTransaction(async tx => {
-      await this.service.pair(tx, caller.uid, pairId, pairEpoch);
+      const pair = await this.service.pair(tx, caller.uid, pairId, pairEpoch);
       tx.update(this.db.doc(`pairs/${pairId}`), {startedOn});
+      if (pair.startedOn !== startedOn) this.notifyWidgets(tx, pair);
     });
     return {pair: await this.service.pairResponse(caller.uid, pairId)};
   }
@@ -83,6 +124,12 @@ export class CoupleFeatures {
     const title = text(input.title, 'title', 120), date = dateOnly(input.date);
     if (!['date', 'memory'].includes(String(input.kind))) fail('invalid_memory_kind', 'invalid-argument');
     if (input.recursYearly !== undefined && typeof input.recursYearly !== 'boolean') fail('invalid_recurs_yearly', 'invalid-argument');
+    const decoration = input.decoration;
+    if (decoration !== undefined && (decoration === null || typeof decoration !== 'object' || Array.isArray(decoration) ||
+        !['polaroid', 'postcard', 'journal'].includes(String((decoration as Input).layout)) ||
+        !['', 'heart', 'sparkles', 'flower', 'star', 'moon'].includes(String((decoration as Input).sticker)))) {
+      fail('invalid_decoration', 'invalid-argument');
+    }
     const body = input.body === undefined ? undefined : text(input.body, 'body', 2000, true);
     const noteId = input.noteId === undefined ? undefined : input.noteId === null ? null : id(input.noteId, 'note_id');
     await this.service.rate(caller.uid, 'memory', 40, 60_000);
@@ -94,6 +141,7 @@ export class CoupleFeatures {
       if (linkedNote && !(await tx.get(this.db.doc(`pairs/${pairId}/notes/${linkedNote}`))).exists) fail('note_unavailable', 'not-found');
       const value = {id: memoryId, pairId, pairEpoch, authorId: old?.authorId ?? caller.uid, title, date,
         kind: input.kind, recursYearly: input.recursYearly ?? old?.recursYearly ?? false, body: body ?? old?.body ?? '',
+        decoration: decoration === undefined ? old?.decoration ?? null : {layout: (decoration as Input).layout, sticker: (decoration as Input).sticker},
         noteId: linkedNote, photo: old?.photo ?? null, createdAt: old?.createdAt ?? Timestamp.fromMillis(this.service.now()),
         updatedAt: Timestamp.fromMillis(this.service.now())};
       tx.set(ref, value); return {memory: publicMemory(value)};
@@ -107,10 +155,28 @@ export class CoupleFeatures {
     await this.db.runTransaction(async tx => {
       await this.service.pair(tx, caller.uid, pairId, pairEpoch);
       const ref = this.db.doc(`pairs/${pairId}/memories/${memoryId}`), old = (await tx.get(ref)).data();
-      if (old?.photo) this.retireImage(tx, old.photo.id);
-      tx.delete(ref);
+      if (old) {
+        const trash = this.db.doc(`memoryTrash/${pairId}_${memoryId}`);
+        const previous = (await tx.get(trash)).data();
+        if (previous?.memory?.photo) this.retireImage(tx, previous.memory.photo.id);
+        tx.set(trash, {pairId, pairEpoch, memory: old, expiresAt: Timestamp.fromMillis(this.service.now() + 60_000)});
+        tx.delete(ref);
+      }
     });
     return {};
+  }
+  async restoreMemory(caller: Caller, input: Input): Promise<Input> {
+    const {pairId, pairEpoch} = pairInput(input), memoryId = id(input.memoryId, 'memory_id');
+    return this.db.runTransaction(async tx => {
+      await this.service.pair(tx, caller.uid, pairId, pairEpoch);
+      const trash = this.db.doc(`memoryTrash/${pairId}_${memoryId}`), deleted = (await tx.get(trash)).data();
+      if (!deleted || deleted.pairEpoch !== pairEpoch || deleted.expiresAt.toMillis() <= this.service.now()) fail('undo_expired', 'not-found');
+      const ref = this.db.doc(`pairs/${pairId}/memories/${memoryId}`);
+      if ((await tx.get(ref)).exists) fail('memory_exists', 'already-exists');
+      if ((await tx.get(this.db.collection(`pairs/${pairId}/memories`).limit(200))).size >= 200) fail('memory_limit', 'resource-exhausted');
+      tx.set(ref, deleted.memory); tx.delete(trash);
+      return {memory: publicMemory(deleted.memory)};
+    });
   }
   async sendMessage(caller: Caller, input: Input): Promise<Input> {
     const {pairId, pairEpoch} = pairInput(input), messageId = id(input.messageId, 'message_id');
@@ -146,7 +212,7 @@ export class CoupleFeatures {
     await this.db.runTransaction(tx => this.service.pair(tx, caller.uid, pairId, pairEpoch));
     return {messages: visible.map(publicMessage), nextCursor: rows.length > maximum && last ? {sentAt: last.sentAt.toMillis(), messageId: last.id} : null};
   }
-  private async normalizeImage(bytes: Buffer, contentType: string, avatar: boolean): Promise<Buffer> {
+  async normalizeImage(bytes: Buffer, contentType: string, avatar: boolean): Promise<Buffer> {
     if (!['image/png', 'image/jpeg'].includes(contentType) || bytes.length > 5 * 1024 * 1024 || !bytes.length) fail('invalid_image', 'invalid-argument');
     try {
       const image = sharp(bytes, {limitInputPixels: 4096 * 4096, failOn: 'warning'}), metadata = await image.metadata();
@@ -158,23 +224,23 @@ export class CoupleFeatures {
       return result;
     } catch {fail('invalid_image', 'invalid-argument');}
   }
-  private async stageImage(uid: string, bytes: Buffer): Promise<DocumentData> {
+  async stageImage(uid: string, bytes: Buffer, contentType = 'image/png'): Promise<DocumentData> {
     const imageId = randomUUID(), path = `private/${uid}/${imageId}/image`, sha256 = digest(bytes);
     // Durable pending metadata allows cleanup even if upload or the attach transaction fails.
     await this.db.doc(`privateImages/${imageId}`).create({id: imageId, ownerId: uid, path, sha256, status: 'pending',
       expiresAt: Timestamp.fromMillis(this.service.now() + 3600_000), cleanupDone: false});
-    await this.service.bucket.file(path).save(bytes, {metadata: {contentType: 'image/png', metadata: {sha256}}});
+    await this.service.bucket.file(path).save(bytes, {metadata: {contentType, metadata: {sha256}}});
     return {id: imageId, path, sha256};
   }
-  private async attachImage(tx: Transaction, image: DocumentData): Promise<void> {
+  async attachImage(tx: Transaction, image: DocumentData): Promise<void> {
     const ref = this.db.doc(`privateImages/${image.id}`), value = (await tx.get(ref)).data();
     if (value?.status !== 'pending' || value.expiresAt.toMillis() <= this.service.now()) fail('image_upload_expired');
     tx.update(ref, {status: 'attached', cleanupDone: true});
   }
-  private retireImage(tx: Transaction, imageId: string): void {
+  retireImage(tx: Transaction, imageId: string): void {
     tx.update(this.db.doc(`privateImages/${imageId}`), {status: 'obsolete', expiresAt: Timestamp.fromMillis(this.service.now()), cleanupDone: false});
   }
-  private async abandonImage(image: DocumentData): Promise<void> {
+  async abandonImage(image: DocumentData): Promise<void> {
     await this.db.runTransaction(async tx => {
       const ref = this.db.doc(`privateImages/${image.id}`), value = (await tx.get(ref)).data();
       if (value && value.status !== 'attached') this.retireImage(tx, image.id);
@@ -191,7 +257,8 @@ export class CoupleFeatures {
       if (user.avatar) this.retireImage(tx, user.avatar.id);
       tx.update(ref, {avatar: image});
       if (user.activePairId) {
-        await this.service.pair(tx, caller.uid, user.activePairId);
+        const pair = await this.service.pair(tx, caller.uid, user.activePairId);
+        this.notifyWidgets(tx, pair);
         tx.set(this.db.doc(`pairs/${user.activePairId}/profiles/${caller.uid}`), {uid: caller.uid, displayName: user.displayName, avatar: image});
       }
       return {profile: publicProfile({...user, uid: caller.uid, avatar: image})};
@@ -204,7 +271,8 @@ export class CoupleFeatures {
       if (user.avatar) this.retireImage(tx, user.avatar.id);
       tx.update(ref, {avatar: null});
       if (user.activePairId) {
-        await this.service.pair(tx, caller.uid, user.activePairId);
+        const pair = await this.service.pair(tx, caller.uid, user.activePairId);
+        this.notifyWidgets(tx, pair);
         tx.set(this.db.doc(`pairs/${user.activePairId}/profiles/${caller.uid}`), {uid: caller.uid, displayName: user.displayName, avatar: null});
       }
       return {profile: publicProfile({...user, uid: caller.uid, avatar: null})};
@@ -295,6 +363,7 @@ export class CoupleFeatures {
       // A pause/source change erases coordinates and any derived distance. Other consent remains independent.
       for (const member of input.enabled ? [caller.uid] : pair.members) tx.delete(this.db.doc(`locationPrivate/${member}`));
       tx.delete(this.db.doc(`pairs/${pairId}/distance/current`));
+      this.notifyWidgets(tx, pair);
     });
     return this.db.runTransaction(async tx => ({location: await this.location(tx, caller.uid,
       await this.service.pair(tx, caller.uid, pairId, pairEpoch))}));
@@ -334,6 +403,14 @@ export class CoupleFeatures {
         const meters = 2 * 6371008.8 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
         tx.set(this.db.doc(`pairs/${pairId}/distance/current`), {meters: Math.round(meters / 100) * 100,
           accuracyMeters: Math.max(100, Math.ceil((accuracy + partner.accuracy) / 100) * 100), updatedAt: Math.min(now, capturedAt, partner.capturedAt)});
+        // Location uploads are bounded by the app; coalesce pushes to one per
+        // five-minute window for both members, even across multiple devices.
+        const notice = this.db.doc(`pairs/${pairId}/widgetUpdates/location`);
+        const previous = (await tx.get(notice)).data();
+        if (!previous || previous.sentAt <= now - 5 * 60_000) {
+          this.notifyWidgets(tx, pair);
+          tx.set(notice, {sentAt: now});
+        }
       }
     });
     return this.db.runTransaction(async tx => ({location: await this.location(tx, caller.uid,
@@ -344,6 +421,14 @@ export class CoupleFeatures {
     await this.db.runTransaction(async tx => {
       const coordinates = await tx.get(this.db.collection('locationPrivate').where('expiresAt', '<=', Timestamp.fromMillis(now)).limit(100));
       for (const item of coordinates.docs) tx.delete(item.ref);
+    });
+    await this.db.runTransaction(async tx => {
+      const expired = await tx.get(this.db.collection('memoryTrash').where('expiresAt', '<=', Timestamp.fromMillis(now)).limit(100));
+      for (const item of expired.docs) {
+        const memory = item.data()!.memory;
+        if (memory.photo) this.retireImage(tx, memory.photo.id);
+        tx.delete(item.ref);
+      }
     });
     const candidates = await this.db.collection('privateImages').where('cleanupDone', '==', false)
       .where('expiresAt', '<=', Timestamp.fromMillis(now - 3600_000)).limit(20).get();

@@ -193,12 +193,16 @@ public struct CoupleWidgetSnapshot: Codable, Equatable, Sendable {
     public let startedOn: CoupleDate?
     public let latestMessage: CoupleMessage?
     public let distance: CoupleDistance
+    public let personalization: CouplePersonalization?
+    public let latestGesture: CoupleGesture?
 
-    public init(profiles: [CoupleProfile], startedOn: CoupleDate?, latestMessage: CoupleMessage?, distance: CoupleDistance) {
-        self.profiles = profiles; self.startedOn = startedOn; self.latestMessage = latestMessage; self.distance = distance
+    public init(profiles: [CoupleProfile], startedOn: CoupleDate?, latestMessage: CoupleMessage?, distance: CoupleDistance, personalization: CouplePersonalization? = nil, latestGesture: CoupleGesture? = nil) {
+        self.profiles = profiles; self.startedOn = startedOn; self.latestMessage = latestMessage; self.distance = distance; self.personalization = personalization; self.latestGesture = latestGesture
     }
 
     public func validate(for uid: String, at date: Date = Date()) throws {
+        try personalization?.validate(memberIDs: profiles.map(\.uid))
+        try latestGesture?.validate(memberIDs: profiles.map(\.uid))
         guard profiles.count == 2, Set(profiles.map(\.uid)).count == 2,
               profiles.contains(where: { $0.uid == uid }),
               profiles.allSatisfy({ !$0.uid.isEmpty && $0.uid.utf8.count <= 256 &&

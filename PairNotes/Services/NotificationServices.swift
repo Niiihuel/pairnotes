@@ -74,6 +74,8 @@ extension AppServices: UNUserNotificationCenterDelegate {
     func issueWidgetSession() async throws -> WidgetAuthorization {
         let uid = try requireUID()
         guard let pair = membership, let base = widgetBaseURL else { throw ServiceError.noPair }
+        _ = try await call("registerDevice", ["deviceId": deviceID])
+        try checkSpaceContext(uid: uid, pair: pair)
         let response = try await call("issueWidgetSession", ["deviceId": deviceID])
         try checkUID(uid)
         guard membership?.id == pair.id, membership?.pairEpoch == pair.pairEpoch,
@@ -96,6 +98,20 @@ extension AppServices: UNUserNotificationCenterDelegate {
             await MainActor.run { onOpenCouple?() }
             return
         }
+        let info = response.notification.request.content.userInfo
+        if let type = info["type"] as? String, ["letter", "gesture", "reaction"].contains(type) {
+            let pairID = info["pairId"] as? String
+            let epoch = (info["pairEpoch"] as? NSNumber)?.uint64Value
+            let letterID = info["letterId"] as? String
+            let noteID = info["noteId"] as? String
+            await MainActor.run {
+                guard let pairID, let epoch else { return }
+                pendingAffectionRoute = PendingAffectionRoute(type: type, pairID: pairID, epoch: epoch,
+                    letterID: letterID, noteID: noteID)
+                deliverPendingAffectionRoute()
+            }
+            return
+        }
         if response.notification.request.content.userInfo["type"] as? String == "message" {
             await MainActor.run { onOpenMessages?(); onReceivedNote?() }
             return
@@ -103,6 +119,18 @@ extension AppServices: UNUserNotificationCenterDelegate {
         guard let noteID = response.notification.request.content.userInfo["noteId"] as? String,
               UUID(uuidString: noteID) != nil else { return }
         await MainActor.run { onOpenNote?(noteID) }
+    }
+
+    /// A notification can launch the process before RootView and membership are ready.
+    func deliverPendingAffectionRoute() {
+        guard membershipResolved, let route = pendingAffectionRoute,
+              onOpenLetters != nil, onOpenHome != nil, onOpenNote != nil else { return }
+        pendingAffectionRoute = nil
+        guard route.pairID == membership?.id, route.epoch == membership?.pairEpoch else { return }
+        if route.type == "letter" { onOpenLetters?(route.letterID) }
+        else if route.type == "gesture" { onOpenHome?() }
+        else if let id = route.noteID { onOpenNote?(id) }
+        onReceivedNote?()
     }
 
     private func notificationPreferenceKey(_ uid: String) -> String { "PairNotes.notifications.\(uid)" }

@@ -13,7 +13,7 @@ final class WidgetRemoteClientTests: XCTestCase {
         configuration.protocolClasses = [WidgetTestProtocol.self]
         WidgetTestProtocol.state = state
         let client = WidgetRemoteClient(session: URLSession(configuration: configuration),
-                                        authorization: { state.authorization }, directory: { directory })
+                                        authorization: { state.authorization }, saveAuthorization: { state.authorization = $0 }, directory: { directory })
         return (client, state, directory)
     }
 
@@ -46,9 +46,28 @@ final class WidgetRemoteClientTests: XCTestCase {
         state.responses = [(403, Data())]
         let revoked = await client.refresh()
         XCTAssertNil(revoked.snapshot)
+        XCTAssertTrue(revoked.needsAuthorization)
         state.offline = true
         let afterRevocation = await client.refresh()
         XCTAssertNil(afterRevocation.snapshot)
+    }
+
+    func testSuccessfulRefreshRenewsCredentialAndKeepsOfflineContentPastRefreshInterval() async throws {
+        let (client, state, directory) = setupClient()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let renewed = Date().addingTimeInterval(30 * 86_400)
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: metadata(state)) as? [String: Any])
+        payload["credentialExpiresAt"] = renewed.timeIntervalSince1970 * 1_000
+        payload["validUntil"] = Date().addingTimeInterval(86_400).timeIntervalSince1970 * 1_000
+        state.responses = [(200, try JSONSerialization.data(withJSONObject: payload)), (200, png)]
+        let result = await client.refresh()
+        XCTAssertNotNil(result.snapshot)
+        XCTAssertEqual(try XCTUnwrap(state.authorization).expiresAt.timeIntervalSince1970, renewed.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertGreaterThan(try XCTUnwrap(result.expiresAt).timeIntervalSinceNow, 23 * 3_600)
+        state.offline = true
+        let cached = await client.refresh()
+        XCTAssertTrue(cached.cached)
+        XCTAssertEqual(cached.snapshot, result.snapshot)
     }
 
     func testDifferentCredentialCannotReadPriorOfflineCache() async throws {
@@ -82,6 +101,7 @@ final class WidgetRemoteClientTests: XCTestCase {
         state.authorization = WidgetTestState.credential(expiry: .distantPast)
         let result = await client.refresh()
         XCTAssertNil(result.snapshot)
+        XCTAssertTrue(result.needsAuthorization, "The app must repair expired credentials automatically")
         XCTAssertTrue(state.paths.isEmpty)
     }
 
@@ -118,6 +138,19 @@ final class WidgetRemoteClientTests: XCTestCase {
         let switched = await client.refresh()
         XCTAssertNil(switched.couple)
         XCTAssertTrue(switched.avatars.isEmpty)
+    }
+
+    func testUnchangedAvatarSurvivesRefreshWithoutDownloadingAgain() async throws {
+        let (client, state, directory) = setupClient()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        state.responses = [(200, try coupleMetadata(avatar: true)), (200, png)]
+        let initial = await client.refresh()
+        XCTAssertEqual(initial.avatars["first-user"], png)
+        state.responses = [(200, try coupleMetadata(avatar: true))]
+        let refreshed = await client.refresh()
+        XCTAssertEqual(refreshed.avatars["first-user"], png)
+        XCTAssertFalse(refreshed.cached)
+        XCTAssertEqual(state.paths.filter { $0 == "/widgetAvatar" }.count, 1)
     }
 
     func testRevokedAvatarRequestClearsAllPrivateCoupleDataAndPriorOfflineCache() async throws {

@@ -29,7 +29,7 @@ public struct CanvasSize: Codable, Equatable, Sendable {
 
 public struct NoteDocument: Codable, Equatable, Identifiable, Sendable {
     public static let currentSchemaVersion = 1
-    public static let currentPaperEditorVersion = 2
+    public static let currentPaperEditorVersion = 3
 
     public let id: UUID
     public let schemaVersion: Int

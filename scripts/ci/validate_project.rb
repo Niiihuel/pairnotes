@@ -99,6 +99,9 @@ privacy_manifests.each do |name, path|
   expected_apis = name == 'PairNotes' ? [{
     'NSPrivacyAccessedAPIType' => 'NSPrivacyAccessedAPICategoryUserDefaults',
     'NSPrivacyAccessedAPITypeReasons' => ['CA92.1']
+  }, {
+    'NSPrivacyAccessedAPIType' => 'NSPrivacyAccessedAPICategoryFileTimestamp',
+    'NSPrivacyAccessedAPITypeReasons' => ['C617.1']
   }] : []
   check.call(declared_apis == expected_apis, "audited required-reason API declarations for #{name}")
 end

@@ -34,10 +34,10 @@ struct ReceivedNoteProvider: TimelineProvider {
             let now = Date()
             var entries = [entry(from: result)]
             if let expiry = result.expiresAt, expiry > now {
-                entries.append(.empty("Abrí PairNotes para volver a conectar el widget.", at: expiry))
+                entries.append(.empty("Esperando conexión para actualizar…", at: expiry))
             }
             // Push complements this request; WidgetKit chooses actual execution.
-            let next = min(now.addingTimeInterval(30 * 60), result.expiresAt ?? now.addingTimeInterval(15 * 60))
+            let next = min(now.addingTimeInterval(15 * 60), result.expiresAt ?? now.addingTimeInterval(15 * 60))
             completion(Timeline(entries: entries, policy: .after(next)))
         }
     }
@@ -65,23 +65,17 @@ struct ReceivedNoteWidgetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let image = entry.image {
-                Image(uiImage: image).resizable().scaledToFit()
+                Image(uiImage: image).resizable().widgetAccentedRenderingMode(.fullColor).scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel("Último dibujo recibido de \(entry.authorName ?? "tu pareja")")
                     .privacySensitive()
-                HStack {
-                    Text(entry.authorName ?? "Para vos").lineLimit(1)
-                    Spacer(minLength: 4)
-                    if let date = entry.publishedAt { Text(date, style: .relative).lineLimit(1) }
-                }
-                .font(.caption2).foregroundStyle(.secondary)
-                if !entry.message.isEmpty {
-                    Text(entry.message).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
+                    .clipped()
+
             } else {
                 Label("PairNotes", systemImage: "heart.text.clipboard").font(.headline)
                 Text(entry.message).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(16)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -99,6 +93,7 @@ struct NoteWidget: Widget {
         .configurationDisplayName("Último dibujo")
         .description("La última nota que tu pareja te envió. Tocala para abrir el recuerdo.")
         .supportedFamilies([.systemSmall, .systemMedium])
+        .contentMarginsDisabled()
         .pushHandler(PairNotesWidgetPushHandler.self)
     }
 }

@@ -1,10 +1,12 @@
 import SwiftUI
 import PhotosUI
+import PaperKit
 import PairNotesCore
 
 struct SharedMemoriesSection: View {
     @ObservedObject var services: AppServices
     let notes: [RemoteNote]
+    var catalog: DraftCatalogStore? = nil
     let openNote: (RemoteNote) -> Void
     @State private var adding = false
     @State private var selected: SharedMemory?
@@ -12,34 +14,26 @@ struct SharedMemoriesSection: View {
     var body: some View {
         if services.membership != nil {
             Section {
+                if services.coupleSpace?.memories.isEmpty != false {
+                    ContentUnavailableView("Las páginas de ustedes", systemImage: "book.closed",
+                        description: Text("Una salida, un viaje, un día cualquiera. Guardalo con una foto y unas palabras."))
+                }
                 ForEach((services.coupleSpace?.memories ?? []).sorted { $0.date.rawValue > $1.date.rawValue }) { memory in
                     Button { selected = memory } label: {
-                        HStack(spacing: 14) {
-                            if memory.photo != nil {
-                                MemoryPhotoView(services: services, memory: memory).frame(width: 64, height: 64)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                            } else {
-                                Image(systemName: memory.recursYearly ? "heart.circle.fill" : "calendar.circle.fill")
-                                    .font(.system(size: 44)).foregroundStyle(.pink).frame(width: 64, height: 64)
-                            }
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text(memory.title).font(.headline)
-                                Text(memory.date.date(in: .current)?.formatted(date: .abbreviated, time: .omitted) ?? memory.date.rawValue)
-                                    .font(.subheadline).foregroundStyle(.secondary)
-                                if memory.recursYearly { Text("Cada año").font(.caption).foregroundStyle(.secondary) }
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                        }.padding(.vertical, 4)
-                    }.buttonStyle(.plain)
+                        ScrapbookPage(services: services, memory: memory, compact: true)
+                    }.buttonStyle(.plain).listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .contextMenu {
+                            Button("Abrir página", systemImage: "book") { selected = memory }
+                        } preview: { ScrapbookPage(services: services, memory: memory).frame(width: 320) }
                 }
-                Button("Agregar una fecha o recuerdo", systemImage: "calendar.badge.plus") { adding = true }
-            } header: { Text("Fechas que importan") } footer: {
+                Button("Crear una página", systemImage: "calendar.badge.plus") { adding = true }
+            } header: { Text("Nuestro álbum") } footer: {
                 Text("Guardá aniversarios, fotos y días especiales. Los dos pueden verlos y editarlos.")
             }
-            .sheet(isPresented: $adding) { SharedMemoryEditor(services: services, notes: notes) }
+            .sheet(isPresented: $adding) { SharedMemoryEditor(services: services, notes: notes, catalog: catalog) }
             .sheet(item: $selected) { memory in
-                MemoryDetailView(services: services, original: memory, notes: notes, openNote: { note in
+                MemoryDetailView(services: services, original: memory, notes: notes, catalog: catalog, openNote: { note in
                     selected = nil
                     // Avoid presenting the note while the memory sheet dismisses.
                     Task { @MainActor in
@@ -58,17 +52,24 @@ struct SharedMemoriesSection: View {
 struct MemoryPhotoView: View {
     @ObservedObject var services: AppServices
     let memory: SharedMemory
+    var allowsExpansion = false
     @State private var image: UIImage?
     @State private var loadedKey: String?
     @State private var failed = false
-    private var key: String { "\(services.identity?.uid ?? "")|\(services.membership?.id ?? "")|\(memory.id)|\(memory.photo?.id ?? "")" }
+    @State private var expanded = false
+    private var key: String { "\(services.identity?.uid ?? "")|\(services.membership?.id ?? "")|\(services.membership?.pairEpoch ?? 0)|\(memory.id)|\(memory.photo?.id ?? "")|\(memory.photo?.sha256 ?? "")" }
     var body: some View {
         ZStack {
             Color(uiColor: .secondarySystemBackground)
-            if loadedKey == key, let image { Image(uiImage: image).resizable().scaledToFill().privacySensitive() }
+            if loadedKey == key, let image { Image(uiImage: image).resizable().scaledToFit().privacySensitive() }
             else if failed { Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary) }
             else { ProgressView() }
-        }.clipped().task(id: key) {
+        }.clipped()
+            .gesture(TapGesture().onEnded { if loadedKey == key, image != nil { expanded = true } },
+                including: allowsExpansion ? .all : .none)
+            .sheet(isPresented: $expanded) { if loadedKey == key, let image { PhotoViewer(image: image) } }
+            .onChange(of: key) { _, _ in expanded = false }
+            .task(id: key) {
             let captured = key; image = nil; loadedKey = nil; failed = false
             do {
                 let bytes = try await services.memoryPhoto(memory)
@@ -83,10 +84,12 @@ struct MemoryDetailView: View {
     @ObservedObject var services: AppServices
     let original: SharedMemory
     let notes: [RemoteNote]
+    var catalog: DraftCatalogStore? = nil
     let openNote: (RemoteNote) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var editing = false
     @State private var calendarSheet = false
+    @State private var undoUntil: Date?
     @State private var deleting = false
     @State private var busy = false
     @State private var error: String?
@@ -97,17 +100,24 @@ struct MemoryDetailView: View {
             List {
                 if removed {
                     ContentUnavailableView("Recuerdo eliminado", systemImage: "calendar.badge.minus")
+                    if let undoUntil {
+                        SwiftUI.TimelineView(.periodic(from: .now, by: 1)) { context in
+                            if context.date < undoUntil {
+                                Button("Deshacer eliminación", systemImage: "arrow.uturn.backward") {
+                                    busy = true
+                                    Task { @MainActor in
+                                        defer { busy = false }
+                                        do { try await services.restoreMemory(original); self.undoUntil = nil; error = nil }
+                                        catch { self.error = "No se pudo restaurar. Reintentá antes de que termine el minuto." }
+                                    }
+                                }
+                            } else { Text("El plazo para deshacer terminó.").foregroundStyle(.secondary) }
+                        }
+                    }
+                    if let error { Text(error).foregroundStyle(.red) }
                 } else {
-                if memory.photo != nil {
-                    MemoryPhotoView(services: services, memory: memory).frame(height: 280)
-                        .clipShape(RoundedRectangle(cornerRadius: 18)).listRowInsets(EdgeInsets())
-                }
-                Section {
-                    Text(memory.title).font(.title2.bold())
-                    Text(memory.date.date(in: .current)?.formatted(date: .long, time: .omitted) ?? memory.date.rawValue)
-                        .foregroundStyle(.secondary)
-                    if !memory.body.isEmpty { Text(memory.body).privacySensitive() }
-                }
+                ScrapbookPage(services: services, memory: memory)
+                    .listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden)
                 Section {
                     if let noteID = memory.noteId {
                         Button("Abrir dibujo vinculado", systemImage: "paintpalette") {
@@ -132,7 +142,7 @@ struct MemoryDetailView: View {
                 ToolbarItem(placement: .primaryAction) { Button("Editar") { editing = true }.disabled(removed) }
             }
             .onChange(of: removed) { _, value in if value { editing = false; calendarSheet = false; deleting = false } }
-            .sheet(isPresented: $editing) { SharedMemoryEditor(services: services, notes: notes, memory: memory) }
+            .sheet(isPresented: $editing) { SharedMemoryEditor(services: services, notes: notes, memory: memory, catalog: catalog) }
             .sheet(isPresented: $calendarSheet) {
                 if let date = memory.date.date(in: .current) {
                     CalendarEventEditor(title: memory.title, date: date, recursYearly: memory.recursYearly)
@@ -143,12 +153,15 @@ struct MemoryDetailView: View {
                     busy = true
                     Task { @MainActor in
                         defer { busy = false }
-                        do { try await services.deleteMemory(memory); dismiss() }
+                        do {
+                            let deadline = Date().addingTimeInterval(60)
+                            try await services.deleteMemory(memory); undoUntil = deadline
+                        }
                         catch { self.error = error.localizedDescription }
                     }
                 }
                 Button("Cancelar", role: .cancel) {}
-            } message: { Text("El dibujo vinculado y los eventos ya agregados al Calendario se conservan.") }
+            } message: { Text("Podés deshacer durante un minuto en esta pantalla. El dibujo vinculado y los eventos ya agregados al Calendario se conservan.") }
         }
     }
 }
@@ -156,6 +169,7 @@ struct MemoryDetailView: View {
 struct SharedMemoryEditor: View {
     @ObservedObject var services: AppServices
     let notes: [RemoteNote]
+    var catalog: DraftCatalogStore? = nil
     let original: SharedMemory?
     private let pairID: String?
     @Environment(\.dismiss) private var dismiss
@@ -167,6 +181,7 @@ struct SharedMemoryEditor: View {
     @State private var noteID: String
     @State private var photoItem: PhotosPickerItem?
     @State private var photoData: Data?
+    @State private var photoNeedsSaving = false
     @State private var removePhoto = false
     @State private var loadingPhoto = false
     @State private var crop: SelectedPhotoCrop?
@@ -174,35 +189,83 @@ struct SharedMemoryEditor: View {
     @State private var discarding = false
     @State private var error: String?
     private let originalDate: CoupleDate?
+    private let storage: MemoryCompositionStorage
+    @State private var decoration: MemoryDecoration
+    @State private var finished = false
+    @State private var recovered: Bool
+    @State private var canvasDraft: DraftSummary?
+    private var canvasStorage: MemoryCompositionStorage {
+        MemoryCompositionStorage(key: services.privateImageKey("scrapbook-source:" + id))
+    }
+    @Environment(\.scenePhase) private var scenePhase
+    private var composition: MemoryCompositionDraft {
+        MemoryCompositionDraft(id: id, title: title, date: date, body: bodyText,
+            recursYearly: recursYearly, noteID: noteID, removePhoto: removePhoto, decoration: decoration)
+    }
 
-    init(services: AppServices, notes: [RemoteNote], memory: SharedMemory? = nil) {
+
+    init(services: AppServices, notes: [RemoteNote], memory: SharedMemory? = nil, catalog: DraftCatalogStore? = nil) {
+        self.catalog = catalog
         self.services = services; self.notes = notes; original = memory; pairID = services.membership?.id
-        _id = State(initialValue: memory?.id ?? UUID().uuidString.lowercased())
-        _title = State(initialValue: memory?.title ?? "")
+        let storage = MemoryCompositionStorage(key: services.privateImageKey("composition:\(memory?.id ?? "new")"))
+        self.storage = storage
+        let draft = storage.load()
+        _recovered = State(initialValue: draft != nil)
+        _id = State(initialValue: draft?.id ?? memory?.id ?? UUID().uuidString.lowercased())
+        _title = State(initialValue: draft?.title ?? memory?.title ?? "")
         let initialDate = memory?.date.date(in: .current) ?? Date()
-        _date = State(initialValue: initialDate)
+        _date = State(initialValue: draft?.date ?? initialDate)
         originalDate = CoupleDate(date: initialDate, calendar: .current)
-        _bodyText = State(initialValue: memory?.body ?? "")
-        _recursYearly = State(initialValue: memory?.recursYearly ?? false)
-        _noteID = State(initialValue: memory?.noteId ?? "")
+        _bodyText = State(initialValue: draft?.body ?? memory?.body ?? "")
+        _recursYearly = State(initialValue: draft?.recursYearly ?? memory?.recursYearly ?? false)
+        _noteID = State(initialValue: draft?.noteID ?? memory?.noteId ?? "")
+        _decoration = State(initialValue: draft?.decoration ?? memory?.decoration ?? MemoryDecoration())
+        _removePhoto = State(initialValue: draft?.removePhoto ?? false)
+        _photoData = State(initialValue: draft == nil ? nil : storage.photo())
     }
     private var changed: Bool {
         title != (original?.title ?? "") || CoupleDate(date: date, calendar: .current) != originalDate ||
         bodyText != (original?.body ?? "") || recursYearly != (original?.recursYearly ?? false) ||
-        noteID != (original?.noteId ?? "") || photoData != nil || removePhoto
+        (original == nil && (canvasStorage.loadValue() as UUID?) != nil) || decoration != (original?.decoration ?? MemoryDecoration()) || noteID != (original?.noteId ?? "") || photoData != nil || removePhoto
     }
     private var cleanTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var canSave: Bool { !busy && !loadingPhoto && (1...120).contains(cleanTitle.utf16.count) && bodyText.utf16.count <= 2_000 && changed }
     var body: some View {
         NavigationStack {
             Form {
+                if recovered {
+                    Label("Retomaste tu borrador privado", systemImage: "arrow.counterclockwise")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Section("Estilo de página") {
+                    Picker("Formato", selection: $decoration.layout) {
+                        ForEach(MemoryDecoration.Layout.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    Picker("Sticker", selection: $decoration.sticker) {
+                        ForEach(MemoryDecoration.Sticker.allCases, id: \.self) {
+                            Text($0 == .none ? "Sin sticker" : $0.symbol).tag($0)
+                        }
+                    }
+                    Menu("Empezar con una idea", systemImage: "sparkles") {
+                        ForEach(["Nuestra primera salida", "Ese finde", "Nuestro viaje"], id: \.self) { idea in
+                            Button(idea) { title = idea }
+                        }
+                    }
+                }
                 Section {
                     TextField("Por ejemplo, nuestro aniversario", text: $title).textInputAutocapitalization(.sentences)
                     DatePicker("Fecha", selection: $date, displayedComponents: .date)
                     Toggle("Se celebra cada año", isOn: $recursYearly)
                     TextField("Unas palabras sobre este día", text: $bodyText, axis: .vertical).lineLimit(3...7)
                 }
-                Section("Una foto") {
+                Section {
+                    if catalog != nil {
+                        Button("Diseñar página por capas", systemImage: "square.3.layers.3d") { openCanvas() }
+                    }
+                } header: { Text("Una página hecha por vos") } footer: {
+                    Text("Combiná fotos, textos y stickers. La página se comparte con tu pareja; las capas quedan editables en este iPhone.")
+                }
+                Section("Foto o composición") {
                     if let photoData, let image = UIImage(data: photoData) {
                         Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220).clipShape(RoundedRectangle(cornerRadius: 12))
                     } else if let original, original.photo != nil, !removePhoto {
@@ -229,13 +292,29 @@ struct SharedMemoryEditor: View {
             .disabled(busy)
             .navigationTitle(original == nil ? "Nuevo recuerdo" : "Editar recuerdo").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { if changed { discarding = true } else { dismiss() } }.disabled(busy) }
+                ToolbarItem(placement: .cancellationAction) { Button("Cerrar") { if changed { discarding = true } else { finished = true; storage.clear(); dismiss() } }.disabled(busy) }
                 ToolbarItem(placement: .confirmationAction) { Button("Guardar") { save() }.disabled(!canSave) }
             }
             .interactiveDismissDisabled(busy || changed)
-            .confirmationDialog("¿Descartar los cambios?", isPresented: $discarding, titleVisibility: .visible) {
-                Button("Descartar cambios", role: .destructive) { dismiss() }
+            .confirmationDialog("Tu página todavía no está compartida", isPresented: $discarding, titleVisibility: .visible) {
+                Button("Guardar borrador y salir") { if persist() { dismiss() } }
+                Button("Descartar cambios", role: .destructive) { finished = true; storage.clear(); dismiss() }
                 Button("Seguir editando", role: .cancel) {}
+            }
+            .onChange(of: composition) { _, _ in _ = persist() }
+            .onChange(of: photoData) { _, _ in
+                guard !finished else { return }
+                photoNeedsSaving = true
+                _ = persist()
+            }
+            .onChange(of: scenePhase) { _, phase in if phase != .active { _ = persist() } }
+            .onDisappear { if !finished { _ = persist() } }
+            .fullScreenCover(item: $canvasDraft) { draft in
+                if let catalog {
+                    NativePaperEditorView(store: catalog, draft: draft, theme: services.personalization.theme,
+                        sendTitle: "Usar página", onSavedArchive: attachCanvas, onSaved: {},
+                        onSend: { archive in attachCanvas(archive); return true })
+                }
             }
             .sheet(item: $crop) { selection in
                 PhotoCropEditor(image: selection.image, onCancel: { crop = nil }, onConfirm: { image in
@@ -254,15 +333,80 @@ struct SharedMemoryEditor: View {
             }
         }
     }
+    private func attachCanvas(_ archive: DraftArchive) {
+        guard let bytes = archive.image(for: .final)?.pngData,
+              let image = UIImage(data: bytes), let jpeg = image.jpegData(compressionQuality: 0.92) else {
+            error = "No se pudo preparar la página. El original sigue en tus borradores."; return
+        }
+        photoData = jpeg; removePhoto = false; photoNeedsSaving = true
+        _ = persist()
+    }
+
+    private func openCanvas() {
+        guard let catalog, !busy else { return }
+        busy = true; error = nil
+        let scope = storage.key
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let savedID: UUID? = canvasStorage.loadValue()
+                if let savedID, let summary = try await catalog.list().first(where: { $0.id == savedID }) {
+                    guard scope == services.privateImageKey("composition:\(original?.id ?? "new")") else { return }
+                    canvasDraft = summary; return
+                }
+                var markup = PaperMarkup(bounds: PaperProbeDocument.bounds)
+                var imageBytes = photoData
+                if imageBytes == nil, let original, original.photo != nil, !removePhoto {
+                    imageBytes = try await services.memoryPhoto(original)
+                }
+                if let imageBytes, let cg = UIImage(data: imageBytes)?.cgImage {
+                    let ratio = CGFloat(cg.width) / CGFloat(cg.height)
+                    let size = ratio > 1 ? CGSize(width: 1300, height: 1300 / ratio) : CGSize(width: 1300 * ratio, height: 1300)
+                    markup.insertNewImage(cg, frame: CGRect(x: (1536 - size.width) / 2, y: (1536 - size.height) / 2,
+                                                           width: size.width, height: size.height))
+                }
+                let theme = services.personalization.theme
+                let background = PaperBackground(red: UInt8((theme.paperRGB >> 16) & 255),
+                    green: UInt8((theme.paperRGB >> 8) & 255), blue: UInt8(theme.paperRGB & 255))
+                let source = try await PaperProbeDocument.encode(markup, background: background,
+                    layers: [PaperLayer(name: imageBytes == nil ? "Página" : "Foto inicial", markup: markup)])
+                let full = try await PaperProbeDocument.render(markup, side: 1536, background: background)
+                let widget = try await PaperProbeDocument.render(markup, side: 1024, background: background)
+                let thumbnail = try await PaperProbeDocument.render(markup, side: 384, background: background)
+                let archive = try DraftArchive.make(id: UUID(), revision: 1, nativeData: source,
+                    finalPNG: full, widgetPNG: widget, thumbnailPNG: thumbnail,
+                    minimumEditorVersion: PaperProbeDocument.editorVersion)
+                let summary = try await catalog.save(archive, title: cleanTitle.isEmpty ? "Página del álbum" : cleanTitle)
+                guard scope == services.privateImageKey("composition:\(original?.id ?? "new")") else { return }
+                try canvasStorage.saveValue(summary.id)
+                // Commit the memory ID too, so reopening an unsaved page can find its native source.
+                try storage.save(composition)
+                canvasDraft = summary
+            } catch { self.error = "No se pudo abrir la página. Tus cambios siguen guardados; reintentá." }
+        }
+    }
+
+    @discardableResult
+    private func persist() -> Bool {
+        guard !finished else { return true }
+        guard changed else { storage.clear(); return true }
+        do {
+            if photoNeedsSaving { try storage.savePhoto(photoData); photoNeedsSaving = false }
+            try storage.save(composition)
+            return true
+        }
+        catch { self.error = "No se pudo guardar el borrador en este iPhone. No cierres hasta reintentar."; return false }
+    }
     private func save() {
-        guard canSave, services.membership?.id == pairID, let selectedDate = CoupleDate(date: date, calendar: .current) else { return }
+        guard canSave, services.membership?.id == pairID,
+              storage.key == services.privateImageKey("composition:\(original?.id ?? "new")"), let selectedDate = CoupleDate(date: date, calendar: .current) else { return }
         busy = true; error = nil
         Task { @MainActor in
             defer { busy = false }
             do {
                 try await services.saveMemory(id: id, title: cleanTitle, date: selectedDate, body: bodyText,
-                    recursYearly: recursYearly, noteID: noteID.isEmpty ? nil : noteID, photo: photoData, removePhoto: removePhoto)
-                dismiss()
+                    recursYearly: recursYearly, noteID: noteID.isEmpty ? nil : noteID, photo: photoData, removePhoto: removePhoto, decoration: decoration)
+                finished = true; storage.clear(); dismiss()
             } catch { self.error = "No se pudo completar el guardado. Reintentá para conservar también la foto." }
         }
     }

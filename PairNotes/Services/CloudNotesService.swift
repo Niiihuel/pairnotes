@@ -111,7 +111,10 @@ extension AppServices {
               ["final", "widget", "thumbnail"].contains(String(pieces[4])) else {
             throw ServiceError.invalidResponse
         }
-        let data = try await requireClient().authenticatedData(path: "image", query: [URLQueryItem(name: "path", value: path)])
+        let client = try requireClient()
+        let data = try await privateImages.data(key: privateImageKey("note:" + path)) {
+            try await client.authenticatedData(path: "image", query: [URLQueryItem(name: "path", value: path)])
+        }
         try checkPair(uid: uid, pair: pair)
         guard data.count <= 12 * 1024 * 1024 else { throw ServiceError.invalidResponse }
         return data

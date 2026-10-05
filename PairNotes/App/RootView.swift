@@ -23,10 +23,13 @@ struct RootView: View {
     @State private var editor: EditorRoute?
     @State private var noteRoute: NoteRoute?
     @State private var pendingNoteID: String?
-    @State private var widgetMessage: String?
-    @State private var widgetConnecting = false
+    @State private var synchronizingWidgets = false
+    @State private var widgetSyncedScope: String?
+    @State private var nextWidgetSync = Date.distantPast
     @State private var widgetGeneration: UInt64 = 0
     @State private var messagesShowing = false
+    @State private var lettersShowing = false
+    @State private var focusedLetterID: String?
 
     private var scope: String {
         [services.identity?.uid ?? "guest", services.membership?.id ?? "none",
@@ -36,21 +39,22 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                HomeView(model: model, createNote: { selectedTab = .create }, openNote: openNote)
+                HomeView(model: model, createNote: { openDraft(nil) }, openNote: openNote)
             }.tabItem { Label("Inicio", systemImage: "house") }.tag(AppTab.home)
             NavigationStack {
-                DraftLibraryView(model: model, openDraft: openDraft)
+                DraftLibraryView(model: model, openDraft: openDraft, openNote: openNote)
             }.tabItem { Label("Crear", systemImage: "pencil.tip.crop.circle") }.tag(AppTab.create)
             NavigationStack {
                 TimelineView(model: model, openNote: openNote)
             }.tabItem { Label("Recuerdos", systemImage: "rectangle.stack") }.tag(AppTab.memories)
             NavigationStack {
-                CoupleView(services: services, widgetMessage: widgetMessage,
-                           widgetConnecting: widgetConnecting, connectWidget: { await connectWidget(force: true) })
+                CoupleView(services: services)
             }.tabItem { Label("Nosotros", systemImage: "person.2") }.tag(AppTab.couple)
         }
+        .tint(services.personalization.theme.accent)
+        .preferredColorScheme(services.personalization.theme == .night ? .dark : .light)
         .sheet(item: $editor, onDismiss: { Task { await model.reloadDrafts() } }) { route in
-            NativePaperEditorView(store: route.store, draft: route.draft,
+            NativePaperEditorView(store: route.store, draft: route.draft, theme: services.personalization.theme,
                                   onSaved: { Task { await model.reloadDrafts() } },
                                   onSend: { archive in
                 guard services.identity?.uid == route.uid, model.identity?.uid == route.uid,
@@ -64,6 +68,12 @@ struct RootView: View {
         .sheet(item: $noteRoute) { route in
             NavigationStack { ReceivedNoteDetailView(noteID: route.id, services: services) }
         }
+        .sheet(isPresented: $lettersShowing) {
+            NavigationStack {
+                LettersView(services: services, notes: model.notes, catalog: model.catalog, focusID: focusedLetterID)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { lettersShowing = false } } }
+            }
+        }
         .sheet(isPresented: $messagesShowing) {
             NavigationStack {
                 MessagesView(services: services)
@@ -73,6 +83,11 @@ struct RootView: View {
         .task {
             services.onOpenNote = { id in routeNote(id) }
             services.onOpenCouple = { selectedTab = .couple }
+            services.onOpenHome = { selectedTab = .home }
+            services.onOpenLetters = { id in
+                if services.membership != nil { focusedLetterID = id; lettersShowing = true }
+                else { selectedTab = .couple }
+            }
             services.onOpenMessages = {
                 if services.membership != nil { messagesShowing = true }
                 else { selectedTab = .couple }
@@ -81,8 +96,9 @@ struct RootView: View {
                 widgetGeneration &+= 1
                 WidgetAccessStore.clear()
                 noteRoute = nil
-                messagesShowing = false
-                widgetMessage = nil
+                messagesShowing = false; lettersShowing = false; focusedLetterID = nil
+                widgetSyncedScope = nil
+                nextWidgetSync = .distantPast
                 LocationSharingController.shared.invalidate()
                 Task {
                     await MonthlyReminderService.shared.clearScheduled()
@@ -98,11 +114,13 @@ struct RootView: View {
                 }
             }
             await model.start()
+            services.deliverPendingAffectionRoute()
         }
         .task(id: scope) {
             await model.reconcileSession()
+            services.deliverPendingAffectionRoute()
             if services.membershipResolved, services.membership != nil {
-                await connectWidget(force: false)
+                await synchronizeWidgets()
                 if let pendingNoteID { routeNote(pendingNoteID) }
             }
         }
@@ -114,17 +132,24 @@ struct RootView: View {
                 return
             }
             await model.foreground()
-            await connectWidget(force: false)
+            await synchronizeWidgets()
             // Foreground polling covers missed alerts and installations without
             // notification permission. iOS background execution is not assumed.
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
                 guard !Task.isCancelled else { return }
                 await model.foreground()
+                await synchronizeWidgets()
             }
         }
-        .onChange(of: services.identity?.uid) { _, _ in editor = nil; noteRoute = nil; messagesShowing = false }
+        .onChange(of: services.identity?.uid) { _, _ in editor = nil; noteRoute = nil; messagesShowing = false; lettersShowing = false; focusedLetterID = nil }
         .onOpenURL { url in
+            if url.scheme == "pairnotes", url.host == "home" { selectedTab = .home; return }
+            if url.scheme == "pairnotes", ["letters", "letter"].contains(url.host ?? "") {
+                guard services.membership != nil else { selectedTab = .couple; return }
+                focusedLetterID = url.pathComponents.last.flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
+                lettersShowing = true; return
+            }
             if services.handle(url: url) { return }
             guard url.scheme == "pairnotes" else { return }
             switch url.host {
@@ -158,44 +183,48 @@ struct RootView: View {
         noteRoute = NoteRoute(id: uuid.uuidString.lowercased())
     }
 
-    private func connectWidget(force: Bool) async {
-        guard !widgetConnecting, let uid = services.identity?.uid, let pair = services.membership,
-              services.membershipResolved else { return }
-        guard SharedWidgetContainer.directory() != nil else {
-            if force { widgetMessage = "El widget requiere una instalación firmada con su grupo compartido." }
-            return
-        }
-        widgetConnecting = true
-        let generation = widgetGeneration
-        let capturedScope = scope
+    private func synchronizeWidgets() async {
+        guard !synchronizingWidgets, let uid = services.identity?.uid, let pair = services.membership,
+              services.membershipResolved, SharedWidgetContainer.directory() != nil else { return }
+        guard widgetSyncedScope != scope || Date() >= nextWidgetSync else { return }
+        synchronizingWidgets = true
+        let generation = widgetGeneration, capturedScope = scope
         defer {
-            widgetConnecting = false
-            // A new scope can arrive while the previous request is suspended.
-            // Its task may have skipped this guard; retry only that new scope.
-            if capturedScope != scope {
-                Task { await connectWidget(force: false) }
-            }
+            synchronizingWidgets = false
+            if capturedScope != scope { Task { await synchronizeWidgets() } }
+        }
+        func stillCurrent() -> Bool {
+            generation == widgetGeneration && services.identity?.uid == uid &&
+            services.membership?.id == pair.id && services.membership?.pairEpoch == pair.pairEpoch
         }
         do {
             let existing = WidgetAccessStore.load()
-            if force || existing?.uid != uid || existing?.pairID != pair.id || existing?.pairEpoch != pair.pairEpoch ||
-                (existing?.expiresAt.timeIntervalSinceNow ?? 0) < 86_400 {
+            if existing?.uid != uid || existing?.pairID != pair.id || existing?.pairEpoch != pair.pairEpoch ||
+                existing?.baseURL != services.widgetBaseURL || (existing?.expiresAt.timeIntervalSinceNow ?? 0) < 86_400 {
                 let authorization = try await services.issueWidgetSession()
-                guard generation == widgetGeneration, services.identity?.uid == uid,
-                      services.membership?.id == pair.id, services.membership?.pairEpoch == pair.pairEpoch else { return }
+                guard stillCurrent() else { return }
                 try WidgetAccessStore.save(authorization)
             }
             if let push = await WidgetCenter.shared.currentPushInfo {
-                guard generation == widgetGeneration else { return }
-                try await services.registerWidgetPushToken(push.token)
+                guard stillCurrent() else { return }
+                // Push registration failure must not prevent ordinary timeline refreshes.
+                try? await services.registerWidgetPushToken(push.token)
             }
-            guard generation == widgetGeneration else { return }
-            _ = await WidgetRemoteClient.shared.refresh()
+            guard stillCurrent() else { return }
+            var result = await WidgetRemoteClient.shared.refresh()
+            if result.needsAuthorization {
+                let authorization = try await services.issueWidgetSession()
+                guard stillCurrent() else { return }
+                try WidgetAccessStore.save(authorization)
+                result = await WidgetRemoteClient.shared.refresh()
+            }
+            guard stillCurrent() else { return }
+            widgetSyncedScope = capturedScope
+            nextWidgetSync = Date().addingTimeInterval(result.cached || result.needsAuthorization || result.expiresAt == nil ? 30 : 300)
             WidgetCenter.shared.reloadAllTimelines()
-            widgetMessage = "Widgets conectados. Agregá «Último dibujo» en inicio, y «Tu mensaje», «Juntos desde», «Nuestro aniversario» o «Nuestra distancia» en la pantalla de bloqueo."
         } catch {
-            guard generation == widgetGeneration else { return }
-            if force { widgetMessage = error.localizedDescription }
+            // Foreground polling retries automatically without presenting a setup control.
+            if stillCurrent() { widgetSyncedScope = capturedScope; nextWidgetSync = Date().addingTimeInterval(30) }
         }
     }
 }
@@ -222,6 +251,7 @@ struct ReceivedNoteDetailView: View {
                         Text(note.serverPublishedAt, format: .dateTime.day().month(.wide).year().hour().minute())
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
+                    if let note { NoteReactionsView(services: services, note: note) }
                     Button("Exportar imagen", systemImage: "square.and.arrow.up") { exporting = true }
                         .buttonStyle(.bordered)
                 }

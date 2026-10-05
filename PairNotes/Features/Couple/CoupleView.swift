@@ -6,9 +6,6 @@ import PairNotesCore
 
 struct CoupleView: View {
     @ObservedObject var services: AppServices
-    let widgetMessage: String?
-    let widgetConnecting: Bool
-    let connectWidget: () async -> Void
     @State private var invitation: PairInvite?
     @State private var sheet: CoupleSheet?
     @State private var busy = false
@@ -22,6 +19,14 @@ struct CoupleView: View {
 
     var body: some View {
         List {
+            if services.membership != nil {
+                Section {
+                    NavigationLink { PersonalizationView(services: services) } label: {
+                        Label("A su manera", systemImage: "paintpalette")
+                    }
+                } header: { Text("Su pequeño mundo") } footer: { Text("Tema, apodos, portada y sus palabras.") }
+            }
+
             if let identity = services.identity {
                 Section("Tu perfil") {
                     Button { sheet = .profile } label: {
@@ -87,16 +92,7 @@ struct CoupleView: View {
                         Text("Recibirás un aviso cuando tu pareja envíe un dibujo o mensaje. La notificación no incluye su contenido privado.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
-                    Section("Sus widgets") {
-                        Button("Conectar el widget", systemImage: "square.grid.2x2") {
-                            Task { await connectWidget() }
-                        }.disabled(widgetConnecting)
-                        if widgetConnecting { ProgressView() }
-                        Text(widgetMessage ?? "En inicio: «Último dibujo». En la pantalla de bloqueo: «Tu mensaje», «Juntos desde» y «Nuestra distancia». Mantené presionada la pantalla para agregarlos.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                        Text("La actualización depende de iOS. Abrí la app si el widget pide reconectar.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
+
                 } else {
                     invitationSection
                     Section {

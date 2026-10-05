@@ -204,6 +204,32 @@ test('short messages are idempotent, page correctly, deny outsiders and produce 
   await transport.app('fictional-token', {...sends[0], messageId: 'm'.repeat(128)}, 'development');
   assert.equal(deliveries[0][4].length, 64);
 });
+test('couple changes push both widgets without alerts and cancelled pairs suppress queued refreshes', async () => {
+  const {a, b, pair} = await paired();
+  for (const user of [a, b]) await call('registerDevice', user, {deviceId: randomUUID(),
+    apnsToken: randomUUID().replaceAll('-', ''), widgetPushToken: randomUUID().replaceAll('-', ''), apnsEnvironment: 'development'});
+  await call('updatePairDetails', a, {...scope(pair), startedOn: '2024-01-01'});
+  const events = await db.collection('notificationEvents').where('pairId', '==', pair.id).get();
+  assert.equal(events.docs.length, 2);
+  let alerts = 0, widgets = 0;
+  const transport = {app: async () => {alerts++;}, widget: async () => {widgets++;}};
+  for (const event of events.docs) {
+    assert.equal(event.data().type, 'widget');
+    await event.ref.update({nextAttemptAt: Timestamp.fromMillis(Date.now() - 1)});
+    await dispatchNotification(db, event.id, transport);
+    await dispatchNotification(db, event.id, transport);
+  }
+  assert.equal(alerts, 0); assert.equal(widgets, 2);
+  await call('updatePairDetails', a, {...scope(pair), startedOn: '2024-02-01'});
+  await db.doc(`pairs/${pair.id}`).update({status: 'closed'});
+  const pending = await db.collection('notificationEvents').where('pairId', '==', pair.id).where('status', '==', 'pending').get();
+  for (const event of pending.docs) {
+    await event.ref.update({nextAttemptAt: Timestamp.fromMillis(Date.now() - 1)});
+    await dispatchNotification(db, event.id, transport);
+    assert.equal((await event.ref.get()).data().status, 'cancelled');
+  }
+  assert.equal(widgets, 2);
+});
 test('location requires explicit consent, registered source and generation; caller cannot supply another UID', async () => {
   const {a, b, outsider, pair} = await paired();
   assert.equal((await call('getCoupleSpace', a, scope(pair))).location.consentVersion, 0);
@@ -243,7 +269,8 @@ test('distance is derived, rounded and fresh by the older sample; stale samples 
   const stale = await call('getCoupleSpace', a, scope(pair));
   assert.equal(stale.location.distance.status, 'stale'); assert.equal(stale.location.distance.updatedAt, firstTime);
   const widgetSnapshot = await (await request('/widgetSnapshot', credential, undefined, 'GET')).json();
-  assert.equal(widgetSnapshot.validUntil, firstTime + 30 * 60_000); assertNoPrivateKeys(widgetSnapshot);
+  assert.equal(widgetSnapshot.validUntil, now + 24 * 60 * 60_000);
+  assert.equal(widgetSnapshot.distance.updatedAt, firstTime); assertNoPrivateKeys(widgetSnapshot);
   now = firstTime + 30 * 60_000 + 1;
   const expired = await call('getCoupleSpace', b, scope(pair));
   assert.equal(expired.location.distance.meters, null); assert.equal(expired.location.distance.updatedAt, firstTime);
@@ -291,4 +318,214 @@ test('closing a pair erases location consents/coordinates and denies old message
   await assert.rejects(call('memories', b, scope(pair)), /not_pair_member/);
   assert.equal((await request(photoPath(pair, item), b, undefined, 'GET')).status, 403);
   assert.equal((await request('/widgetSnapshot', credential, undefined, 'GET')).status, 403);
+});
+
+
+test('shared personalization syncs to partner and widgets, rejects stale edits and invalid scope', async () => {
+  const {a, b, outsider, pair} = await paired();
+  const input = {...scope(pair), revision: 0, theme: 'lavender', phrase: 'Nuestro rincón',
+    nicknames: {[a.uid]: 'Sol', [b.uid]: 'Luna'}, coverMemoryId: null,
+    homeOrder: ['drawing', 'story', 'message', 'distance']};
+  const result = await call('updatePersonalization', a, input);
+  assert.equal(result.personalization.revision, 1);
+  assert.deepEqual((await call('getCoupleSpace', b, scope(pair))).personalization, result.personalization);
+  const credential = await widget(b);
+  assert.deepEqual((await service.widgetSnapshot(credential.token)).personalization, result.personalization);
+  await assert.rejects(call('updatePersonalization', b, {...input, phrase: 'stale'}), /personalization_changed/);
+  await assert.rejects(call('updatePersonalization', outsider, {...input, revision: 1}), /not_pair_member/);
+  await assert.rejects(call('updatePersonalization', a, {...input, pairEpoch: 99, revision: 1}), /stale_pair_epoch/);
+  for (const changes of [{theme: 'unknown'}, {phrase: 'x'.repeat(161)}, {homeOrder: ['story', 'story', 'message', 'distance']},
+    {revision: 1.5}, {nicknames: {[outsider.uid]: 'No'}}, {nicknames: {[a.uid]: 'x'.repeat(41)}}]) {
+    await assert.rejects(call('updatePersonalization', a, {...input, revision: 1, ...changes}), /invalid_/);
+  }
+});
+
+test('cover is an authorized album photo and scrapbook styles survive legacy edits', async () => {
+  const {a, b, pair} = await paired();
+  const decoration = {layout: 'postcard', sticker: 'flower'};
+  const item = await memory(a, pair, {decoration});
+  const input = {...scope(pair), revision: 0, theme: 'cream', phrase: '', nicknames: {}, coverMemoryId: item.id,
+    homeOrder: ['story', 'message', 'drawing', 'distance']};
+  await assert.rejects(call('updatePersonalization', a, input), /cover_unavailable/);
+  assert.equal((await request(photoPath(pair, item), a, await picture(), 'PUT', 'image/jpeg')).status, 200);
+  await call('updatePersonalization', a, input);
+  const edited = await memory(b, pair, {memoryId: item.id, title: 'Una página nueva'});
+  assert.deepEqual(edited.decoration, decoration);
+  assert.equal((await call('getCoupleSpace', b, scope(pair))).personalization.coverMemoryId, item.id);
+  for (const invalid of [null, {layout: 'bad', sticker: ''}, {layout: 'journal', sticker: 'bad'}]) {
+    await assert.rejects(memory(a, pair, {decoration: invalid}), /invalid_decoration/);
+  }
+  assertNoPrivateKeys(await call('getCoupleSpace', b, scope(pair)));
+});
+
+test('undo restores exact memory and photo for either member, then expires without leaking assets', async () => {
+  const {a, b, outsider, pair} = await paired();
+  const item = await memory(a, pair, {body: 'Palabras', decoration: {layout: 'journal', sticker: 'heart'}});
+  const uploaded = await request(photoPath(pair, item), a, await picture(), 'PUT', 'image/jpeg');
+  assert.equal(uploaded.status, 200);
+  const original = (await call('memories', a, scope(pair))).memories[0];
+  const deletion = {...scope(pair), memoryId: item.id};
+  await call('deleteMemory', a, deletion);
+  assert.equal((await call('memories', b, scope(pair))).memories.length, 0);
+  assert.equal((await request(photoPath(pair, item), b, undefined, 'GET')).status, 404);
+  await assert.rejects(call('restoreMemory', outsider, deletion), /not_pair_member/);
+  assert.deepEqual((await call('restoreMemory', b, deletion)).memory, original);
+  assert.equal((await request(photoPath(pair, item), b, undefined, 'GET')).status, 200);
+  await call('deleteMemory', a, deletion);
+  now += 60_001;
+  await assert.rejects(call('restoreMemory', a, deletion), /undo_expired/);
+  await service.couple.cleanup();
+  assert.equal((await db.doc(`privateImages/${original.photo.id}`).get()).data().status, 'obsolete');
+  now += 3_600_001; await service.couple.cleanup();
+  assert.equal((await db.doc(`privateImages/${original.photo.id}`).get()).data().status, 'deleted');
+});
+
+test('undo cannot overwrite a recreated page or reopen a closed pair', async () => {
+  const {a, b, pair} = await paired(), item = await memory(a, pair);
+  const input = {...scope(pair), memoryId: item.id};
+  await call('deleteMemory', a, input);
+  await memory(a, pair, {memoryId: item.id, title: 'Recreado'});
+  await assert.rejects(call('restoreMemory', b, input), /memory_exists/);
+  assert.equal((await call('memories', b, scope(pair))).memories[0].title, 'Recreado');
+  await call('closePair', a, scope(pair));
+  await assert.rejects(call('restoreMemory', b, input), /not_pair_member/);
+});
+
+
+function voiceFixture(seconds = 1) {
+  const count = Math.round(seconds * 16000) * 2, bytes = Buffer.alloc(44 + count);
+  bytes.write('RIFF'); bytes.writeUInt32LE(36 + count, 4); bytes.write('WAVEfmt ', 8); bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22); bytes.writeUInt32LE(16000, 24); bytes.writeUInt32LE(32000, 28);
+  bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34); bytes.write('data', 36); bytes.writeUInt32LE(count, 40);
+  return bytes;
+}
+async function letterDraft(a, pair, extra = {}) {
+  return (await call('saveLetterDraft', a, {...scope(pair), letterId: randomUUID(), title: 'Sorpresa secreta',
+    body: 'Estas palabras esperan', opensAt: now + 86400_000, noteId: null, ...extra})).letter;
+}
+const letterPath = (pair, letter, role, assetId = '') => `/letter${role === 'photo' ? 'Photo' : role === 'drawing' ? 'Drawing' : 'Audio'}?pairId=${pair.id}&pairEpoch=${pair.pairEpoch}&letterId=${letter.id}&assetId=${assetId}`;
+
+test('gestures are idempotent, private, replyable and appear in widgets', async () => {
+  const {a, b, outsider, pair} = await paired();
+  const input = {...scope(pair), gestureId: randomUUID(), kind: 'hug', replyTo: null};
+  const [first, retry] = await Promise.all([call('sendGesture', a, input), call('sendGesture', a, input)]);
+  assert.deepEqual(first, retry);
+  assert.deepEqual((await call('getCoupleSpace', b, scope(pair))).latestGesture, first.gesture);
+  const credentials = await widget(b);
+  assert.deepEqual((await service.widgetSnapshot(credentials.token)).latestGesture, first.gesture);
+  const reply = await call('sendGesture', b, {...input, gestureId: randomUUID(), kind: 'kiss', replyTo: input.gestureId});
+  assert.equal(reply.gesture.recipientId, a.uid);
+  assert.equal(reply.gesture.replyTo, input.gestureId);
+  await assert.rejects(call('sendGesture', a, {...input, kind: 'heart'}), /idempotency_conflict/);
+  await assert.rejects(call('sendGesture', outsider, {...input, gestureId: randomUUID()}), /not_pair_member/);
+  await assert.rejects(call('sendGesture', a, {...input, gestureId: randomUUID(), replyTo: input.gestureId}), /gesture_unavailable/);
+  await assert.rejects(call('sendGesture', a, {...input, gestureId: randomUUID(), kind: 'bad'}), /invalid_gesture/);
+  const events = await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'gesture').get();
+  assert.equal(events.size, 2);
+});
+
+test('drawing reactions authorize recipient, update without duplicate push and support removal', async () => {
+  const {a, b, outsider, pair} = await paired(), noteId = randomUUID();
+  await db.doc(`pairs/${pair.id}/notes/${noteId}`).create({id: noteId, authorId: a.uid, recipientId: b.uid});
+  const input = {...scope(pair), noteId, kind: 'heart', reply: 'Me encantó'};
+  const first = await call('setReaction', b, input);
+  assert.deepEqual(await call('setReaction', b, input), first);
+  assert.deepEqual(await call('reactions', a, {...scope(pair), noteId}), first);
+  await assert.rejects(call('setReaction', a, input), /not_note_recipient/);
+  await assert.rejects(call('reactions', outsider, input), /not_pair_member/);
+  await assert.rejects(call('setReaction', b, {...input, reply: 'x'.repeat(281)}), /invalid_text/);
+  assert.equal((await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'reaction').get()).size, 1);
+  await call('setReaction', b, {...input, kind: '', reply: ''});
+  assert.deepEqual((await call('reactions', a, {...scope(pair), noteId})).reactions, []);
+});
+
+test('letters never expose content or asset IDs before server opening time, including direct asset routes', async () => {
+  const {a, b, outsider, pair} = await paired(), draft = await letterDraft(a, pair);
+  const base = {...scope(pair), letterId: draft.id};
+  assert.deepEqual((await call('letters', b, scope(pair))).letters, []);
+  await assert.rejects(call('openLetter', b, base), /letter_unavailable/);
+  assert.equal((await request(letterPath(pair, draft, 'photo'), a, await picture(), 'PUT', 'image/jpeg')).status, 200);
+  assert.equal((await request(letterPath(pair, draft, 'audio'), a, voiceFixture(), 'PUT', 'audio/wav')).status, 200);
+  assert.equal((await request(letterPath(pair, draft, 'drawing'), a, await picture(), 'PUT', 'image/jpeg')).status, 200);
+  const {letter: sealed} = await call('sealLetter', a, base);
+  assert.equal(sealed.audio.duration, 1);
+  assert.equal(sealed.canOpen, false);
+  assert.deepEqual((await call('sealLetter', a, base)).letter, sealed);
+  const locked = (await call('letters', b, {...scope(pair), now: now + 999999999})).letters[0];
+  for (const field of ['title', 'body', 'photo', 'drawing', 'audio', 'noteId']) assert.ok(!(field in locked));
+  await assert.rejects(call('openLetter', b, {...base, opensAt: 0}), /letter_locked/);
+  await assert.rejects(call('openLetter', outsider, base), /not_pair_member/);
+  assert.equal((await request(letterPath(pair, draft, 'photo', sealed.photo.id), b, undefined, 'GET')).status, 403);
+  assert.equal((await request(letterPath(pair, draft, 'audio', sealed.audio.id), b, undefined, 'GET')).status, 403);
+  if (sealed.drawing) assert.equal((await request(letterPath(pair, draft, 'drawing', sealed.drawing.id), b, undefined, 'GET')).status, 403);
+  assert.equal((await request(letterPath(pair, draft, 'photo', sealed.photo.id), a, undefined, 'GET')).status, 200);
+  const credentials = await widget(b);
+  const snapshot = await service.widgetSnapshot(credentials.token);
+  assert.ok(!JSON.stringify(snapshot).includes('Sorpresa secreta'));
+  assert.equal((await fetch(endpoint + letterPath(pair, draft, 'audio', sealed.audio.id), {headers: {authorization: `Bearer ${credentials.token}`}})).status, 401);
+  now = draft.opensAt;
+  const {letter: opened} = await call('openLetter', b, base);
+  assert.equal(opened.title, draft.title); assert.equal(opened.body, draft.body); assert.equal(opened.canOpen, true); assert.equal(opened.openedAt, now);
+  assert.equal((await request(letterPath(pair, draft, 'audio', sealed.audio.id), b, undefined, 'GET')).status, 200);
+  assert.equal((await request(letterPath(pair, draft, 'photo', sealed.photo.id), b, undefined, 'GET')).status, 200);
+  assert.equal((await request(letterPath(pair, draft, 'drawing', sealed.drawing.id), b, undefined, 'GET')).status, 200);
+  assertNoPrivateKeys(opened);
+});
+
+test('sealed letters are immutable, malformed or excessive audio fails and pair closure revokes attachments', async () => {
+  const {a, b, pair} = await paired(), draft = await letterDraft(a, pair);
+  const base = {...scope(pair), letterId: draft.id};
+  assert.equal((await request(letterPath(pair, draft, 'audio'), a, Buffer.from('not audio'), 'PUT', 'audio/wav')).status, 400);
+  assert.equal((await request(letterPath(pair, draft, 'audio'), a, voiceFixture(61), 'PUT', 'audio/wav')).status, 400);
+  const stereo = voiceFixture(); stereo.writeUInt16LE(2, 22);
+  assert.equal((await request(letterPath(pair, draft, 'audio'), a, stereo, 'PUT', 'audio/wav')).status, 400);
+  assert.equal((await request(letterPath(pair, draft, 'audio'), b, voiceFixture(), 'PUT', 'audio/wav')).status, 404);
+  await request(letterPath(pair, draft, 'audio'), a, voiceFixture(), 'PUT', 'audio/wav');
+  const sealed = (await call('sealLetter', a, base)).letter;
+  await assert.rejects(letterDraft(a, pair, {letterId: draft.id}), /letter_sealed/);
+  await assert.rejects(call('deleteLetterDraft', a, base), /letter_sealed/);
+  await assert.rejects(call('removeLetterAsset', a, {...base, role: 'audio'}), /letter_sealed/);
+  assert.equal((await request(letterPath(pair, draft, 'audio'), a, voiceFixture(), 'PUT', 'audio/wav')).status, 403);
+  await call('closePair', a, scope(pair));
+  now = draft.opensAt + 1;
+  await assert.rejects(call('openLetter', b, base), /not_pair_member/);
+  assert.equal((await request(letterPath(pair, draft, 'audio', sealed.audio.id), b, undefined, 'GET')).status, 403);
+  if (sealed.drawing) assert.equal((await request(letterPath(pair, draft, 'drawing', sealed.drawing.id), b, undefined, 'GET')).status, 403);
+});
+
+test('letter opening notification waits for server time, is generic and is not duplicated on seal retry', async () => {
+  const {a, b, pair} = await paired();
+  await call('registerDevice', b, {deviceId: randomUUID(), apnsToken: 'a'.repeat(64), apnsEnvironment: 'development'});
+  const letter = await letterDraft(a, pair, {opensAt: now + 60000});
+  const input = {...scope(pair), letterId: letter.id};
+  await call('sealLetter', a, input); await call('sealLetter', a, input);
+  const rows = await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'letter').get();
+  assert.equal(rows.size, 1);
+  const payloads = [], transport = {app: async (_token, payload) => {payloads.push(payload);}, widget: async () => {}};
+  await dispatchNotification(db, rows.docs[0].id, transport, () => now);
+  assert.equal(payloads.length, 0);
+  now = letter.opensAt;
+  await dispatchNotification(db, rows.docs[0].id, transport, () => now);
+  assert.equal(payloads.length, 1); assert.equal(payloads[0].type, 'letter'); assert.equal(payloads[0].letterId, letter.id);
+  assert.ok(!JSON.stringify(payloads).includes(letter.body)); assert.ok(!JSON.stringify(payloads).includes(letter.title));
+  await dispatchNotification(db, rows.docs[0].id, transport, () => now);
+  assert.equal(payloads.length, 1);
+});
+
+test('letter draft ownership, validation and asset cleanup are enforced', async () => {
+  const {a, b, outsider, pair} = await paired();
+  await assert.rejects(letterDraft(a, pair, {title: ' '}), /invalid_text/);
+  await assert.rejects(letterDraft(a, pair, {body: 'x'.repeat(6001)}), /invalid_text/);
+  await assert.rejects(letterDraft(a, pair, {opensAt: now + 10 * 366 * 86400_000}), /invalid_opening_date/);
+  await assert.rejects(letterDraft(a, pair, {noteId: randomUUID()}), /note_unavailable/);
+  const draft = await letterDraft(a, pair, {body: '', opensAt: now + 60000}), base = {...scope(pair), letterId: draft.id};
+  await assert.rejects(call('sealLetter', a, base), /empty_letter/);
+  await assert.rejects(call('sealLetter', b, base), /letter_unavailable/);
+  await assert.rejects(call('letters', outsider, scope(pair)), /not_pair_member/);
+  await request(letterPath(pair, draft, 'audio'), a, voiceFixture(), 'PUT', 'audio/wav');
+  const attached = (await call('openLetter', a, base)).letter.audio;
+  await call('removeLetterAsset', a, {...base, role: 'audio'});
+  assert.equal((await db.doc(`privateImages/${attached.id}`).get()).data().status, 'obsolete');
+  await call('deleteLetterDraft', a, base);
+  await assert.rejects(call('openLetter', a, base), /letter_unavailable/);
 });

@@ -13,6 +13,7 @@ public struct SharedMemory: Codable, Equatable, Identifiable, Sendable {
     public let body: String
     public let noteId: String?
     public let photo: CoupleAvatar?
+    public let decoration: MemoryDecoration?
     public let createdAt: Date
     public let updatedAt: Date
 
