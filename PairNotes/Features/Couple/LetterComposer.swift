@@ -70,112 +70,24 @@ struct LetterComposer: View {
         if loadingPhoto { return "Estamos preparando la foto." }
         return "Sumá unas palabras, una foto, un dibujo o tu voz."
     }
+    private var sealSummary: String {
+        let date = draft.opensAt.formatted(date: .long, time: .shortened)
+        return "Para \(services.partnerNickname) · \(draft.title)\nSe abre el \(date).\nUna vez enviada, no se puede cambiar el contenido ni la fecha."
+    }
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("Para " + services.partnerNickname, systemImage: "envelope.badge")
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(services.personalization.theme.accent)
-                        Text("Algo tuyo, para su momento").font(.system(.title2, design: .serif))
-                        Text("Escribí con calma. El borrador se conserva en este iPhone.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }.padding(.vertical, 8)
-                }.listRowBackground(services.personalization.theme.paper)
-                Section {
-                    TextField("Un título sólo para ustedes", text: $draft.title)
-                        .font(.system(.title3, design: .serif)).focused($writing)
-                    TextField("Querido amor…", text: $draft.body, axis: .vertical).lineLimit(6...18).font(.system(.body, design: .serif)).lineSpacing(5).focused($writing)
-                    Text("\(draft.body.utf16.count)/6000").font(.caption).foregroundStyle(.secondary)
-                } header: { Label("Tu carta", systemImage: "text.alignleft") }
-                  .disabled(busy || draft.sealAttempted)
-                Section {
-                    Menu("Elegir un momento", systemImage: "calendar.badge.clock") {
-                        Button("Mañana a esta hora") { draft.opensAt = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date().addingTimeInterval(86400) }
-                        Button("Dentro de una semana") { draft.opensAt = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date().addingTimeInterval(604800) }
-                    }
-                    DatePicker("Se abre", selection: $draft.opensAt, in: Date()...Date().addingTimeInterval(5 * 365 * 86400))
-                    Text("Hora de " + (TimeZone.current.localizedName(for: .generic, locale: .current) ?? TimeZone.current.identifier))
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("Tu pareja verá un sobre cerrado. El contenido aparecerá a la hora elegida.").font(.footnote).foregroundStyle(.secondary)
-                }.disabled(busy || draft.sealAttempted)
-                Section("Detalles para acompañarla") {
-                    if let photo, let image = UIImage(data: photo) {
-                        Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220)
-                    } else if original?.photo != nil && !draft.removePhoto { Label("Foto adjunta guardada", systemImage: "photo") }
-                    PhotosPicker(selection: $photoItem, matching: .images) { Label("Agregar foto", systemImage: "photo.badge.plus") }
-                    if photo != nil || (original?.photo != nil && !draft.removePhoto) {
-                        Button("Quitar foto", role: .destructive) { photo = nil; draft.removePhoto = true; persistPhoto() }
-                    }
-                    if loadingPhoto { ProgressView("Preparando foto…") }
-                    if let drawing, let image = UIImage(data: drawing) {
-                        Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220)
-                    } else if original?.drawing != nil && draft.removeDrawing != true { Label("Dibujo privado adjunto", systemImage: "paintpalette") }
-                    if catalog != nil {
-                        Button("Crear dibujo privado para la carta", systemImage: "pencil.tip.crop.circle") { makingDrawing = true }
-                    }
-                    if drawing != nil || (original?.drawing != nil && draft.removeDrawing != true) {
-                        Button("Quitar dibujo privado", role: .destructive) {
-                            drawing = nil; draft.removeDrawing = true
-                            drawingDirty = true; _ = persist()
-                        }
-                    }
-                    Picker("Dibujo compartido", selection: $draft.noteID) {
-                        Text("Ninguno").tag("")
-                        if !draft.noteID.isEmpty && !notes.contains(where: { $0.id == draft.noteID }) { Text("Dibujo adjunto guardado").tag(draft.noteID) }
-                        ForEach(notes) { note in Text(note.serverPublishedAt.formatted(date: .abbreviated, time: .shortened)).tag(note.id) }
-                    }
-                }.disabled(busy || draft.sealAttempted)
-                Section {
-                    if voice.recording {
-                        VoiceRecordingMeter(controller: voice)
-                    } else {
-                        if let audio {
-                            VoicePlaybackControls(player: voice, data: audio, title: "Así va a escuchar tu voz")
-                        } else if let original, original.audio != nil && !draft.removeAudio && !voice.requestingPermission {
-                            LetterVoicePlayer(services: services, letter: original)
-                        } else {
-                            Label("A veces, escucharte lo dice todo.", systemImage: "waveform")
-                                .font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Button(audio == nil && original?.audio == nil ? "Grabar mi voz" : "Grabar otra vez", systemImage: "mic.fill") {
-                            writing = false
-                            if audio != nil || (original?.audio != nil && !draft.removeAudio) { confirmRerecord = true }
-                            else { Task { await voice.record() } }
-                        }.disabled(voice.requestingPermission)
-                        if voice.requestingPermission { ProgressView("Esperando permiso del micrófono…") }
-                        if audio != nil || (original?.audio != nil && !draft.removeAudio) {
-                            Button("Quitar audio", role: .destructive) { voice.stopAll(); audio = nil; draft.removeAudio = true; persistAudio() }
-                        }
-                    }
-                    if let error = voice.error { Text(error).font(.footnote).foregroundStyle(.secondary) }
-                } header: { Label("Un poquito de tu voz", systemImage: "waveform") }
-                  footer: { Text("Opcional · hasta 1 minuto. Tu pareja lo escuchará al abrir la carta.") }
-                  .disabled(busy || draft.sealAttempted)
-                if let error { Text(error).foregroundStyle(.secondary) }
-                if draft.sealAttempted { Text("El envío quedó sin confirmar. Verificá su estado antes de seguir editando para evitar dos cartas.").font(.footnote) }
-                if busy { ProgressView("Preparando tu sorpresa…") }
-                if !draft.sealAttempted {
-                    Section { Button("Descartar borrador", role: .destructive) { confirmDiscard = true }.disabled(busy) }
-                }
+                recipientSection
+                writingSection
+                scheduleSection
+                attachmentsSection
+                voiceSection
+                statusSection
             }
             .scrollDismissesKeyboard(.interactively)
             .scrollContentBackground(.hidden)
             .background(services.personalization.theme.canvas)
-            .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 8) {
-                    if !canSend && !busy && !voice.recording && !draft.sealAttempted {
-                        Text(sendHint).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Button {
-                        writing = false
-                        if draft.sealAttempted { send() } else { confirm = true }
-                    } label: {
-                        Label(busy ? "Preparando tu sorpresa…" : draft.sealAttempted ? "Confirmar envío" : "Revisar y cerrar el sobre",
-                              systemImage: "envelope.fill").frame(maxWidth: .infinity)
-                    }.buttonStyle(.borderedProminent).controlSize(.large).disabled(!canSend)
-                }.padding().background(.regularMaterial)
-            }
+            .safeAreaInset(edge: .bottom) { sendBar }
             .navigationTitle("Una carta para después").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Guardar y salir") { voice.stopAll(); if persist() { dismiss() } }.disabled(busy) }
@@ -188,7 +100,7 @@ struct LetterComposer: View {
             .confirmationDialog("¿Cerrar y enviar esta carta?", isPresented: $confirm, titleVisibility: .visible) {
                 Button("Enviar para el \(draft.opensAt.formatted(date: .abbreviated, time: .shortened))") { send() }
                 Button("Seguir escribiendo", role: .cancel) {}
-            } message: { Text("Para " + services.partnerNickname + " · " + draft.title + "\nSe abre el " + draft.opensAt.formatted(date: .long, time: .shortened) + ".\nUna vez enviada, no se puede cambiar el contenido ni la fecha.") }
+            } message: { Text(sealSummary) }
             .confirmationDialog("¿Descartar esta carta en borrador?", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("Descartar borrador", role: .destructive) { deleteDraft() }
                 Button("Seguir escribiendo", role: .cancel) {}
@@ -225,6 +137,124 @@ struct LetterComposer: View {
             }
         }
     }
+    @ViewBuilder private var recipientSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Para " + services.partnerNickname, systemImage: "envelope.badge")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(services.personalization.theme.accent)
+                Text("Algo tuyo, para su momento").font(.system(.title2, design: .serif))
+                Text("Escribí con calma. El borrador se conserva en este iPhone.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }.padding(.vertical, 8)
+        }.listRowBackground(services.personalization.theme.paper)
+    }
+
+    @ViewBuilder private var writingSection: some View {
+        Section {
+            TextField("Un título sólo para ustedes", text: $draft.title)
+                .font(.system(.title3, design: .serif)).focused($writing)
+            TextField("Querido amor…", text: $draft.body, axis: .vertical).lineLimit(6...18).font(.system(.body, design: .serif)).lineSpacing(5).focused($writing)
+            Text("\(draft.body.utf16.count)/6000").font(.caption).foregroundStyle(.secondary)
+        } header: { Label("Tu carta", systemImage: "text.alignleft") }
+          .disabled(busy || draft.sealAttempted)
+    }
+
+    @ViewBuilder private var scheduleSection: some View {
+        Section {
+            Menu("Elegir un momento", systemImage: "calendar.badge.clock") {
+                Button("Mañana a esta hora") { draft.opensAt = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date().addingTimeInterval(86400) }
+                Button("Dentro de una semana") { draft.opensAt = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date().addingTimeInterval(604800) }
+            }
+            DatePicker("Se abre", selection: $draft.opensAt, in: Date()...Date().addingTimeInterval(5 * 365 * 86400))
+            Text("Hora de " + (TimeZone.current.localizedName(for: .generic, locale: .current) ?? TimeZone.current.identifier))
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Tu pareja verá un sobre cerrado. El contenido aparecerá a la hora elegida.").font(.footnote).foregroundStyle(.secondary)
+        }.disabled(busy || draft.sealAttempted)
+    }
+
+    @ViewBuilder private var attachmentsSection: some View {
+        Section("Detalles para acompañarla") {
+            if let photo, let image = UIImage(data: photo) {
+                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220)
+            } else if original?.photo != nil && !draft.removePhoto { Label("Foto adjunta guardada", systemImage: "photo") }
+            PhotosPicker(selection: $photoItem, matching: .images) { Label("Agregar foto", systemImage: "photo.badge.plus") }
+            if photo != nil || (original?.photo != nil && !draft.removePhoto) {
+                Button("Quitar foto", role: .destructive) { photo = nil; draft.removePhoto = true; persistPhoto() }
+            }
+            if loadingPhoto { ProgressView("Preparando foto…") }
+            if let drawing, let image = UIImage(data: drawing) {
+                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220)
+            } else if original?.drawing != nil && draft.removeDrawing != true { Label("Dibujo privado adjunto", systemImage: "paintpalette") }
+            if catalog != nil {
+                Button("Crear dibujo privado para la carta", systemImage: "pencil.tip.crop.circle") { makingDrawing = true }
+            }
+            if drawing != nil || (original?.drawing != nil && draft.removeDrawing != true) {
+                Button("Quitar dibujo privado", role: .destructive) {
+                    drawing = nil; draft.removeDrawing = true
+                    drawingDirty = true; _ = persist()
+                }
+            }
+            Picker("Dibujo compartido", selection: $draft.noteID) {
+                Text("Ninguno").tag("")
+                if !draft.noteID.isEmpty && !notes.contains(where: { $0.id == draft.noteID }) { Text("Dibujo adjunto guardado").tag(draft.noteID) }
+                ForEach(notes) { note in Text(note.serverPublishedAt.formatted(date: .abbreviated, time: .shortened)).tag(note.id) }
+            }
+        }.disabled(busy || draft.sealAttempted)
+    }
+
+    @ViewBuilder private var voiceSection: some View {
+        Section {
+            if voice.recording {
+                VoiceRecordingMeter(controller: voice)
+            } else {
+                if let audio {
+                    VoicePlaybackControls(player: voice, data: audio, title: "Así va a escuchar tu voz")
+                } else if let original, original.audio != nil && !draft.removeAudio && !voice.requestingPermission {
+                    LetterVoicePlayer(services: services, letter: original)
+                } else {
+                    Label("A veces, escucharte lo dice todo.", systemImage: "waveform")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                Button(audio == nil && original?.audio == nil ? "Grabar mi voz" : "Grabar otra vez", systemImage: "mic.fill") {
+                    writing = false
+                    if audio != nil || (original?.audio != nil && !draft.removeAudio) { confirmRerecord = true }
+                    else { Task { await voice.record() } }
+                }.disabled(voice.requestingPermission)
+                if voice.requestingPermission { ProgressView("Esperando permiso del micrófono…") }
+                if audio != nil || (original?.audio != nil && !draft.removeAudio) {
+                    Button("Quitar audio", role: .destructive) { voice.stopAll(); audio = nil; draft.removeAudio = true; persistAudio() }
+                }
+            }
+            if let error = voice.error { Text(error).font(.footnote).foregroundStyle(.secondary) }
+        } header: { Label("Un poquito de tu voz", systemImage: "waveform") }
+          footer: { Text("Opcional · hasta 1 minuto. Tu pareja lo escuchará al abrir la carta.") }
+          .disabled(busy || draft.sealAttempted)
+    }
+
+    @ViewBuilder private var statusSection: some View {
+        if let error { Text(error).foregroundStyle(.secondary) }
+        if draft.sealAttempted { Text("El envío quedó sin confirmar. Verificá su estado antes de seguir editando para evitar dos cartas.").font(.footnote) }
+        if busy { ProgressView("Preparando tu sorpresa…") }
+        if !draft.sealAttempted {
+            Section { Button("Descartar borrador", role: .destructive) { confirmDiscard = true }.disabled(busy) }
+        }
+    }
+
+    private var sendBar: some View {
+        VStack(spacing: 8) {
+            if !canSend && !busy && !voice.recording && !draft.sealAttempted {
+                Text(sendHint).font(.caption).foregroundStyle(.secondary)
+            }
+            Button {
+                writing = false
+                if draft.sealAttempted { send() } else { confirm = true }
+            } label: {
+                Label(busy ? "Preparando tu sorpresa…" : draft.sealAttempted ? "Confirmar envío" : "Revisar y cerrar el sobre",
+                      systemImage: "envelope.fill").frame(maxWidth: .infinity)
+            }.buttonStyle(.borderedProminent).controlSize(.large).disabled(!canSend)
+        }.padding().background(.regularMaterial)
+    }
+
     @discardableResult private func persist() -> Bool {
         guard !finished else { return true }
         do {
