@@ -244,13 +244,17 @@ struct PersonalStickerLibrary: View {
         } catch { self.error = "No se pudo abrir tu biblioteca. Reintentá." }
     }
     private func cutout(_ image: UIImage) -> UIImage {
-        let scale = min(1, 768 / max(image.size.width, image.size.height))
-        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let side = min(image.size.width, image.size.height)
+        let cropSize = circle ? CGSize(width: side, height: side) : image.size
+        let scale = min(1, 768 / max(cropSize.width, cropSize.height))
+        let size = CGSize(width: cropSize.width * scale, height: cropSize.height * scale)
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = false
         return UIGraphicsImageRenderer(size: size, format: format).image { _ in
             let rect = CGRect(origin: .zero, size: size)
             if circle { UIBezierPath(ovalIn: rect).addClip() }
-            image.draw(in: rect)
+            let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            image.draw(in: CGRect(x: (size.width - drawn.width) / 2, y: (size.height - drawn.height) / 2,
+                                  width: drawn.width, height: drawn.height))
         }
     }
 }

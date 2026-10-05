@@ -311,13 +311,18 @@ final class NativeEditorPersistenceTests: XCTestCase {
             return PaperLayer(name: name, markup: markup)
         }
         let red = try layer("Rojo", .red), blue = try layer("Azul", .blue)
+        // Imported images pass through PaperKit's image/color pipeline. Compare
+        // against the same layer rendered alone, not exact opaque-paper RGB bytes.
+        let redReference = try await PaperProbeDocument.render(red.markup, side: 64)
+        let blueReference = try await PaperProbeDocument.render(blue.markup, side: 64)
+        XCTAssertNotEqual(redReference, blueReference)
         editor.controller.restoreLayers([red, blue])
         editor.changed()
         let first = try await PaperProbeDocument.render(editor.controller.composedMarkup(), side: 64)
-        try assertPaperPixels(first, background: PaperBackground(red: 0, green: 0, blue: 255))
+        try assertLayerPixels(first, matching: blueReference)
         editor.controller.moveLayer(red.id, by: 1)
         let reordered = try await PaperProbeDocument.render(editor.controller.composedMarkup(), side: 64)
-        try assertPaperPixels(reordered, background: PaperBackground(red: 255, green: 0, blue: 0))
+        try assertLayerPixels(reordered, matching: redReference)
         let saved = await editor.save()
         let archive = try XCTUnwrap(saved)
         let restored = try PaperProbeDocument.decode(archive.source.data, editorVersion: archive.document.minimumEditorVersion)
@@ -331,7 +336,7 @@ final class NativeEditorPersistenceTests: XCTestCase {
         XCTAssertEqual(reopened.controller.activeLayerID, blue.id)
         reopened.controller.removeLayer(red.id)
         let remaining = try await PaperProbeDocument.render(reopened.controller.composedMarkup(), side: 64)
-        try assertPaperPixels(remaining, background: PaperBackground(red: 0, green: 0, blue: 255))
+        try assertLayerPixels(remaining, matching: blueReference)
     }
 
     @MainActor
@@ -547,6 +552,22 @@ final class NativeEditorPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    private func assertLayerPixels(_ png: Data, matching reference: Data,
+                                   file: StaticString = #filePath, line: UInt = #line) throws {
+        let actual = try XCTUnwrap(UIImage(data: png)?.cgImage, file: file, line: line)
+        let expected = try XCTUnwrap(UIImage(data: reference)?.cgImage, file: file, line: line)
+        // Sample the interior so native image-edge interpolation is not mistaken
+        // for the visible stacking order. Paper opacity/color has separate tests.
+        for x: CGFloat in [0.2, 0.5, 0.8] {
+            for y: CGFloat in [0.2, 0.5, 0.8] {
+                let point = CGPoint(x: x, y: y)
+                let color = try XCTUnwrap(PaperPixelSampler.color(actual, at: point), file: file, line: line)
+                let referenceColor = try XCTUnwrap(PaperPixelSampler.color(expected, at: point), file: file, line: line)
+                XCTAssertEqual(color, referenceColor, file: file, line: line)
+            }
+        }
+    }
+
     private func assertPaperPixels(_ png: Data?, background: PaperBackground,
                                    file: StaticString = #filePath, line: UInt = #line) throws {
         let data = try XCTUnwrap(png, file: file, line: line)
