@@ -97,7 +97,9 @@ struct LetterEnvelope: View {
     }
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: letter.status == "draft" ? "envelope.badge" : letter.canOpen ? "envelope.open" : "envelope.badge.shield.half.filled")
+            Image(systemName: letter.status == "draft" ? "envelope.badge" :
+                letter.openedAt != nil || (letter.recipientId == services.identity?.uid && letter.canOpen) ?
+                "envelope.open" : "envelope.badge.shield.half.filled")
                 .font(.system(size: 44, weight: .light)).foregroundStyle(theme.accent)
             Text("Para \(recipient)")
                 .font(.caption).foregroundStyle(.secondary)
