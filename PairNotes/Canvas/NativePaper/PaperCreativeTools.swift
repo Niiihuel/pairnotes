@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import PhotosUI
+import ImageIO
 import PairNotesCore
 
 // These tools work from the actual exported pixels, independently of viewport zoom.
@@ -130,7 +131,7 @@ struct PersonalStickerLibrary: View {
     @State private var circle = false
     @State private var busy = false
     @State private var error: String?
-    @State private var deleted: (id: String, image: UIImage)?
+    @State private var deleted: Data?
 
     var body: some View {
         NavigationStack {
@@ -159,7 +160,17 @@ struct PersonalStickerLibrary: View {
                         }
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 88))], spacing: 16) {
                             ForEach(stickers, id: \.id) { sticker in
-                                Button { onInsert(sticker.image); dismiss() } label: {
+                                Button {
+                                    busy = true
+                                    Task { @MainActor in
+                                        defer { busy = false }
+                                        do {
+                                            let data = try await store.sticker(sticker.id)
+                                            guard let image = UIImage(data: data) else { throw LocalStoreError.corruptData }
+                                            onInsert(image); dismiss()
+                                        } catch { self.error = "No se pudo abrir el sticker. Reintentá." }
+                                    }
+                                } label: {
                                     Image(uiImage: sticker.image).resizable().scaledToFit().frame(height: 88)
                                         .padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
                                 }.buttonStyle(.plain).accessibilityLabel("Insertar sticker")
@@ -168,7 +179,7 @@ struct PersonalStickerLibrary: View {
                                             busy = true
                                             Task { @MainActor in
                                                 defer { busy = false }
-                                                do { try await store.removeSticker(sticker.id); deleted = sticker; await reload() }
+                                                do { let bytes = try await store.sticker(sticker.id); try await store.removeSticker(sticker.id); deleted = bytes; await reload() }
                                                 catch { self.error = "No se pudo eliminar. Reintentá." }
                                             }
                                         }
@@ -186,8 +197,7 @@ struct PersonalStickerLibrary: View {
                             Task { @MainActor in
                                 defer { busy = false }
                                 do {
-                                    guard let png = deleted.image.pngData() else { throw LocalStoreError.corruptData }
-                                    _ = try await store.saveSticker(png); self.deleted = nil; await reload()
+                                    _ = try await store.saveSticker(deleted); self.deleted = nil; await reload()
                                 } catch { self.error = "No se pudo recuperar el sticker. Reintentá." }
                             }
                         }
@@ -222,7 +232,13 @@ struct PersonalStickerLibrary: View {
         do {
             var values: [(id: String, image: UIImage)] = []
             for id in try await store.stickerIDs() {
-                if let bytes = try? await store.sticker(id), let image = UIImage(data: bytes) { values.append((id, image)) }
+                if let bytes = try? await store.sticker(id),
+                   let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+                   let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                       kCGImageSourceCreateThumbnailFromImageAlways: true,
+                       kCGImageSourceCreateThumbnailWithTransform: true,
+                       kCGImageSourceThumbnailMaxPixelSize: 192
+                   ] as CFDictionary) { values.append((id, UIImage(cgImage: thumbnail))) }
             }
             stickers = values
         } catch { self.error = "No se pudo abrir tu biblioteca. Reintentá." }
