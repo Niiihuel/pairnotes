@@ -1,0 +1,81 @@
+{
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37383271492",
+  "commit": "4904b7018a6d4756c3d9260d318a04d0f8d9e1a9",
+  "workflowConclusion": "success",
+  "marketingVersion": "1.0",
+  "buildNumber": "6.1",
+  "xcode": "26.2 (17C52)",
+  "minimumOS": "26.0",
+  "ipaSHA256": "e54da1c63b9bf8c317cbfb0abd6ff0d10716f76666889f1813527bfaf216e4ee",
+  "archiveAndExportSucceeded": true,
+  "exportStepVerification": {
+    "app_and_widget_signatures_verified": true,
+    "bundle_ids_and_versions_verified": true,
+    "embedded_profiles_verified": true,
+    "production_entitlements_verified": true,
+    "keychain_isolation_verified": true,
+    "privacy_manifests_present": true,
+    "api_and_google_configuration_present": true,
+    "uploaded_to_apple": false
+  },
+  "uploadReceipt": {
+    "upload_status": "upload_confirmed",
+    "command_exit_code": 0,
+    "success_receipt_observed": true,
+    "error_observed": false,
+    "delivery_uuid": "60f8f5a1-04cc-4823-a60b-2c878a4d5430",
+    "error_codes": [],
+    "apple_processing_status": "not_checked",
+    "testflight_availability": "not_checked",
+    "tester_configuration_changed": false,
+    "store_submission_requested": false,
+    "encryption_declaration_changed": false
+  },
+  "appStoreConnectReadback": {
+    "appID": "6819083456",
+    "queriedAt": "2026-10-05T22:48:48.261Z",
+    "builds": [
+      {
+        "id": "60f8f5a1-04cc-4823-a60b-2c878a4d5430",
+        "version": "6.1",
+        "processingState": "VALID",
+        "uploadedDate": "2026-10-05T15:46:52-07:00",
+        "expired": false,
+        "preRelease": "1.0",
+        "beta": {
+          "autoNotifyEnabled": true,
+          "internalBuildState": "IN_BETA_TESTING",
+          "externalBuildState": "READY_FOR_BETA_SUBMISSION"
+        },
+        "groups": [
+          {
+            "id": "fd36449c-a82b-4c1d-aa50-d259a0c3649d",
+            "name": "amorchi",
+            "isInternalGroup": true,
+            "hasAccessToAllBuilds": true,
+            "publicLinkEnabled": null
+          }
+        ],
+        "individualTesterCount": 0
+      }
+    ]
+  },
+  "backend": {
+    "deploymentID": "7a91df72-363a-4eee-830b-1dfc32e218fd",
+    "environment": "development",
+    "service": "pairnotes-api",
+    "status": "SUCCESS",
+    "smoke": {
+      "healthz": 200,
+      "unauthenticatedSendGesture": 401,
+      "unauthenticatedLetters": 401
+    }
+  },
+  "validation": {
+    "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37383257111",
+    "commit": "4904b7018a6d4756c3d9260d318a04d0f8d9e1a9",
+    "conclusion": "success"
+  },
+  "physicalDeviceTestsExecuted": false,
+  "publicAppStoreSubmissionRequested": false
+}

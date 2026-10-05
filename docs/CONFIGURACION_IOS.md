@@ -1,6 +1,6 @@
 # Configuración iOS y validación en dispositivos
 
-Estado del corte: `1.0 (4.1)` está procesada y disponible para el grupo interno `amorchi` en TestFlight. Identificadores OAuth y clave APNs cargados; configuración iOS, certificado Apple Distribution, P12 y perfiles App Store Connect de app/widget incorporados como secretos de Actions. Compilación, exportación, subida y acceso del grupo verificados; faltan instalación y pruebas de OAuth/avisos/widget en dispositivos. La arquitectura vigente usa una API Node en Railway, PostgreSQL y almacenamiento privado; sustituye la propuesta Firebase del plan inicial por pedido del usuario. La app mantiene editor y borradores locales cuando la API no está configurada.
+Estado del corte: `1.0 (6.1)` está procesada y disponible para el grupo interno `amorchi` en TestFlight. Identificadores OAuth y clave APNs cargados; configuración iOS, certificado Apple Distribution, P12 y perfiles App Store Connect de app/widget incorporados como secretos de Actions. Compilación, exportación, subida y acceso del grupo verificados; faltan instalación y pruebas de OAuth/avisos/widget en dispositivos. La arquitectura vigente usa una API Node en Railway, PostgreSQL y almacenamiento privado; sustituye la propuesta Firebase del plan inicial por pedido del usuario. La app mantiene editor y borradores locales cuando la API no está configurada.
 
 Configuración confirmada el 4 de octubre de 2026: Team ID `2K2U374CJC`, app `com.niiihuel.pairnotes`, extensión `com.niiihuel.pairnotes.widgets` y App Group `group.com.niiihuel.pairnotes`. El propietario confirmó la asignación del grupo a ambos identificadores. Google Cloud: proyecto `pairnotes-510620`, clientes iOS y Web obtenidos de sus descargas oficiales. El plist iOS declara el mismo Bundle ID y ambos clientes corresponden al mismo número de proyecto.
 
@@ -17,6 +17,8 @@ La API entrega un desafío aleatorio de un solo uso antes del acceso con Google 
 El cliente guarda access y refresh tokens opacos en Keychain privado de la app, asociados a la URL de la API. La renovación concurrente se agrupa en una sola operación, persiste el refresh token rotado antes de nuevas solicitudes y descarta respuestas de una cuenta que ya cerró sesión. El widget recibe otra credencial, revocable y limitada a su snapshot, en el grupo compartido de Keychain. Los tokens no se escriben en archivos de configuración, UserDefaults, notificaciones ni logs de la aplicación.
 
 La API de desarrollo creada en esta sesión es `https://pairnotes-api-development.up.railway.app/`. En el archivo local xcconfig se escribe `PAIRNOTES_API_BASE_URL = https:/$()/pairnotes-api-development.up.railway.app/`. La URL, los IDs OAuth, la firma y las capacidades ya se verificaron en la IPA exportada; el acceso OAuth y la comunicación con el servidor desde dispositivos siguen pendientes de prueba física.
+
+La beta actual `1.0 (6.1)` se publicó el 5 de octubre de 2026 desde `4904b70`. Apple confirmó `VALID` e `IN_BETA_TESTING` para el grupo interno existente. [Evidencia de la publicación y del backend actualizado](evidence/testflight/build-6.1.json). Las referencias a builds anteriores que siguen documentan los cortes históricos.
 
 ## APNs configurado para TestFlight
 
