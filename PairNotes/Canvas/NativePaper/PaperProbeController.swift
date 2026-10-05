@@ -164,6 +164,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         case .both: dx = bounds.midX - rect.midX; dy = bounds.midY - rect.midY
         }
         if onlyNearCenter {
+            guard snapsToGuides, selectionMode else { return }
             if abs(dx) > 24 { dx = 0 }
             if abs(dy) > 24 { dy = 0 }
         }
@@ -179,7 +180,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         guard snapsToGuides, selectionMode else { return }
         snapTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(650)) } catch { return }
-            guard let self, !self.canvas.view.hasActivePaperGesture else { return }
+            guard let self, self.snapsToGuides, self.selectionMode, !self.canvas.view.hasActivePaperGesture else { return }
             await self.alignActiveLayer(.both, onlyNearCenter: true)
         }
     }

@@ -13,6 +13,11 @@ struct MemoryCompositionDraft: Codable, Equatable {
     var decoration: MemoryDecoration
 }
 
+struct ScrapbookSourceReference: Codable {
+    let draftID: UUID
+    var publishedPhotoID: String?
+}
+
 struct MemoryCompositionStorage {
     let key: String
     private var directory: URL {

@@ -226,7 +226,7 @@ struct SharedMemoryEditor: View {
     private var changed: Bool {
         title != (original?.title ?? "") || CoupleDate(date: date, calendar: .current) != originalDate ||
         bodyText != (original?.body ?? "") || recursYearly != (original?.recursYearly ?? false) ||
-        (original == nil && (canvasStorage.loadValue() as UUID?) != nil) || decoration != (original?.decoration ?? MemoryDecoration()) || noteID != (original?.noteId ?? "") || photoData != nil || removePhoto
+        (original == nil && (canvasStorage.loadValue() as ScrapbookSourceReference?) != nil) || decoration != (original?.decoration ?? MemoryDecoration()) || noteID != (original?.noteId ?? "") || photoData != nil || removePhoto
     }
     private var cleanTitle: String { title.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var canSave: Bool { !busy && !loadingPhoto && (1...120).contains(cleanTitle.utf16.count) && bodyText.utf16.count <= 2_000 && changed }
@@ -273,7 +273,7 @@ struct SharedMemoryEditor: View {
                     }
                     PhotosPicker(selection: $photoItem, matching: .images) { Label("Elegir foto", systemImage: "photo.badge.plus") }
                     if photoData != nil || (original?.photo != nil && !removePhoto) {
-                        Button("Quitar foto", systemImage: "trash", role: .destructive) { photoData = nil; removePhoto = true }
+                        Button("Quitar foto", systemImage: "trash", role: .destructive) { photoData = nil; removePhoto = true; canvasStorage.clear() }
                     }
                     if loadingPhoto { ProgressView("Preparando foto…") }
                 }
@@ -319,6 +319,8 @@ struct SharedMemoryEditor: View {
             .sheet(item: $crop) { selection in
                 PhotoCropEditor(image: selection.image, onCancel: { crop = nil }, onConfirm: { image in
                     photoData = image.jpegData(compressionQuality: 0.85); removePhoto = false; crop = nil
+                    // A replacement photo starts a new composition. The prior source remains in Crear.
+                    canvasStorage.clear()
                 })
             }
             .task(id: photoItem) {
@@ -349,8 +351,9 @@ struct SharedMemoryEditor: View {
         Task { @MainActor in
             defer { busy = false }
             do {
-                let savedID: UUID? = canvasStorage.loadValue()
-                if let savedID, let summary = try await catalog.list().first(where: { $0.id == savedID }) {
+                let reference: ScrapbookSourceReference? = canvasStorage.loadValue()
+                if let reference, reference.publishedPhotoID == original?.photo?.id,
+                   let summary = try await catalog.list().first(where: { $0.id == reference.draftID }) {
                     guard scope == services.privateImageKey("composition:\(original?.id ?? "new")") else { return }
                     canvasDraft = summary; return
                 }
@@ -378,7 +381,7 @@ struct SharedMemoryEditor: View {
                     minimumEditorVersion: PaperProbeDocument.editorVersion)
                 let summary = try await catalog.save(archive, title: cleanTitle.isEmpty ? "Página del álbum" : cleanTitle)
                 guard scope == services.privateImageKey("composition:\(original?.id ?? "new")") else { return }
-                try canvasStorage.saveValue(summary.id)
+                try canvasStorage.saveValue(ScrapbookSourceReference(draftID: summary.id, publishedPhotoID: original?.photo?.id))
                 // Commit the memory ID too, so reopening an unsaved page can find its native source.
                 try storage.save(composition)
                 canvasDraft = summary
@@ -406,6 +409,10 @@ struct SharedMemoryEditor: View {
             do {
                 try await services.saveMemory(id: id, title: cleanTitle, date: selectedDate, body: bodyText,
                     recursYearly: recursYearly, noteID: noteID.isEmpty ? nil : noteID, photo: photoData, removePhoto: removePhoto, decoration: decoration)
+                if var reference: ScrapbookSourceReference = canvasStorage.loadValue() {
+                    reference.publishedPhotoID = services.coupleSpace?.memories.first(where: { $0.id == id })?.photo?.id
+                    try canvasStorage.saveValue(reference)
+                }
                 finished = true; storage.clear(); dismiss()
             } catch { self.error = "No se pudo completar el guardado. Reintentá para conservar también la foto." }
         }

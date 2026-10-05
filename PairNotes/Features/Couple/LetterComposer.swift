@@ -180,7 +180,7 @@ struct LetterComposer: View {
             if drawingDirty { try storage.saveDrawing(drawing); drawingDirty = false }
             try storage.saveValue(draft); return true
         }
-        catch { error = "No se pudo guardar el borrador en este iPhone."; return false }
+        catch { self.error = "No se pudo guardar el borrador en este iPhone."; return false }
     }
     private func persistPhoto() {
         photoDirty = true; _ = persist()
