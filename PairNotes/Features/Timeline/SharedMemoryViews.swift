@@ -316,7 +316,7 @@ struct SharedMemoryEditor: View {
                         onSend: { archive in attachCanvas(archive); return true })
                 }
             }
-            .sheet(item: $crop) { selection in
+            .sheet(item: $crop, onDismiss: { photoItem = nil }) { selection in
                 PhotoCropEditor(image: selection.image, onCancel: { crop = nil }, onConfirm: { image in
                     photoData = image.jpegData(compressionQuality: 0.85); removePhoto = false; crop = nil
                     // A replacement photo starts a new composition. The prior source remains in Crear.

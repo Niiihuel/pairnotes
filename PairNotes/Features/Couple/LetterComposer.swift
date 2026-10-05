@@ -156,7 +156,7 @@ struct LetterComposer: View {
                         onSend: { archive in attachDrawing(archive); return drawing != nil })
                 }
             }
-            .sheet(item: $crop) { selection in
+            .sheet(item: $crop, onDismiss: { photoItem = nil }) { selection in
                 PhotoCropEditor(image: selection.image, onCancel: { crop = nil }, onConfirm: { image in
                     photo = image.jpegData(compressionQuality: 0.85); draft.removePhoto = false; persistPhoto(); crop = nil
                 })
