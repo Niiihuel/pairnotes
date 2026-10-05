@@ -1,0 +1,70 @@
+{
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37390384294",
+  "commit": "d182fe057939361ed97d45278aba2a4d62e201fc",
+  "workflowConclusion": "success",
+  "marketingVersion": "1.0",
+  "buildNumber": "7.1",
+  "xcode": "26.2 (17C52)",
+  "minimumOS": "26.0",
+  "ipaSHA256": "db932ff6a93d7aec4929a52b23d8192340af83a605d5cbf59584584b7b5fce8b",
+  "archiveAndExportSucceeded": true,
+  "exportStepVerification": {
+    "app_and_widget_signatures_verified": true,
+    "bundle_ids_and_versions_verified": true,
+    "embedded_profiles_verified": true,
+    "production_entitlements_verified": true,
+    "keychain_isolation_verified": true,
+    "privacy_manifests_present": true,
+    "api_and_google_configuration_present": true,
+    "uploaded_to_apple": false
+  },
+  "uploadReceipt": {
+    "upload_status": "upload_confirmed",
+    "command_exit_code": 0,
+    "success_receipt_observed": true,
+    "error_observed": false,
+    "delivery_uuid": "ee77cd3d-6ced-49fd-a172-c95924ff0bf8",
+    "error_codes": [],
+    "apple_processing_status": "not_checked",
+    "testflight_availability": "not_checked",
+    "tester_configuration_changed": false,
+    "store_submission_requested": false,
+    "encryption_declaration_changed": false
+  },
+  "appStoreConnectReadback": {
+    "appID": "6819083456",
+    "queriedAt": "2026-10-05T23:51:36.181Z",
+    "builds": [
+      {
+        "id": "ee77cd3d-6ced-49fd-a172-c95924ff0bf8",
+        "version": "7.1",
+        "processingState": "VALID",
+        "uploadedDate": "2026-10-05T16:49:47-07:00",
+        "expired": false,
+        "preRelease": "1.0",
+        "beta": {
+          "autoNotifyEnabled": true,
+          "internalBuildState": "IN_BETA_TESTING",
+          "externalBuildState": "READY_FOR_BETA_SUBMISSION"
+        },
+        "groups": [
+          {
+            "id": "fd36449c-a82b-4c1d-aa50-d259a0c3649d",
+            "name": "amorchi",
+            "isInternalGroup": true,
+            "hasAccessToAllBuilds": true,
+            "publicLinkEnabled": null
+          }
+        ],
+        "individualTesterCount": 0
+      }
+    ]
+  },
+  "validation": {
+    "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37388999209",
+    "commit": "d182fe057939361ed97d45278aba2a4d62e201fc",
+    "conclusion": "success"
+  },
+  "physicalDeviceTestsExecuted": false,
+  "publicAppStoreSubmissionRequested": false
+}
