@@ -19,7 +19,7 @@ struct LetterStationeryPalette {
 
 struct LetterPaper<Content: View>: View {
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.accessibilityContrast) private var contrast
+    @Environment(\.colorSchemeContrast) private var contrast
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 36
     let content: Content
 
@@ -143,8 +143,8 @@ struct LetterStationery_Previews: PreviewProvider {
             LetterStationeryPreview().preferredColorScheme(.light).previewDisplayName("Carta · claro")
             LetterStationeryPreview().preferredColorScheme(.dark).previewDisplayName("Carta · oscuro")
             LetterStationeryPreview().preferredColorScheme(.dark)
-                .dynamicTypeSize(.accessibility3).environment(\.accessibilityContrast, .increased)
-                .previewDisplayName("Carta · letra grande y contraste")
+                .dynamicTypeSize(.accessibility3)
+                .previewDisplayName("Carta · letra grande")
         }
     }
 }
