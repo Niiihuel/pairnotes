@@ -112,7 +112,7 @@ struct CouplePhotoDetailView: View {
             let bytes = try await services.photoImage(value)
             guard !Task.isCancelled, scope == key, generation == requestGeneration, let image = UIImage(data: bytes) else { return }
             photo = value; self.image = image; loadedScope = key
-        } catch { if scope == key, generation == requestGeneration, !Task.isCancelled { error = "No se pudo abrir esta foto. Revisá la conexión y reintentá." } }
+        } catch { if scope == key, generation == requestGeneration, !Task.isCancelled { self.error = "No se pudo abrir esta foto. Revisá la conexión y reintentá." } }
     }
 
     private func react(_ kind: PhotoReactionKind, photo: CouplePhoto) {

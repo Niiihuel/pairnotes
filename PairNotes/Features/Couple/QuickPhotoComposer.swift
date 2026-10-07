@@ -129,7 +129,7 @@ struct QuickPhotoComposer: View {
     private func persist() {
         guard current, !finished else { return }
         do { try storage.savePhoto(imageData); try storage.saveValue(Draft(id: photoID, caption: caption)) }
-        catch { error = "No se pudo guardar el borrador en este iPhone. Mantené esta pantalla abierta y reintentá." }
+        catch { self.error = "No se pudo guardar el borrador en este iPhone. Mantené esta pantalla abierta y reintentá." }
     }
 
     private func openCamera() async {
