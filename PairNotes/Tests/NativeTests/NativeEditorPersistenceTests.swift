@@ -357,6 +357,11 @@ final class NativeEditorPersistenceTests: XCTestCase {
     @MainActor
     func testCanvasReceivesTouchesAndRecoversInputAfterToolsAndTemporaryBlocking() async throws {
         let controller = PaperProbeController()
+        XCTAssertEqual(controller.canvas.directTouchMode, .drawing,
+                       "A new session must accept finger drawing before loading its view")
+        controller.selectionMode = true
+        XCTAssertEqual(controller.canvas.directTouchMode, .selection)
+        controller.selectionMode = false
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.keyWindow
         let window = UIWindow(windowScene: scene)
@@ -378,7 +383,9 @@ final class NativeEditorPersistenceTests: XCTestCase {
             let point = CGPoint(x: controller.view.bounds.width * fraction, y: controller.view.bounds.height * 0.5)
             let target = try XCTUnwrap(controller.view.hitTest(point, with: nil))
             XCTAssertTrue(target === controller.canvas.view || target.isDescendant(of: controller.canvas.view),
-                          "Read-only layer previews and guides must never intercept an editable canvas touch")
+                          "Read-only layer previews and guides must never intercept an editable canvas touch. " +
+                          "Point: \(point); target: \(target); canvas: \(String(describing: controller.canvas.view)); " +
+                          "canvas interaction: \(controller.canvas.view.isUserInteractionEnabled)")
         }
 
         controller.setPaletteVisible(false)
@@ -411,6 +418,38 @@ final class NativeEditorPersistenceTests: XCTestCase {
         XCTAssertTrue(field.becomeFirstResponder())
         controller.setEditingEnabled(true) // SwiftUI status/preview refresh.
         XCTAssertTrue(field.isFirstResponder, "An unchanged enabled value must not interrupt native text editing")
+    }
+
+    @MainActor
+    func testLayoutFitsPaperWhenTheWholeDocumentIsAlreadyVisible() throws {
+        let controller = PaperProbeController()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 400, height: 400)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        window.layoutIfNeeded()
+        controller.view.layoutIfNeeded()
+        let bounds = PaperProbeDocument.bounds
+        controller.canvas.contentVisibleFrame = bounds.insetBy(dx: -bounds.width, dy: -bounds.height)
+        let zoomedOut = controller.canvas.contentVisibleFrame
+        XCTAssertGreaterThan(zoomedOut.width, bounds.width * 2)
+
+        // A new layout must fit the sheet even when it was already visible at
+        // a smaller scale. Merely ensuring visibility leaves it zoomed out.
+        window.frame = CGRect(x: 0, y: 0, width: 420, height: 420)
+        window.setNeedsLayout()
+        window.layoutIfNeeded()
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+
+        let fitted = controller.canvas.contentVisibleFrame
+        XCTAssertLessThan(fitted.width, zoomedOut.width * 0.6)
+        XCTAssertLessThan(fitted.height, zoomedOut.height * 0.6)
+        XCTAssertTrue(fitted.insetBy(dx: -2, dy: -2).contains(bounds),
+                      "Fitting must preserve the whole sheet while respecting the viewport's aspect ratio")
     }
 
     @MainActor
@@ -511,6 +550,40 @@ final class NativeEditorPersistenceTests: XCTestCase {
         XCTAssertFalse(editor.busy)
         XCTAssertFalse(editor.hasChanges)
         XCTAssertEqual(editor.controller.canvas.directTouchMode, .drawing)
+    }
+
+    @MainActor
+    func testCancellingPhotoImportPreservesExplicitSelectionBeforeLoadingTheCanvasView() async throws {
+        let started = expectation(description: "Photo download starts while selecting")
+        let returned = expectation(description: "Cancelled selection import releases its waiter")
+        let provider = NSItemProvider()
+        provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { _ in
+            started.fulfill()
+            return Progress(totalUnitCount: 1)
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let editor = NativePaperSession(store: DraftCatalogStore(directory: directory, account: .guest), draft: nil)
+        await editor.load()
+        editor.selecting = true
+        XCTAssertFalse(editor.controller.isViewLoaded)
+        XCTAssertEqual(editor.controller.canvas.directTouchMode, .selection)
+        let task = Task { @MainActor in
+            let image = await editor.loadPhoto(provider)
+            returned.fulfill()
+            return image
+        }
+        await fulfillment(of: [started], timeout: 3)
+        task.cancel()
+        await fulfillment(of: [returned], timeout: 2)
+        let image = await task.value
+
+        XCTAssertNil(image)
+        XCTAssertFalse(editor.busy)
+        XCTAssertFalse(editor.hasChanges)
+        XCTAssertTrue(editor.selecting)
+        XCTAssertEqual(editor.controller.canvas.directTouchMode, .selection,
+                       "Cancelling a photo must retain a person's explicitly chosen input mode")
     }
 
     @MainActor

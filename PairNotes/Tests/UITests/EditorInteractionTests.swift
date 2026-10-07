@@ -37,7 +37,9 @@ final class EditorInteractionTests: XCTestCase {
         let baseline = paper.screenshot()
         attach(baseline, name: "editor-touch-blank")
         let blankInk = try darkPixelCount(baseline.image)
-        draw(on: paper, from: CGVector(dx: 0.2, dy: 0.3), to: CGVector(dx: 0.8, dy: 0.4))
+        // PaperKit leaves workspace around the sheet when its palette is open.
+        // Start each finger gesture inside the visible sheet, not that margin.
+        draw(on: paper, from: CGVector(dx: 0.35, dy: 0.4), to: CGVector(dx: 0.65, dy: 0.42))
         waitUntilEnabled(app.buttons["editor.undo"])
         waitForInk(on: paper, above: blankInk + 100)
         let first = paper.screenshot()
@@ -48,7 +50,7 @@ final class EditorInteractionTests: XCTestCase {
         XCTAssertTrue(mode.waitForExistence(timeout: 5))
         mode.buttons["Seleccionar"].tap()
         mode.buttons["Dibujar"].tap()
-        draw(on: paper, from: CGVector(dx: 0.2, dy: 0.55), to: CGVector(dx: 0.8, dy: 0.65))
+        draw(on: paper, from: CGVector(dx: 0.35, dy: 0.5), to: CGVector(dx: 0.65, dy: 0.52))
         waitForInk(on: paper, above: firstInk + 100)
         let secondInk = try darkPixelCount(paper.screenshot().image)
 
@@ -58,7 +60,7 @@ final class EditorInteractionTests: XCTestCase {
         let cancelPhoto = photoCancelButtons.element(boundBy: photoCancelButtons.count - 1)
         waitUntilHittable(cancelPhoto)
         cancelPhoto.tap()
-        draw(on: paper, from: CGVector(dx: 0.25, dy: 0.72), to: CGVector(dx: 0.75, dy: 0.8))
+        draw(on: paper, from: CGVector(dx: 0.38, dy: 0.6), to: CGVector(dx: 0.62, dy: 0.62))
         waitForInk(on: paper, above: secondInk + 100)
         attach(paper.screenshot(), name: "editor-touch-after-cancel-photo")
 

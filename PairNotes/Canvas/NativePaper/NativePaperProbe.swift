@@ -116,23 +116,24 @@ private final class PaperPhotoLoadOperation: @unchecked Sendable {
         if shouldCancel { progress.cancel() }
     }
 
-    func finish(_ result: Result<Data, Error>) {
+    func finish(_ result: Result<Data, Error>, cancelling: Bool = false) {
         lock.lock()
         guard !finished else { lock.unlock(); return }
         finished = true
         let waiter = continuation
+        let active = progress
         continuation = nil
         progress = nil
         lock.unlock()
         waiter?.resume(with: result)
+        if cancelling { active?.cancel() }
     }
 
     func cancel() {
-        lock.lock()
-        let active = progress
-        lock.unlock()
-        finish(.failure(CancellationError()))
-        active?.cancel()
+        // Claim the waiter and its progress under the same lock. Otherwise
+        // attach() can install a download between reading progress and finish,
+        // releasing the UI while leaving that cloud download uncancelled.
+        finish(.failure(CancellationError()), cancelling: true)
     }
 }
 
@@ -548,7 +549,8 @@ struct NativePaperEditorView: View {
                 }
                 ToolbarItem(placement: .principal) {
                     Button(action: beginRenaming) {
-                        Text(session.title).font(.headline).lineLimit(1).foregroundStyle(.primary)
+                        Text(session.title).font(.headline).lineLimit(1).truncationMode(.tail)
+                            .frame(maxWidth: 120).foregroundStyle(.primary)
                     }
                     .disabled(session.readOnly || working)
                     .accessibilityLabel("Renombrar dibujo: \(session.title)")
