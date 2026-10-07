@@ -63,7 +63,7 @@ struct CoupleView: View {
                             Label("Apariencia", systemImage: "paintpalette")
                         }
                     }
-                    Section("Notificaciones") {
+                    Section {
                         if services.notificationsEnabled {
                             Label("Notificaciones activadas", systemImage: "bell.badge")
                             Menu("Opciones de notificaciones", systemImage: "ellipsis.circle") {
@@ -79,7 +79,7 @@ struct CoupleView: View {
                                 }
                             }
                         }
-                    } footer: { Text("Los avisos no muestran contenido privado.") }
+                    } header: { Text("Notificaciones") } footer: { Text("Los avisos no muestran contenido privado.") }
 
                 } else {
                     invitationSection
