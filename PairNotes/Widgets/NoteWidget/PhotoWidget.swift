@@ -18,13 +18,38 @@ struct PartnerPhotoEntry: TimelineEntry {
     static func empty(_ message: String = "Las fotos de tu pareja aparecerán acá.", at date: Date = Date()) -> Self {
         Self(date: date, photo: nil, authorName: "Tu pareja", image: nil, theme: .rose, cached: false, message: message, interactionMessage: nil)
     }
+
+    @MainActor
+    static func preview(theme: CoupleTheme = .rose, reaction: PhotoReactionKind? = nil,
+                        message: String? = nil) -> Self {
+        let date = Date()
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 320)).image { _ in
+            UIColor(red: 0.82, green: 0.61, blue: 0.66, alpha: 1).setFill()
+            UIBezierPath(rect: CGRect(x: 0, y: 0, width: 240, height: 320)).fill()
+            UIImage(systemName: "heart.fill")?.withTintColor(.white, renderingMode: .alwaysOriginal)
+                .draw(in: CGRect(x: 55, y: 100, width: 130, height: 115))
+        }
+        let id = "50000000-0000-4000-8000-000000000005"
+        let photo = CouplePhoto(id: id, authorId: "preview-partner", recipientId: "preview-viewer",
+                                caption: "Pensando en vos ♡",
+                                photo: CoupleAvatar(id: "60000000-0000-4000-8000-000000000006",
+                                                    sha256: ContentDigest.sha256(image.pngData() ?? Data())),
+                                sentAt: date, reaction: reaction.map {
+                                    PhotoReaction(authorId: "preview-viewer", photoId: id, kind: $0, updatedAt: date)
+                                })
+        return Self(date: date, photo: photo, authorName: "Tu pareja", image: image,
+                    theme: theme, cached: false, message: "", interactionMessage: message)
+    }
 }
 
 struct PartnerPhotoProvider: TimelineProvider {
     func placeholder(in context: Context) -> PartnerPhotoEntry { .empty() }
 
     func getSnapshot(in context: Context, completion: @escaping (PartnerPhotoEntry) -> Void) {
-        if context.isPreview { completion(placeholder(in: context)); return }
+        if context.isPreview {
+            Task { @MainActor in completion(.preview()) }
+            return
+        }
         Task { completion(entry(from: await WidgetRemoteClient.shared.refresh())) }
     }
 
@@ -37,7 +62,7 @@ struct PartnerPhotoProvider: TimelineProvider {
                 entries.append(.empty("Esperando conexión para actualizar…", at: expiry))
             }
             completion(Timeline(entries: entries, policy: .after(min(now.addingTimeInterval(15 * 60),
-                                                                     max(now.addingTimeInterval(30), result.expiresAt ?? now)))))
+                                                                     max(now.addingTimeInterval(30), result.expiresAt ?? now.addingTimeInterval(15 * 60))))))
         }
     }
 
@@ -119,18 +144,25 @@ struct PartnerPhotoWidgetView: View {
     }
 
     private func controls(_ photo: CouplePhoto) -> some View {
-        HStack(spacing: 5) {
+        ViewThatFits(in: .horizontal) {
+            controlRow(photo, size: 34, spacing: 5)
+            controlRow(photo, size: 29, spacing: 3)
+        }
+    }
+
+    private func controlRow(_ photo: CouplePhoto, size: CGFloat, spacing: CGFloat) -> some View {
+        HStack(spacing: spacing) {
             ForEach(PhotoReactionKind.allCases, id: \.rawValue) { kind in
                 Button(intent: PhotoWidgetReactionIntent(photoID: photo.id, assetID: photo.photo.id, kind: kind)) {
-                    PhotoReactionLabel(kind: kind, selected: photo.reaction?.kind == kind, size: 34)
+                    PhotoReactionLabel(kind: kind, selected: photo.reaction?.kind == kind, size: size)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(kind.title)
                 .accessibilityValue(photo.reaction?.kind == kind ? "Reacción enviada" : "")
             }
             Link(destination: URL(string: "pairnotes://camera")!) {
-                Image(systemName: "camera.fill").font(.system(size: 17, weight: .semibold))
-                    .frame(width: 34, height: 34)
+                Image(systemName: "camera.fill").font(.system(size: size / 2, weight: .semibold))
+                    .frame(width: size, height: size)
                     .background(entry.theme.accent.opacity(0.14), in: Circle())
             }
             .buttonStyle(.plain)
@@ -299,3 +331,18 @@ private func activityImage(_ context: ActivityViewContext<PairPhotoActivityAttri
 }
 
 private func photoURL(_ id: String) -> URL { URL(string: "pairnotes://photo/\(id)")! }
+
+#Preview("Foto · mediano", as: .systemMedium) {
+    PartnerPhotoWidget()
+} timeline: {
+    PartnerPhotoEntry.preview()
+    PartnerPhotoEntry.preview(theme: .night, reaction: .heart)
+    PartnerPhotoEntry.preview(message: "No se envió. Tocá la reacción para reintentar.")
+}
+
+#Preview("Foto · grande", as: .systemLarge) {
+    PartnerPhotoWidget()
+} timeline: {
+    PartnerPhotoEntry.preview()
+    PartnerPhotoEntry.preview(theme: .night, reaction: .tear)
+}

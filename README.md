@@ -36,6 +36,10 @@ La [validación inicial](docs/VALIDACION_INICIAL.md) y [CI](docs/CI_GITHUB_ACTIO
 
 ## Pruebas
 
+La rama `fix/editor-input-photo-widgets` corrige la coordinación del lienzo con la paleta de PaperKit y usa un selector de fotos con cierre secuencial antes del recorte en Crear, Perfil, Recuerdos y Cartitas. Agrega fotos directas desde Inicio o `pairnotes://camera`, reacciones desde un widget mediano/grande y una Live Activity temporal para mostrar la foto en la pantalla bloqueada. El widget de distancia acerca/separa los avatares con datos recientes y conserva estados de ubicación pausada o vencida. Estos cambios requieren una nueva compilación de la app y el backend actualizado; la beta instalada `1.0 (7.1)` conserva el comportamiento anterior.
+
+El diseño sigue la documentación oficial de Apple para [widgets](https://developer.apple.com/design/human-interface-guidelines/widgets), [interacciones con App Intents](https://developer.apple.com/documentation/widgetkit/adding-interactivity-to-widgets-and-live-activities), [Live Activities](https://developer.apple.com/documentation/activitykit/displaying-live-data-with-live-activities) y [acceso a la cámara](https://developer.apple.com/documentation/avfoundation/requesting-authorization-to-capture-and-save-media). La cámara se abre en la app y permite revisar antes de enviar. La tarjeta de bloqueo se inicia desde la foto con «Mostrar en pantalla bloqueada»; dura hasta ocho horas, y se cierra al cambiar la cuenta/pareja o la foto actual. Las actualizaciones de widgets siguen bajo control de iOS.
+
 Core portable con Swift completo:
 
 ```bash

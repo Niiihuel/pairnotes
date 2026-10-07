@@ -20,7 +20,8 @@ expected_sources = {
                   'PairNotes/Canvas/**/*.swift', 'PairNotes/Services/**/*.swift', 'PairNotes/Widgets/SharedSnapshot/**/*.swift'],
   'PairNotesWidgets' => ['PairNotes/Widgets/**/*.swift'],
   'PairNotesCore' => ['PairNotes/Core/**/*.swift'],
-  'PairNotesNativeTests' => ['PairNotes/Tests/NativeTests/**/*.swift']
+  'PairNotesNativeTests' => ['PairNotes/Tests/NativeTests/**/*.swift'],
+  'PairNotesUITests' => ['PairNotes/Tests/UITests/**/*.swift']
 }
 targets = project.targets.to_h { |target| [target.name, target] }
 check.call(targets.keys.sort == expected_sources.keys.sort, 'unexpected or missing targets')
@@ -49,6 +50,7 @@ core = targets.fetch('PairNotesCore')
 app = targets.fetch('PairNotes')
 widget = targets.fetch('PairNotesWidgets')
 tests = targets.fetch('PairNotesNativeTests')
+ui_tests = targets.fetch('PairNotesUITests')
 expected_packages = {
   'https://github.com/google/GoogleSignIn-iOS.git' => '9.2.0'
 }
@@ -58,7 +60,7 @@ packages.each do |package|
   check.call(package.requirement == { 'kind' => 'exactVersion', 'version' => expected_packages[package.repositoryURL] }, 'SDK versions must be exact and reviewed')
 end
 check.call(app.package_product_dependencies.map(&:product_name) == %w[GoogleSignIn], 'only Google Sign-In belongs to the app')
-[core, widget, tests].each do |target|
+[core, widget, tests, ui_tests].each do |target|
   check.call(target.package_product_dependencies.empty?, "#{target.name} must not link service SDKs")
 end
 check.call(project.files.none? { |file| file.path.to_s.include?('GoogleService-Info') }, 'no abandoned Firebase configuration')
@@ -136,6 +138,11 @@ tests.build_configurations.each do |configuration|
   check.call(configuration.build_settings['TEST_HOST'] == '$(BUILT_PRODUCTS_DIR)/PairNotes.app/PairNotes', 'native test host')
   check.call(configuration.build_settings['BUNDLE_LOADER'] == '$(TEST_HOST)', 'native bundle loader')
 end
+check.call(ui_tests.dependencies.any? { |dependency| dependency.target == app }, 'UI tests must depend on the app they launch')
+ui_tests.build_configurations.each do |configuration|
+  check.call(configuration.build_settings['TEST_TARGET_NAME'] == 'PairNotes', 'UI test launch target')
+  check.call(configuration.build_settings['TEST_HOST'].nil?, 'UI tests must execute in their own runner')
+end
 
 scheme = REXML::Document.new(File.read('PairNotes.xcodeproj/xcshareddata/xcschemes/PairNotes.xcscheme'))
 scheme.elements.each('//BuildableReference') do |reference|
@@ -143,9 +150,10 @@ scheme.elements.each('//BuildableReference') do |reference|
   check.call(!target.nil?, 'scheme refers to an unknown target')
   check.call(reference.attributes['BuildableName'] == target.product_reference.path, 'scheme product name differs')
 end
-testable = scheme.elements['//TestAction/Testables/TestableReference']
-check.call(testable && testable.attributes['skipped'] == 'NO', 'native tests must be enabled')
-check.call(testable.elements['BuildableReference'].attributes['BlueprintIdentifier'] == tests.uuid, 'scheme must execute native tests')
+testables = scheme.get_elements('//TestAction/Testables/TestableReference')
+check.call(testables.all? { |testable| testable.attributes['skipped'] == 'NO' }, 'all test bundles must be enabled')
+check.call(testables.map { |testable| testable.elements['BuildableReference'].attributes['BlueprintIdentifier'] }.sort == [tests.uuid, ui_tests.uuid].sort,
+           'scheme must execute native tests and real editor interaction UI tests')
 
 Dir.glob('PairNotes/Core/**/*.swift').each do |path|
   check.call(!File.read(path).match?(/^import (UIKit|SwiftUI|PaperKit|PencilKit|WidgetKit|PhotosUI|Firebase\w*|GoogleSignIn)\b/), "platform dependency in #{path}")

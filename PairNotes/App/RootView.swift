@@ -196,11 +196,11 @@ struct RootView: View {
     private func openNote(_ note: RemoteNote) { routeNote(note.id) }
 
     private func openCamera(capture: Bool) {
+        pendingPhotoID = nil; pendingNoteID = nil
         guard services.identity != nil, services.membershipResolved, services.membership != nil else {
             pendingCamera = true; selectedTab = .couple; return
         }
         cameraRequested = capture
-        pendingPhotoID = nil
         if editor != nil || noteRoute != nil || photoRoute != nil || lettersShowing || messagesShowing {
             pendingCamera = true
             editor = nil; noteRoute = nil; photoRoute = nil; lettersShowing = false; messagesShowing = false
@@ -211,30 +211,36 @@ struct RootView: View {
         guard services.membership != nil, editor == nil, noteRoute == nil,
               photoRoute == nil, !cameraShowing, !lettersShowing, !messagesShowing else { return }
         if let id = pendingPhotoID { pendingPhotoID = nil; routePhoto(id) }
+        else if let id = pendingNoteID { pendingNoteID = nil; routeNote(id) }
         else if pendingCamera { pendingCamera = false; cameraShowing = true }
     }
 
     private func routePhoto(_ id: String) {
         guard let uuid = UUID(uuidString: id) else { return }
+        pendingCamera = false; pendingNoteID = nil
         guard services.identity != nil, services.membershipResolved, services.membership != nil else {
             pendingPhotoID = uuid.uuidString.lowercased(); selectedTab = .couple; return
         }
-        pendingCamera = false
-        if editor != nil || noteRoute != nil || cameraShowing || lettersShowing || messagesShowing {
+        if photoRoute?.id == uuid.uuidString.lowercased() { return }
+        if editor != nil || noteRoute != nil || photoRoute != nil || cameraShowing || lettersShowing || messagesShowing {
             pendingPhotoID = uuid.uuidString.lowercased()
-            editor = nil; noteRoute = nil; cameraShowing = false; lettersShowing = false; messagesShowing = false
+            editor = nil; noteRoute = nil; photoRoute = nil; cameraShowing = false; lettersShowing = false; messagesShowing = false
         } else { pendingPhotoID = nil; photoRoute = PhotoRoute(id: uuid.uuidString.lowercased()) }
     }
 
     private func routeNote(_ id: String) {
         guard let uuid = UUID(uuidString: id) else { return }
+        pendingCamera = false; pendingPhotoID = nil
         guard services.identity != nil, services.membershipResolved, services.membership != nil else {
             pendingNoteID = uuid.uuidString.lowercased()
             selectedTab = .couple
             return
         }
-        pendingNoteID = nil
-        noteRoute = NoteRoute(id: uuid.uuidString.lowercased())
+        if noteRoute?.id == uuid.uuidString.lowercased() { return }
+        if editor != nil || photoRoute != nil || noteRoute != nil || cameraShowing || lettersShowing || messagesShowing {
+            pendingNoteID = uuid.uuidString.lowercased()
+            editor = nil; photoRoute = nil; noteRoute = nil; cameraShowing = false; lettersShowing = false; messagesShowing = false
+        } else { pendingNoteID = nil; noteRoute = NoteRoute(id: uuid.uuidString.lowercased()) }
     }
 
     private func synchronizeWidgets() async {

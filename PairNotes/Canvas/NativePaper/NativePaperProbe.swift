@@ -40,26 +40,26 @@ enum PaperPhotoImport {
         let operation = PaperPhotoLoadOperation()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                operation.begin(continuation)
+                guard operation.begin(continuation) else { return }
                 let progress = provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, error in
-                do {
-                    if let error { throw error }
-                    guard let url else { throw Failure.unreadable }
-                    let values = try url.resourceValues(forKeys: [.fileSizeKey])
-                    guard let size = values.fileSize, size > 0 else { throw Failure.unreadable }
-                    guard size <= maximumInputBytes else { throw Failure.tooLarge }
-                    guard let source = CGImageSourceCreateWithURL(url as CFURL, [
-                        kCGImageSourceShouldCache: false
-                    ] as CFDictionary) else { throw Failure.unreadable }
-                    let image = try thumbnail(source)
-                    let data = NSMutableData()
-                    guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
-                        throw Failure.unreadable
-                    }
-                    CGImageDestinationAddImage(destination, image, nil)
-                    guard CGImageDestinationFinalize(destination) else { throw Failure.unreadable }
-                    operation.finish(.success(data as Data))
-                } catch { operation.finish(.failure(error)) }
+                    do {
+                        if let error { throw error }
+                        guard let url else { throw Failure.unreadable }
+                        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+                        guard let size = values.fileSize, size > 0 else { throw Failure.unreadable }
+                        guard size <= maximumInputBytes else { throw Failure.tooLarge }
+                        guard let source = CGImageSourceCreateWithURL(url as CFURL, [
+                            kCGImageSourceShouldCache: false
+                        ] as CFDictionary) else { throw Failure.unreadable }
+                        let image = try thumbnail(source)
+                        let data = NSMutableData()
+                        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
+                            throw Failure.unreadable
+                        }
+                        CGImageDestinationAddImage(destination, image, nil)
+                        guard CGImageDestinationFinalize(destination) else { throw Failure.unreadable }
+                        operation.finish(.success(data as Data))
+                    } catch { operation.finish(.failure(error)) }
                 }
                 operation.attach(progress)
             }
@@ -95,14 +95,16 @@ private final class PaperPhotoLoadOperation: @unchecked Sendable {
     private var progress: Progress?
     private var finished = false
 
-    func begin(_ continuation: CheckedContinuation<Data, Error>) {
+    func begin(_ continuation: CheckedContinuation<Data, Error>) -> Bool {
         lock.lock()
         if finished {
             lock.unlock()
             continuation.resume(throwing: CancellationError())
+            return false
         } else {
             self.continuation = continuation
             lock.unlock()
+            return true
         }
     }
 

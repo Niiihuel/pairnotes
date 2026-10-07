@@ -88,6 +88,7 @@ struct ReceivedNoteWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .privacySensitive()
         .containerBackground(.background, for: .widget)
         .widgetURL(entry.noteID.flatMap { URL(string: "pairnotes://note/\($0.uuidString.lowercased())") }
                    ?? URL(string: "pairnotes://couple"))

@@ -58,7 +58,7 @@ private struct CoupleWidgetView: View {
     let entry: CoupleEntry
     let content: CoupleWidgetContent
     private var theme: CoupleTheme { entry.snapshot?.personalization?.theme ?? .rose }
-    private var accessory: Bool { family == .accessoryRectangular }
+    private var accessory: Bool { family == .accessoryRectangular || family == .accessoryCircular }
 
     private var title: String {
         switch content {
@@ -72,7 +72,7 @@ private struct CoupleWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: accessory ? 2 : 7) {
-            if !(accessory && (content == .distance || content == .message)) {
+            if !(accessory && (content == .distance || content == .message || content == .together)) {
                 Label(title, systemImage: content == .message ? "bubble.left.fill" : "heart")
                     .font(accessory ? .caption.weight(.semibold) : .headline).lineLimit(1)
             }
@@ -129,9 +129,20 @@ private struct CoupleWidgetView: View {
             } else { Text("Tu próximo mensaje recibido aparecerá acá.").font(.caption).lineLimit(2) }
         case .together:
             if let started = snapshot.startedOn, let days = started.daysTogether(on: entry.date) {
-                Text("\(days) días juntos").font(accessory ? .headline : .title2.bold()).minimumScaleFactor(0.7).lineLimit(1)
-                if let date = started.date() {
-                    Text(date, format: .dateTime.day().month(.abbreviated).year()).font(.caption2).foregroundStyle(.secondary)
+                if accessory {
+                    VStack(spacing: 0) {
+                        Image(systemName: "heart.fill").font(.caption)
+                            .overlay(alignment: .topTrailing) {
+                                Image(systemName: "heart.fill").font(.system(size: 8)).offset(x: 4, y: -2)
+                            }
+                        Text(days.formatted(.number.grouping(.never))).font(.headline.bold()).lineLimit(1).minimumScaleFactor(0.85)
+                        Text("días juntos").font(.caption2).lineLimit(1)
+                    }.frame(maxWidth: .infinity)
+                } else {
+                    Text("\(days) días juntos").font(.title2.bold()).minimumScaleFactor(0.7).lineLimit(1)
+                    if let date = started.date() {
+                        Text(date, format: .dateTime.day().month(.abbreviated).year()).font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
             } else { Text("Elegí su fecha en Nosotros.").font(.caption).lineLimit(2) }
         case .anniversary:
@@ -232,7 +243,7 @@ struct TogetherWidget: Widget {
         }
         .configurationDisplayName("Juntos desde")
         .description("Días del calendario desde su fecha elegida.")
-        .supportedFamilies([.systemSmall, .accessoryRectangular])
+        .supportedFamilies([.systemSmall, .accessoryCircular, .accessoryRectangular])
         .pushHandler(PairNotesWidgetPushHandler.self)
     }
 }
