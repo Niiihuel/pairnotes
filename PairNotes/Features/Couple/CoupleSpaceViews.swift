@@ -49,7 +49,7 @@ struct TogetherSettingsView: View {
                     set: { enabled in Task { await reminders.setEnabled(enabled, services: services) } }))
                     .disabled(services.coupleSpace?.startedOn == nil || reminders.working)
             } footer: {
-                Text("Opcional, en este iPhone. A las 9:00 del día que cumplen cada mes: 1, 2, 3… En meses más cortos, el aviso cae en el último día. Tu pareja puede activarlo por separado.")
+                Text("Sólo en este iPhone.")
             }
             if let error = reminders.errorMessage { Text(error).foregroundStyle(.red) }
         }
@@ -124,10 +124,10 @@ struct DistanceSummary: View {
                 if let distance, let meters = distance.displayMeters(at: context.date) {
                     Text(meters < 1_000 ? "Aproximadamente \(Int(meters)) m" : "Aproximadamente \((meters / 1_000).formatted(.number.precision(.fractionLength(1)))) km")
                     if distance.displayStatus(at: context.date) == .stale {
-                        Text("Última distancia · necesita actualizarse").font(.caption)
+                        Text("Sin actualizar").font(.caption)
                     }
                 } else {
-                    Text(distance?.status == .disabled ? "Compartir distancia es opcional" : "Esperando una ubicación reciente de ambos")
+                    Text(distance?.status == .disabled ? "Distancia pausada" : "Esperando ubicación")
                 }
                 if let date = distance?.updatedAt {
                     Text("Actualizada \(date.formatted(.relative(presentation: .named)))").font(.caption)
@@ -139,6 +139,7 @@ struct DistanceSummary: View {
 
 struct DistanceSettingsView: View {
     @ObservedObject var services: AppServices
+    var isPresentedModally = false
     @ObservedObject private var location = LocationSharingController.shared
     @Environment(\.dismiss) private var dismiss
     var body: some View {
@@ -160,14 +161,17 @@ struct DistanceSettingsView: View {
                     }
                 }
             } footer: {
-                Text("Cada uno decide si comparte. Se actualiza al usar la app y sólo se conserva la última ubicación para calcular una distancia aproximada. A los 30 minutos dejamos de mostrar el número. Tu pareja y el widget no reciben tus coordenadas.")
+                Text("Compartís una distancia aproximada al usar la app. Vence a los 30 minutos; tu pareja no recibe tus coordenadas.")
             }
             if location.working { ProgressView("Actualizando…") }
             if let message = location.message { Text(message).font(.footnote) }
-            Section { Text("Agregá «Nuestra distancia» a la pantalla de bloqueo. iOS decide cuándo actualizar el widget.").font(.footnote).foregroundStyle(.secondary) }
         }
         .navigationTitle("Nuestra distancia").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Listo") { dismiss() } } }
+        .toolbar {
+            if isPresentedModally {
+                ToolbarItem(placement: .confirmationAction) { Button("Listo") { dismiss() } }
+            }
+        }
     }
 }
 
@@ -196,14 +200,14 @@ struct TogetherDateEditor: View {
                 Section {
                     DatePicker("Juntos desde", selection: $date, in: ...Date(), displayedComponents: .date)
                         .datePickerStyle(.graphical).onChange(of: date) { _, _ in dateTouched = true }
-                } footer: { Text("Esta fecha es compartida. Aparece en Inicio y en el widget «Juntos desde».") }
+                }
                 Section {
                     Toggle("Avisarme cada mes", isOn: Binding(
                         get: { reminders.isEnabled(services: services) },
                         set: { enabled in Task { await reminders.setEnabled(enabled, services: services) } }))
                         .disabled(initial == nil || changed || saving || reminders.working)
                 } footer: {
-                    Text(initial == nil || changed ? "Guardá la fecha para activar los avisos mensuales." : "Un aviso en este iPhone a las 9:00 cuando cumplan 1, 2, 3 meses… Si el mes no tiene ese día, se usa su último día.")
+                    Text(initial == nil || changed ? "Guardá la fecha para activar avisos." : "Sólo en este iPhone.")
                 }
                 if let text = error ?? reminders.errorMessage { Text(text).foregroundStyle(.red) }
             }
@@ -265,16 +269,16 @@ struct MessageComposer: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Algo que quieras decirle…", text: $text, axis: .vertical).lineLimit(5...12).focused($focused)
-                    HStack { Spacer(); Text("\(text.utf16.count)/500").font(.caption).foregroundStyle(text.utf16.count > 500 ? .red : .secondary) }
-                } header: { Text("Para \(services.membership?.partner.displayName ?? "tu pareja")") } footer: {
-                    Text("Tu pareja podrá leerlo en la app y en su widget «Tu mensaje».")
-                }
+                    TextField("Tu mensaje…", text: $text, axis: .vertical).lineLimit(6...14).focused($focused)
+                    if text.utf16.count > 400 {
+                        HStack { Spacer(); Text("\(text.utf16.count)/500").font(.caption).foregroundStyle(text.utf16.count > 500 ? .red : .secondary) }
+                    }
+                } header: { Text("Para \(services.partnerNickname)") }
                 if let error { Text(error).foregroundStyle(.red) }
                 if sending { ProgressView("Enviando…") }
             }
             .disabled(sending)
-            .navigationTitle("Un mensaje").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Mensaje").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cerrar") { if clean.isEmpty { finished = true; storage.clear(); dismiss() } else { discard = true } }.disabled(sending)
@@ -284,8 +288,8 @@ struct MessageComposer: View {
                 }
             }
             .interactiveDismissDisabled(sending || !clean.isEmpty)
-            .confirmationDialog("Tu mensaje todavía no está enviado", isPresented: $discard, titleVisibility: .visible) {
-                Button("Guardar borrador y salir") { if persistMessage() { dismiss() } }
+            .confirmationDialog("¿Guardar el borrador?", isPresented: $discard, titleVisibility: .visible) {
+                Button("Guardar y salir") { if persistMessage() { dismiss() } }
                 Button("Descartar", role: .destructive) { finished = true; storage.clear(); dismiss() }
                 Button("Seguir escribiendo", role: .cancel) {}
             }
@@ -310,7 +314,7 @@ struct MessageComposer: View {
         Task { @MainActor in
             defer { sending = false }
             do { try await services.sendMessage(id: messageID, text: captured); finished = true; storage.clear(); dismiss() }
-            catch { self.error = "No se pudo confirmar el envío. Podés reintentar sin duplicar el mismo mensaje." }
+            catch { self.error = "No se pudo confirmar el envío. Reintentá." }
         }
     }
 }

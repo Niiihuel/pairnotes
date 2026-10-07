@@ -68,15 +68,42 @@ final class ServiceConfigurationTests: XCTestCase {
         XCTAssertEqual(controller.duration, 0)
         XCTAssertFalse(controller.playing)
 
+        // Preparing an offscreen row and releasing its controller must leave
+        // the chosen audio playing. Choosing another row switches playback.
+        let sessionURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: sessionURL) }
+        do {
+            let file = try AVAudioFile(forWriting: sessionURL, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
+            for _ in 0..<8 { try file.write(from: buffer) }
+        }
+        let sessionData = try Data(contentsOf: sessionURL)
+        let idleRow = VoiceNoteController()
+        defer { controller.stopAll(); idleRow.stopAll() }
+        controller.play(sessionData)
+        XCTAssertNil(controller.error)
+        XCTAssertTrue(controller.playing)
+        try await Task.sleep(for: .milliseconds(150))
+        let beforeIdlePreparation = controller.elapsed
+        idleRow.prepare(sessionData)
+        idleRow.stopAll()
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertTrue(controller.playing)
+        XCTAssertGreaterThan(controller.elapsed, beforeIdlePreparation,
+            "Preparing or releasing another row must not deactivate the active audio session")
+        idleRow.play(sessionData)
+        XCTAssertNil(idleRow.error)
+        XCTAssertTrue(idleRow.playing)
+        XCTAssertFalse(controller.playing, "Only the selected row should play")
+        idleRow.stopAll()
+        controller.stopAll()
+
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.keyWindow
         for appearance in [UIUserInterfaceStyle.light, .dark] {
             let content = VStack(alignment: .leading, spacing: 24) {
-                Text("Un poquito de tu voz").font(.system(.title, design: .serif))
-                VoicePlaybackControls(player: controller, data: data, title: "Así va a escuchar tu voz")
+                Text("Audios").font(.title.bold())
+                VoicePlaybackControls(player: controller, data: data, title: "Tu audio")
                     .padding(20).background(CoupleTheme.rose.card, in: RoundedRectangle(cornerRadius: 22))
-                Text("Opcional · hasta 1 minuto. Tu pareja lo escuchará al abrir la carta.")
-                    .font(.footnote).foregroundStyle(.secondary)
             }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CoupleTheme.rose.canvas).tint(CoupleTheme.rose.accent)
             let host = UIHostingController(rootView: content)

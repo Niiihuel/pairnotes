@@ -19,14 +19,6 @@ struct CoupleView: View {
 
     var body: some View {
         List {
-            if services.membership != nil {
-                Section {
-                    NavigationLink { PersonalizationView(services: services) } label: {
-                        Label("A su manera", systemImage: "paintpalette")
-                    }
-                } header: { Text("Su pequeño mundo") } footer: { Text("Tema, apodos, portada y sus palabras.") }
-            }
-
             if let identity = services.identity {
                 Section("Tu perfil") {
                     Button { sheet = .profile } label: {
@@ -43,7 +35,7 @@ struct CoupleView: View {
                     }.accessibilityIdentifier("couple.editProfile")
                 }
                 if !services.membershipResolved {
-                    Section { ProgressView("Consultando la pareja vinculada…") }
+                    Section { ProgressView().accessibilityLabel("Buscando tu pareja") }
                 } else if let pair = services.membership {
                     Section {
                         CouplePortraits(services: services)
@@ -59,21 +51,19 @@ struct CoupleView: View {
                                 Image(systemName: "ellipsis.circle")
                             }.buttonStyle(.borderless).accessibilityLabel("Opciones de pareja")
                         }
-                    } header: { Text("Vinculados") } footer: {
-                        Text("Los dibujos se comparten entre estas dos cuentas.")
-                    }
-                    Section("Su historia") {
+                    } header: { Text("Tu pareja") }
+                    Section("Ajustes compartidos") {
                         NavigationLink { TogetherSettingsView(services: services) } label: {
-                            Label("Juntos desde y avisos mensuales", systemImage: "calendar.badge.clock")
+                            Label("Nuestra fecha", systemImage: "calendar.badge.clock")
                         }
                         NavigationLink { DistanceSettingsView(services: services) } label: {
                             Label("Nuestra distancia", systemImage: "location.circle")
                         }
-                        NavigationLink { MessagesView(services: services) } label: {
-                            Label("Nuestros mensajes", systemImage: "bubble.left.and.text.bubble.right")
+                        NavigationLink { PersonalizationView(services: services) } label: {
+                            Label("Apariencia", systemImage: "paintpalette")
                         }
                     }
-                    Section("Avisos de dibujos y mensajes") {
+                    Section("Notificaciones") {
                         if services.notificationsEnabled {
                             Label("Notificaciones activadas", systemImage: "bell.badge")
                             Menu("Opciones de notificaciones", systemImage: "ellipsis.circle") {
@@ -89,9 +79,7 @@ struct CoupleView: View {
                                 }
                             }
                         }
-                        Text("Recibirás un aviso cuando tu pareja envíe un dibujo o mensaje. La notificación no incluye su contenido privado.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
+                    } footer: { Text("Los avisos no muestran contenido privado.") }
 
                 } else {
                     invitationSection
@@ -106,7 +94,7 @@ struct CoupleView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 14) {
                         Text("Un espacio para los dos").font(.title2.bold())
-                        Text("Iniciá sesión para vincular sus cuentas y enviarse dibujos. Tus borradores locales se pueden usar desde Crear.")
+                        Text("Iniciá sesión para vincular sus cuentas.").foregroundStyle(.secondary)
                         AppleAccountButton { perform { try await services.signInApple(presentationAnchor: try presentationWindow()) } }
                             .frame(height: 46)
                         Button("Continuar con Google") {
@@ -118,7 +106,7 @@ struct CoupleView: View {
                     Section { Text(setup).font(.footnote).foregroundStyle(.secondary) }
                 }
             }
-            if busy { Section { ProgressView("Procesando…") } }
+            if busy { Section { ProgressView().accessibilityLabel("Procesando") } }
             if let text = message ?? services.lastError {
                 Section { Text(text).font(.footnote).accessibilityIdentifier("couple.status") }
             }
@@ -372,14 +360,14 @@ private struct ProfileEditor: View {
                         Button("Quitar foto", systemImage: "trash", role: .destructive) { photoData = nil; removePhoto = true }
                     }
                     if loadingPhoto { ProgressView("Preparando foto…") }
-                } footer: { Text("Tu foto será visible sólo para tu pareja y en sus widgets.") }
+                } footer: { Text("Visible para tu pareja y sus widgets.") }
                 Section {
                     TextField("Tu nombre", text: $name)
                         .textContentType(.nickname).textInputAutocapitalization(.words)
                         .focused($nameFocused).submitLabel(.done).onSubmit { save() }
                         .accessibilityIdentifier("couple.profileName")
                 } header: { Text("Nombre") } footer: {
-                    Text("Así te verá tu pareja. Hasta 60 caracteres.")
+                    if name.utf16.count > 50 { Text("\(name.utf16.count)/60") }
                 }
                 if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
                 if saving { Section { ProgressView("Guardando…") } }

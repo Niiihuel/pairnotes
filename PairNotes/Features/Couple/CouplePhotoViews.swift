@@ -16,11 +16,10 @@ struct CouplePhotoCard: View {
                 else { Image(systemName: "photo.fill").font(.title).frame(maxWidth: .infinity, maxHeight: .infinity).background(.quaternary) }
             }.frame(width: 80, height: 100).clipShape(RoundedRectangle(cornerRadius: 16))
             VStack(alignment: .leading, spacing: 6) {
-                Text("Una foto de \(services.partnerNickname)").font(.headline)
-                Text(photo.caption.isEmpty ? "Un pequeño momento para vos" : photo.caption)
-                    .font(.subheadline).lineLimit(3)
-                Label(photo.reaction == nil ? "Tocá para reaccionar" : "Tu reacción \(photo.reaction!.kind.symbol)",
-                      systemImage: "heart.bubble").font(.caption).foregroundStyle(.secondary)
+                Text("De \(services.partnerNickname)").font(.headline)
+                if !photo.caption.isEmpty { Text(photo.caption).font(.subheadline).lineLimit(3) }
+                Text(photo.sentAt, format: .dateTime.day().month().hour().minute()).font(.caption).foregroundStyle(.secondary)
+                if let reaction = photo.reaction { Text(reaction.kind.symbol).font(.title3) }
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right").foregroundStyle(.secondary)
@@ -67,7 +66,6 @@ struct CouplePhotoDetailView: View {
                     }
                     if !photo.caption.isEmpty { Text(photo.caption).font(.title3).privacySensitive() }
                     if photo.recipientId == services.identity?.uid {
-                        Text("Decile lo que te hizo sentir").font(.subheadline).foregroundStyle(.secondary)
                         HStack(spacing: 12) {
                             ForEach(PhotoReactionKind.allCases, id: \.self) { kind in
                                 Button { react(kind, photo: photo) } label: {
@@ -83,8 +81,6 @@ struct CouplePhotoDetailView: View {
                             .buttonStyle(.borderedProminent).frame(minHeight: 44)
                         Button("Mostrar en pantalla bloqueada", systemImage: "lock.rectangle") { startActivity(photo) }
                             .buttonStyle(.bordered).disabled(showingActivity)
-                        Text("La tarjeta incluye reacciones y cámara. iOS la mantiene por un tiempo limitado.")
-                            .font(.footnote).foregroundStyle(.secondary)
                     } else if let reaction = photo.reaction {
                         Text("\(services.partnerNickname) reaccionó \(reaction.kind.symbol)").font(.headline)
                     }
@@ -96,7 +92,7 @@ struct CouplePhotoDetailView: View {
                 }
             }.padding(20)
         }
-        .navigationTitle("Una foto para vos").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Foto").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { dismiss() } } }
         .task(id: scope) { await load() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await load() } } }

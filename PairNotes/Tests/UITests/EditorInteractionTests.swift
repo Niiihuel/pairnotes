@@ -5,12 +5,39 @@ import UIKit
 /// Native model/render tests cannot establish that UIKit receives these touches.
 final class EditorInteractionTests: XCTestCase {
     @MainActor
+    func testGuestNavigationSeparatesCollectionsFromDrawingAndAccountSettings() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_AR"]
+        app.launch()
+        let tabs = app.tabBars
+        for title in ["Inicio", "Dibujos", "Recuerdos", "Para vos", "Nosotros"] {
+            XCTAssertTrue(tabs.buttons[title].waitForExistence(timeout: 15), "Missing destination: \(title)")
+        }
+        tabs.buttons["Para vos"].tap()
+        XCTAssertTrue(app.navigationBars["Para vos"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Vincular"].exists)
+        XCTAssertFalse(app.buttons["Nuevo dibujo"].exists)
+        tabs.buttons["Dibujos"].tap()
+        XCTAssertTrue(app.buttons["Nuevo dibujo"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["affection.cartas"].exists)
+        tabs.buttons["Recuerdos"].tap()
+        XCTAssertTrue(app.navigationBars["Recuerdos"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["affection.cartas"].exists)
+        XCTAssertTrue(tabs.buttons["Para vos"].exists, "The tab bar stays visible in each collection")
+        tabs.buttons["Nosotros"].tap()
+        XCTAssertTrue(app.navigationBars["Nosotros"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Mensajes"].exists)
+        attach(app.screenshot(), name: "separated-guest-navigation")
+    }
+
+    @MainActor
     func testFingerDrawingSurvivesModesPhotoCancellationAndSaveReopen() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_AR"]
         app.launch()
-        let create = app.tabBars.buttons["Crear"]
+        let create = app.tabBars.buttons["Dibujos"]
         XCTAssertTrue(create.waitForExistence(timeout: 15))
         create.tap()
         let newDrawing = app.buttons["Nuevo dibujo"]
