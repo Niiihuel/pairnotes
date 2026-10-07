@@ -125,7 +125,8 @@ struct PersonalStickerLibrary: View {
     let onInsert: (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var stickers: [(id: String, image: UIImage)] = []
-    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var choosingPhoto = false
+    @State private var pendingPhotoProvider: NSItemProvider?
     @State private var crop: SelectedPhotoCrop?
     @State private var prepared: UIImage?
     @State private var circle = false
@@ -186,7 +187,7 @@ struct PersonalStickerLibrary: View {
                                     } preview: { Image(uiImage: sticker.image).resizable().scaledToFit().frame(width: 240, height: 240) }
                             }
                         }
-                        PhotosPicker(selection: $selectedPhoto, matching: .images) { Label("Crear desde una foto", systemImage: "photo.badge.plus") }
+                        Button("Crear desde una foto", systemImage: "photo.badge.plus") { choosingPhoto = true }
                             .buttonStyle(.bordered)
                         Text("Se guardan en este iPhone, separados por cuenta. Mantené apretado un sticker para eliminarlo.")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -210,21 +211,34 @@ struct PersonalStickerLibrary: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Listo") { dismiss() }.disabled(busy) } }
                 .interactiveDismissDisabled(busy)
                 .task { await reload() }
-                .task(id: selectedPhoto) {
-                    guard let item = selectedPhoto else { return }
-                    busy = true
-                    defer { busy = false }
-                    do {
-                        guard let data = try await item.loadTransferable(type: Data.self), !Task.isCancelled,
-                              let image = UIImage(data: try SelectedPhoto.jpeg(data)) else { return }
-                        crop = SelectedPhotoCrop(image: image)
-                    } catch { self.error = "No se pudo abrir la foto." }
+                .sheet(isPresented: $choosingPhoto, onDismiss: importSelectedPhoto) {
+                    PaperPhotoPicker { provider in
+                        pendingPhotoProvider = provider
+                        choosingPhoto = false
+                    }
                 }
                 .fullScreenCover(item: $crop) { item in
-                    PhotoCropEditor(image: item.image, onCancel: { crop = nil; selectedPhoto = nil }, onConfirm: {
-                        prepared = $0; crop = nil; selectedPhoto = nil
+                    PhotoCropEditor(image: item.image, onCancel: { crop = nil }, onConfirm: {
+                        prepared = $0; crop = nil
                     })
                 }
+        }
+    }
+
+    private func importSelectedPhoto() {
+        guard let provider = pendingPhotoProvider else { return }
+        pendingPhotoProvider = nil
+        busy = true
+        error = nil
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let data = try await PaperPhotoImport.loadData(from: provider)
+                try Task.checkCancellation()
+                crop = SelectedPhotoCrop(image: try PaperPhotoImport.decode(data))
+            } catch {
+                self.error = (error as? PaperPhotoImport.Failure)?.message ?? "No se pudo descargar la foto. Revisá la conexión y reintentá."
+            }
         }
     }
 

@@ -14,6 +14,7 @@ private struct EditorRoute: Identifiable {
     let pairEpoch: UInt64?
 }
 private struct NoteRoute: Identifiable { let id: String }
+private struct PhotoRoute: Identifiable { let id: String }
 
 struct RootView: View {
     @StateObject private var services = AppServices.shared
@@ -22,6 +23,11 @@ struct RootView: View {
     @State private var selectedTab: AppTab = .home
     @State private var editor: EditorRoute?
     @State private var noteRoute: NoteRoute?
+    @State private var photoRoute: PhotoRoute?
+    @State private var cameraShowing = false
+    @State private var cameraRequested = false
+    @State private var pendingCamera = false
+    @State private var pendingPhotoID: String?
     @State private var pendingNoteID: String?
     @State private var synchronizingWidgets = false
     @State private var widgetSyncedScope: String?
@@ -39,7 +45,8 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                HomeView(model: model, createNote: { openDraft(nil) }, openNote: openNote)
+                HomeView(model: model, createNote: { openDraft(nil) }, openNote: openNote,
+                         createPhoto: { openCamera(capture: false) }, openPhoto: routePhoto)
             }.tabItem { Label("Inicio", systemImage: "house") }.tag(AppTab.home)
             NavigationStack {
                 DraftLibraryView(model: model, openDraft: openDraft, openNote: openNote)
@@ -53,7 +60,7 @@ struct RootView: View {
         }
         .tint(services.personalization.theme.accent)
         .preferredColorScheme(services.personalization.theme == .night ? .dark : nil)
-        .sheet(item: $editor, onDismiss: { Task { await model.reloadDrafts() } }) { route in
+        .sheet(item: $editor, onDismiss: { Task { await model.reloadDrafts() }; presentPendingRoute() }) { route in
             NativePaperEditorView(store: route.store, draft: route.draft, theme: services.personalization.theme,
                                   onSaved: { Task { await model.reloadDrafts() } },
                                   onSend: { archive in
@@ -65,16 +72,23 @@ struct RootView: View {
                 return queued
             })
         }
-        .sheet(item: $noteRoute) { route in
+        .sheet(item: $noteRoute, onDismiss: presentPendingRoute) { route in
             NavigationStack { ReceivedNoteDetailView(noteID: route.id, services: services) }
         }
-        .sheet(isPresented: $lettersShowing) {
+        .sheet(item: $photoRoute, onDismiss: presentPendingRoute) { route in
+            NavigationStack { CouplePhotoDetailView(photoID: route.id, services: services,
+                replyWithPhoto: { photoRoute = nil; pendingCamera = true; cameraRequested = true }) }
+        }
+        .sheet(isPresented: $cameraShowing, onDismiss: presentPendingRoute) {
+            QuickPhotoComposer(services: services, opensCamera: cameraRequested)
+        }
+        .sheet(isPresented: $lettersShowing, onDismiss: presentPendingRoute) {
             NavigationStack {
                 LettersView(services: services, notes: model.notes, catalog: model.catalog, focusID: focusedLetterID)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { lettersShowing = false } } }
             }
         }
-        .sheet(isPresented: $messagesShowing) {
+        .sheet(isPresented: $messagesShowing, onDismiss: presentPendingRoute) {
             NavigationStack {
                 MessagesView(services: services)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { messagesShowing = false } } }
@@ -82,6 +96,7 @@ struct RootView: View {
         }
         .task {
             services.onOpenNote = { id in routeNote(id) }
+            services.onOpenPhoto = { id in routePhoto(id) }
             services.onOpenCouple = { selectedTab = .couple }
             services.onOpenHome = { selectedTab = .home }
             services.onOpenLetters = { id in
@@ -96,10 +111,12 @@ struct RootView: View {
                 widgetGeneration &+= 1
                 WidgetAccessStore.clear()
                 noteRoute = nil
+                photoRoute = nil; cameraShowing = false
                 messagesShowing = false; lettersShowing = false; focusedLetterID = nil
                 widgetSyncedScope = nil
                 nextWidgetSync = .distantPast
                 LocationSharingController.shared.invalidate()
+                PairPhotoActivityController.shared.invalidate()
                 Task {
                     await MonthlyReminderService.shared.clearScheduled()
                     await WidgetRemoteClient.shared.clearCache()
@@ -122,6 +139,8 @@ struct RootView: View {
             if services.membershipResolved, services.membership != nil {
                 await synchronizeWidgets()
                 if let pendingNoteID { routeNote(pendingNoteID) }
+                if let pendingPhotoID { routePhoto(pendingPhotoID) }
+                if pendingCamera { pendingCamera = false; openCamera(capture: true) }
             }
         }
         .task(id: scenePhase) {
@@ -133,6 +152,7 @@ struct RootView: View {
             }
             await model.foreground()
             await synchronizeWidgets()
+            await PairPhotoActivityController.shared.synchronize(services: services)
             // Foreground polling covers missed alerts and installations without
             // notification permission. iOS background execution is not assumed.
             while !Task.isCancelled {
@@ -140,9 +160,10 @@ struct RootView: View {
                 guard !Task.isCancelled else { return }
                 await model.foreground()
                 await synchronizeWidgets()
+                await PairPhotoActivityController.shared.synchronize(services: services)
             }
         }
-        .onChange(of: services.identity?.uid) { _, _ in editor = nil; noteRoute = nil; messagesShowing = false; lettersShowing = false; focusedLetterID = nil }
+        .onChange(of: services.identity?.uid) { _, _ in editor = nil; noteRoute = nil; photoRoute = nil; cameraShowing = false; messagesShowing = false; lettersShowing = false; focusedLetterID = nil }
         .onOpenURL { url in
             if url.scheme == "pairnotes", url.host == "home" { selectedTab = .home; return }
             if url.scheme == "pairnotes", ["letters", "letter"].contains(url.host ?? "") {
@@ -159,6 +180,8 @@ struct RootView: View {
                 if services.membership != nil { messagesShowing = true }
                 else { selectedTab = .couple }
             case "note": routeNote(url.lastPathComponent)
+            case "photo": routePhoto(url.lastPathComponent)
+            case "camera": openCamera(capture: true)
             default: break
             }
         }
@@ -171,6 +194,37 @@ struct RootView: View {
     }
 
     private func openNote(_ note: RemoteNote) { routeNote(note.id) }
+
+    private func openCamera(capture: Bool) {
+        guard services.identity != nil, services.membershipResolved, services.membership != nil else {
+            pendingCamera = true; selectedTab = .couple; return
+        }
+        cameraRequested = capture
+        pendingPhotoID = nil
+        if editor != nil || noteRoute != nil || photoRoute != nil || lettersShowing || messagesShowing {
+            pendingCamera = true
+            editor = nil; noteRoute = nil; photoRoute = nil; lettersShowing = false; messagesShowing = false
+        } else { cameraShowing = true }
+    }
+
+    private func presentPendingRoute() {
+        guard services.membership != nil, editor == nil, noteRoute == nil,
+              photoRoute == nil, !cameraShowing, !lettersShowing, !messagesShowing else { return }
+        if let id = pendingPhotoID { pendingPhotoID = nil; routePhoto(id) }
+        else if pendingCamera { pendingCamera = false; cameraShowing = true }
+    }
+
+    private func routePhoto(_ id: String) {
+        guard let uuid = UUID(uuidString: id) else { return }
+        guard services.identity != nil, services.membershipResolved, services.membership != nil else {
+            pendingPhotoID = uuid.uuidString.lowercased(); selectedTab = .couple; return
+        }
+        pendingCamera = false
+        if editor != nil || noteRoute != nil || cameraShowing || lettersShowing || messagesShowing {
+            pendingPhotoID = uuid.uuidString.lowercased()
+            editor = nil; noteRoute = nil; cameraShowing = false; lettersShowing = false; messagesShowing = false
+        } else { pendingPhotoID = nil; photoRoute = PhotoRoute(id: uuid.uuidString.lowercased()) }
+    }
 
     private func routeNote(_ id: String) {
         guard let uuid = UUID(uuidString: id) else { return }

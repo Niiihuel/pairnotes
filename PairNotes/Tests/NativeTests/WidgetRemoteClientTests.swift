@@ -186,6 +186,123 @@ final class WidgetRemoteClientTests: XCTestCase {
         XCTAssertNil(expired.couple)
         XCTAssertTrue(expired.avatars.isEmpty)
     }
+
+    private let photoID = "50000000-0000-4000-8000-000000000005"
+    private let photoAssetID = "60000000-0000-4000-8000-000000000006"
+
+    private func photoMetadata(hash: String? = nil, assetID: String? = nil) throws -> Data {
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: coupleMetadata()) as? [String: Any])
+        payload["latestPhoto"] = ["id": photoID, "authorId": "second-user", "recipientId": "first-user",
+                                  "caption": "Una foto ficticia", "sentAt": Date().addingTimeInterval(-10).timeIntervalSince1970 * 1_000,
+                                  "photo": ["id": assetID ?? photoAssetID, "sha256": hash ?? ContentDigest.sha256(png)]]
+        return try JSONSerialization.data(withJSONObject: payload)
+    }
+
+    private func reactionResponse(kind: String = "heart", author: String = "first-user") throws -> Data {
+        try JSONSerialization.data(withJSONObject: ["reaction": ["authorId": author, "photoId": photoID,
+            "kind": kind, "updatedAt": Date().timeIntervalSince1970 * 1_000]])
+    }
+
+    func testPhotoLoadsVerifiedPixelsAndReusesUnchangedImage() async throws {
+        let (client, state, directory) = setupClient()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        state.responses = [(200, try photoMetadata()), (200, png)]
+        let initial = await client.refresh()
+        XCTAssertEqual(initial.photoData, png)
+        XCTAssertEqual(initial.couple?.latestPhoto?.caption, "Una foto ficticia")
+        XCTAssertEqual(state.paths, ["/widgetSnapshot", "/widgetPhoto"])
+        state.responses = [(200, try photoMetadata())]
+        let refreshed = await client.refresh()
+        XCTAssertEqual(refreshed.photoData, png)
+        XCTAssertEqual(state.paths.filter { $0 == "/widgetPhoto" }.count, 1)
+        state.authorization = WidgetTestState.credential(uid: "second-user")
+        state.offline = true
+        let switched = await client.refresh()
+        XCTAssertNil(switched.photoData)
+        XCTAssertNil(switched.couple)
+    }
+
+    func testCorruptReplacementPhotoCannotReusePreviouslyAuthorizedPixels() async throws {
+        let (client, state, directory) = setupClient()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        state.responses = [(200, try photoMetadata()), (200, png)]
+        _ = await client.refresh()
+        state.responses = [(200, try photoMetadata(hash: String(repeating: "f", count: 64),
+                                                    assetID: "70000000-0000-4000-8000-000000000007")), (200, png)]
+        let replaced = await client.refresh()
+        XCTAssertNil(replaced.photoData)
+        state.offline = true
+        let offline = await client.refresh()
+        XCTAssertNil(offline.photoData)
+    }
+
+    func testReactionConfirmsServerValueAndClearsVisibleRetryFeedback() async throws {
+        let (client, state, directory) = setupClient()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        state.responses = [(200, try photoMetadata()), (200, png)]
+        _ = await client.refresh()
+        state.offline = true
+        do {
+            _ = try await client.reactToPhoto(photoID: photoID, assetID: photoAssetID, kind: .heart)
+            XCTFail("An offline reaction must not appear sent")
+        } catch {}
+        await client.recordPhotoInteractionFailure(photoID: photoID)
+        let failed = await client.refresh()
+        XCTAssertNil(failed.couple?.latestPhoto?.reaction)
+        XCTAssertNotNil(failed.photoInteractionMessage)
+        state.offline = false
+        state.responses = [(200, try reactionResponse())]
+        let confirmed = try await client.reactToPhoto(photoID: photoID, assetID: photoAssetID, kind: .heart)
+        XCTAssertEqual(confirmed.kind, .heart)
+        state.offline = true
+        let successful = await client.refresh()
+        XCTAssertEqual(successful.couple?.latestPhoto?.reaction?.kind, .heart)
+        XCTAssertNil(successful.photoInteractionMessage)
+    }
+
+    func testReactionRevocationClearsPhotoAndSpoofedResponseCannotChangeReaction() async throws {
+        let (client, state, directory) = setupClient()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        state.responses = [(200, try photoMetadata()), (200, png)]
+        _ = await client.refresh()
+        state.responses = [(200, try reactionResponse(author: "second-user"))]
+        do {
+            _ = try await client.reactToPhoto(photoID: photoID, assetID: photoAssetID, kind: .heart)
+            XCTFail("Another account's reaction must be rejected")
+        } catch {}
+        state.offline = true
+        let unchanged = await client.refresh()
+        XCTAssertNil(unchanged.couple?.latestPhoto?.reaction)
+        state.offline = false
+        state.responses = [(403, Data())]
+        do {
+            _ = try await client.reactToPhoto(photoID: photoID, assetID: photoAssetID, kind: .heart)
+            XCTFail("A revoked widget credential cannot react")
+        } catch {}
+        state.offline = true
+        let revoked = await client.refresh()
+        XCTAssertNil(revoked.photoData)
+    }
+
+    func testProximityNeedsFreshAndAccurateLocationAndSeparationIncreasesWithDistance() {
+        let now = Date()
+        let near = CoupleDistancePresentation(distance: CoupleDistance(status: .available, meters: 30,
+            updatedAt: now, accuracyMeters: 20), at: now)
+        XCTAssertEqual(near.title, "¡Estamos juntos!")
+        let uncertain = CoupleDistancePresentation(distance: CoupleDistance(status: .available, meters: 30,
+            updatedAt: now, accuracyMeters: 200), at: now)
+        XCTAssertNotEqual(uncertain.title, "¡Estamos juntos!")
+        let stale = CoupleDistancePresentation(distance: CoupleDistance(status: .available, meters: 30,
+            updatedAt: now.addingTimeInterval(-CoupleDistance.freshAge), accuracyMeters: 20), at: now)
+        XCTAssertNotEqual(stale.title, "¡Estamos juntos!")
+        XCTAssertEqual(stale.detail, "Ubicación anterior")
+        let far = CoupleDistancePresentation(distance: CoupleDistance(status: .available, meters: 100_000,
+            updatedAt: now, accuracyMeters: 20), at: now)
+        XCTAssertGreaterThan(far.separation, near.separation)
+        let expired = CoupleDistancePresentation(distance: CoupleDistance(status: .available, meters: 30,
+            updatedAt: now.addingTimeInterval(-CoupleDistance.maximumAge), accuracyMeters: 20), at: now)
+        XCTAssertEqual(expired.title, "Sin ubicación reciente")
+    }
 }
 
 /// URLProtocol executes synchronously in these tests; state is locked because

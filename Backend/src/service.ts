@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import {AffectionFeatures} from './affection';
 import {CoupleFeatures, publicProfile} from './couple';
 import {revokeLocationDevice} from './location';
+import {PhotoFeatures} from './photos';
 
 export const roles = ['source', 'final', 'widget', 'thumbnail'] as const;
 type Role = typeof roles[number];
@@ -42,10 +43,13 @@ export function publicNote(note: DocumentData): DocumentData {
 export class PairNotesService {
   readonly affection = new AffectionFeatures(this);
   readonly couple = new CoupleFeatures(this);
+  readonly photos = new PhotoFeatures(this);
   constructor(readonly db: Database, readonly bucket: AssetStore, readonly now: () => number = Date.now) {}
   async sendGesture(caller: Caller, input: Input) {return this.affection.sendGesture(caller, input);}
   async reactions(caller: Caller, input: Input) {return this.affection.reactions(caller, input);}
   async setReaction(caller: Caller, input: Input) {return this.affection.setReaction(caller, input);}
+  async getPhoto(caller: Caller, input: Input) {return this.photos.getPhoto(caller, input);}
+  async setPhotoReaction(caller: Caller, input: Input) {return this.photos.setReaction(caller, input);}
   async letters(caller: Caller, input: Input) {return this.affection.letters(caller, input);}
   async saveLetterDraft(caller: Caller, input: Input) {return this.affection.saveLetterDraft(caller, input);}
   async sealLetter(caller: Caller, input: Input) {return this.affection.sealLetter(caller, input);}
@@ -490,13 +494,13 @@ export class PairNotesService {
       return {schemaVersion: 1, pairId: session.pairId, pairEpoch: session.pairEpoch, note: note ? publicNote(note) : null,
         authorDisplayName: profile?.displayName ?? null, imageSHA256: note?.widgetSHA256 ?? null, generatedAt: this.now(),
         credentialExpiresAt, validUntil: this.now() + 24 * 60 * 60_000, uid: session.uid, deviceId: session.deviceId,
-        latestGesture: space.latestGesture, personalization: space.personalization, profiles: space.profiles, startedOn: space.startedOn, latestMessage: space.latestMessage, distance: space.location.distance};
+        latestPhoto: space.latestPhoto, latestGesture: space.latestGesture, personalization: space.personalization, profiles: space.profiles, startedOn: space.startedOn, latestMessage: space.latestMessage, distance: space.location.distance};
     });
   }
   async widgetSnapshot(secret: string): Promise<DocumentData> {
     const state = await this.widgetState(secret), note = state.note;
     return {schemaVersion: 1, pairId: state.pairId, pairEpoch: state.pairEpoch, generatedAt: state.generatedAt, validUntil: state.validUntil, credentialExpiresAt: state.credentialExpiresAt,
-      latestGesture: state.latestGesture, personalization: state.personalization, profiles: state.profiles, startedOn: state.startedOn, latestMessage: state.latestMessage, distance: state.distance,
+      latestPhoto: state.latestPhoto, latestGesture: state.latestGesture, personalization: state.personalization, profiles: state.profiles, startedOn: state.startedOn, latestMessage: state.latestMessage, distance: state.distance,
       note: note ? {id: note.id, revision: note.revision, revisionHash: note.revisionHash, publishedAt: note.publishedAt,
         authorDisplayName: state.authorDisplayName, imageSHA256: state.imageSHA256} : null};
   }
@@ -537,5 +541,25 @@ export class PairNotesService {
     const fresh = await this.widgetState(secret);
     if (fresh.pairId !== state.pairId || fresh.pairEpoch !== state.pairEpoch) fail('stale_pair_epoch', 'permission-denied');
     return bytes;
+  }
+  async widgetPhoto(secret: string, photoId: string, assetId: string): Promise<Buffer> {
+    const state = await this.widgetState(secret);
+    if (!state.latestPhoto || state.latestPhoto.id !== photoId || state.latestPhoto.photo.id !== assetId) fail('latest_photo_changed', 'aborted');
+    const bytes = await this.photos.image({uid: state.uid, authTime: 0}, {pairId: state.pairId, pairEpoch: state.pairEpoch, photoId, assetId});
+    const fresh = await this.widgetState(secret);
+    if (fresh.pairId !== state.pairId || fresh.pairEpoch !== state.pairEpoch || fresh.latestPhoto?.id !== photoId || fresh.latestPhoto?.photo.id !== assetId) fail('latest_photo_changed', 'aborted');
+    return bytes;
+  }
+  async widgetPhotoReaction(secret: string, input: Input): Promise<Input> {
+    const state = await this.widgetState(secret);
+    const hash = digest(secret);
+    // Resolve the credential inside the same transaction as the mutation, so
+    // rotation/revocation cannot race a previously authorized widget button.
+    return this.photos.setReaction({uid: state.uid, authTime: 0}, {...input, pairId: state.pairId, pairEpoch: state.pairEpoch}, true, async tx => {
+      const session = (await tx.get(this.db.doc(`widgetSessions/${hash}`))).data();
+      if (!session || session.expiresAt.toMillis() <= this.now() || session.uid !== state.uid || session.pairId !== state.pairId || session.pairEpoch !== state.pairEpoch) fail('widget_session_unavailable', 'unauthenticated');
+      const device = (await tx.get(this.db.doc(`users/${session.uid}/devices/${session.deviceId}`))).data();
+      if (!device?.active || device.widgetSessionHash !== hash) fail('widget_session_unavailable', 'unauthenticated');
+    });
   }
 }

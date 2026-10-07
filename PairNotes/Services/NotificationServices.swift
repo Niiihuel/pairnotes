@@ -99,15 +99,16 @@ extension AppServices: UNUserNotificationCenterDelegate {
             return
         }
         let info = response.notification.request.content.userInfo
-        if let type = info["type"] as? String, ["letter", "gesture", "reaction"].contains(type) {
+        if let type = info["type"] as? String, ["letter", "gesture", "reaction", "photo", "photo-reaction"].contains(type) {
             let pairID = info["pairId"] as? String
             let epoch = (info["pairEpoch"] as? NSNumber)?.uint64Value
             let letterID = info["letterId"] as? String
             let noteID = info["noteId"] as? String
+            let photoID = (info["photoId"] as? String).flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
             await MainActor.run {
                 guard let pairID, let epoch else { return }
                 pendingAffectionRoute = PendingAffectionRoute(type: type, pairID: pairID, epoch: epoch,
-                    letterID: letterID, noteID: noteID)
+                    letterID: letterID, noteID: noteID, photoID: photoID)
                 deliverPendingAffectionRoute()
             }
             return
@@ -124,11 +125,12 @@ extension AppServices: UNUserNotificationCenterDelegate {
     /// A notification can launch the process before RootView and membership are ready.
     func deliverPendingAffectionRoute() {
         guard membershipResolved, let route = pendingAffectionRoute,
-              onOpenLetters != nil, onOpenHome != nil, onOpenNote != nil else { return }
+              onOpenLetters != nil, onOpenHome != nil, onOpenNote != nil, onOpenPhoto != nil else { return }
         pendingAffectionRoute = nil
         guard route.pairID == membership?.id, route.epoch == membership?.pairEpoch else { return }
         if route.type == "letter" { onOpenLetters?(route.letterID) }
         else if route.type == "gesture" { onOpenHome?() }
+        else if ["photo", "photo-reaction"].contains(route.type), let id = route.photoID { onOpenPhoto?(id) }
         else if let id = route.noteID { onOpenNote?(id) }
         onReceivedNote?()
     }

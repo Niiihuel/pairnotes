@@ -4,6 +4,8 @@ import PencilKit
 import PairNotesCore
 import UIKit
 import SwiftUI
+import ImageIO
+import UniformTypeIdentifiers
 @testable import PairNotes
 
 final class NativeEditorPersistenceTests: XCTestCase {
@@ -347,9 +349,168 @@ final class NativeEditorPersistenceTests: XCTestCase {
         for background in [PaperBackground.white, .cream, .rose, .sky, .mint, .charcoal] {
             controller.paperBackground = background
             XCTAssertEqual(controller.canvas.overrideUserInterfaceStyle, .light)
-            XCTAssertEqual(controller.pencilKitResponderState.activeToolPicker?.colorUserInterfaceStyle, .light)
-            XCTAssertEqual(controller.pencilKitResponderState.activeToolPicker?.overrideUserInterfaceStyle, .light)
+            XCTAssertEqual(controller.canvas.pencilKitResponderState.activeToolPicker?.colorUserInterfaceStyle, .light)
+            XCTAssertEqual(controller.canvas.pencilKitResponderState.activeToolPicker?.overrideUserInterfaceStyle, .light)
         }
+    }
+
+    @MainActor
+    func testCanvasReceivesTouchesAndRecoversInputAfterToolsAndTemporaryBlocking() async throws {
+        let controller = PaperProbeController()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.screen.bounds
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        controller.view.layoutIfNeeded()
+        controller.resumeCanvasInput()
+
+        XCTAssertTrue(controller.canvas.isEditable)
+        XCTAssertEqual(controller.canvas.directTouchMode, .drawing)
+        XCTAssertFalse(controller.canvas.directTouchAutomaticallyDraws)
+        XCTAssertTrue(controller.canvas.isFirstResponder)
+        XCTAssertNotNil(controller.canvas.pencilKitResponderState.activeToolPicker)
+        XCTAssertNil(controller.pencilKitResponderState.activeToolPicker,
+                     "The container must not compete with its input canvas for palette ownership")
+        for fraction: CGFloat in [0.25, 0.5, 0.75] {
+            let point = CGPoint(x: controller.view.bounds.width * fraction, y: controller.view.bounds.height * 0.5)
+            let target = try XCTUnwrap(controller.view.hitTest(point, with: nil))
+            XCTAssertTrue(target === controller.canvas.view || target.isDescendant(of: controller.canvas.view),
+                          "Read-only layer previews and guides must never intercept an editable canvas touch")
+        }
+
+        controller.setPaletteVisible(false)
+        controller.canvas.resignFirstResponder()
+        controller.setPaletteVisible(true) // Cancelling a picker/crop/tool.
+        controller.resumeCanvasInput() // Dismiss completion or scene activation.
+        XCTAssertTrue(controller.canvas.isFirstResponder)
+        XCTAssertTrue(controller.isPaletteRequestedVisible)
+        controller.setEditingEnabled(false)
+        XCTAssertFalse(controller.canvas.isEditable)
+        XCTAssertNil(controller.view.hitTest(CGPoint(x: controller.view.bounds.midX, y: controller.view.bounds.midY), with: nil))
+        controller.setEditingEnabled(true)
+        XCTAssertTrue(controller.canvas.isEditable)
+        XCTAssertTrue(controller.canvas.isFirstResponder)
+        XCTAssertEqual(controller.canvas.directTouchMode, .drawing)
+
+        controller.selectionMode = true
+        controller.setPaletteVisible(false)
+        controller.setEditingEnabled(false)
+        controller.setEditingEnabled(true)
+        XCTAssertEqual(controller.canvas.directTouchMode, .selection)
+        XCTAssertFalse(controller.isPaletteRequestedVisible, "Recovery must preserve explicit selection mode")
+        controller.selectionMode = false
+        controller.setPaletteVisible(true)
+        XCTAssertEqual(controller.canvas.directTouchMode, .drawing)
+        XCTAssertTrue(controller.canvas.drawingTool is PKInkingTool)
+
+        let field = UITextField(frame: CGRect(x: 20, y: 20, width: 180, height: 44))
+        controller.view.addSubview(field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        controller.setEditingEnabled(true) // SwiftUI status/preview refresh.
+        XCTAssertTrue(field.isFirstResponder, "An unchanged enabled value must not interrupt native text editing")
+    }
+
+    @MainActor
+    func testPhotoFileImportDownsamplesAndPersistsVisiblePhotoWithoutLeavingDrawingBlocked() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 2400, height: 1200), format: format).image { context in
+            UIColor.systemTeal.setFill(); context.fill(CGRect(x: 0, y: 0, width: 1200, height: 1200))
+            UIColor.systemOrange.setFill(); context.fill(CGRect(x: 1200, y: 0, width: 1200, height: 1200))
+        }
+        let file = directory.appendingPathComponent("photo.png")
+        try XCTUnwrap(source.pngData()).write(to: file)
+        let provider = try XCTUnwrap(NSItemProvider(contentsOf: file))
+        let editor = NativePaperSession(store: DraftCatalogStore(directory: directory.appendingPathComponent("drafts"), account: .guest), draft: nil)
+        await editor.load()
+        let imported = await editor.loadPhoto(provider)
+        let photo = try XCTUnwrap(imported)
+        XCTAssertEqual(photo.cgImage?.width, 1536)
+        XCTAssertEqual(photo.cgImage?.height, 768)
+        XCTAssertEqual(photo.imageOrientation, .up)
+        XCTAssertFalse(editor.busy, "Both successful and failed imports must release the editing lock")
+        XCTAssertFalse(editor.hasChanges, "Picking and cropping alone must not mutate a draft")
+        let blank = try await PaperProbeDocument.render(editor.controller.composedMarkup(), side: 384)
+        XCTAssertTrue(editor.insertPhoto(photo))
+        XCTAssertTrue(editor.selecting)
+        editor.selecting = false
+        XCTAssertEqual(editor.controller.canvas.directTouchMode, .drawing)
+        let saved = await editor.save()
+        let archive = try XCTUnwrap(saved)
+        let restored = try PaperProbeDocument.decode(archive.source.data, editorVersion: archive.document.minimumEditorVersion)
+        let result = try await PaperProbeDocument.render(restored.markup, side: 384)
+        XCTAssertNotEqual(try rgbaPixels(result), try rgbaPixels(blank), "Imported photo pixels must survive persistence")
+        XCTAssertEqual(restored.layers?.count, 2)
+
+        let failure = await editor.loadPhoto(NSItemProvider())
+        XCTAssertNil(failure)
+        XCTAssertFalse(editor.busy)
+        XCTAssertFalse(editor.readOnly)
+        XCTAssertEqual(editor.controller.canvas.directTouchMode, .drawing)
+    }
+
+    @MainActor
+    func testPhotoDecoderAppliesEXIFOrientationAndRejectsInvalidData() throws {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 80), format: format).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 60, height: 80))
+            UIColor.blue.setFill(); context.fill(CGRect(x: 60, y: 0, width: 60, height: 80))
+        }
+        let data = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(source.cgImage), [kCGImagePropertyOrientation: 6] as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let corrected = try PaperPhotoImport.decode(data as Data)
+        XCTAssertEqual(corrected.cgImage?.width, 80)
+        XCTAssertEqual(corrected.cgImage?.height, 120)
+        XCTAssertEqual(corrected.imageOrientation, .up)
+        let top = try XCTUnwrap(PaperPixelSampler.color(try XCTUnwrap(corrected.cgImage), at: CGPoint(x: 0.5, y: 0.25)))
+        var red: CGFloat = 0, blue: CGFloat = 0, green: CGFloat = 0, alpha: CGFloat = 0
+        top.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        XCTAssertGreaterThan(red, 0.9)
+        XCTAssertLessThan(blue, 0.1)
+        XCTAssertThrowsError(try PaperPhotoImport.decode(Data("invalid photo".utf8)))
+        XCTAssertThrowsError(try PaperPhotoImport.decode(Data()))
+        let scaled = UIImage(cgImage: try XCTUnwrap(source.cgImage), scale: 2, orientation: .right)
+        let normalized = PhotoCropGeometry.normalized(scaled)
+        XCTAssertEqual(normalized.cgImage?.width, 80, "Normalization must preserve the original pixel resolution")
+        XCTAssertEqual(normalized.cgImage?.height, 120)
+    }
+
+    @MainActor
+    func testCancellingSlowPhotoImportReleasesEditorWithoutWaitingForProviderCallback() async throws {
+        let started = expectation(description: "Photo provider begins downloading")
+        let returned = expectation(description: "Cancelled import releases its waiter")
+        let provider = NSItemProvider()
+        provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { _ in
+            started.fulfill()
+            // Deliberately never call the provider completion: cancellation
+            // must release the editor even with an unresponsive cloud asset.
+            return Progress(totalUnitCount: 1)
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let editor = NativePaperSession(store: DraftCatalogStore(directory: directory, account: .guest), draft: nil)
+        await editor.load()
+        let task = Task { @MainActor in
+            let image = await editor.loadPhoto(provider)
+            returned.fulfill()
+            return image
+        }
+        await fulfillment(of: [started], timeout: 3)
+        XCTAssertTrue(editor.busy)
+        task.cancel()
+        await fulfillment(of: [returned], timeout: 2)
+        let image = await task.value
+        XCTAssertNil(image)
+        XCTAssertFalse(editor.busy)
+        XCTAssertFalse(editor.hasChanges)
+        XCTAssertEqual(editor.controller.canvas.directTouchMode, .drawing)
     }
 
     @MainActor

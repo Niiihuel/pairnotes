@@ -9,10 +9,17 @@ enum PhotoCropGeometry {
 
     static func normalized(_ image: UIImage) -> UIImage {
         guard image.imageOrientation != .up || image.cgImage == nil else { return image }
+        let raw = image.cgImage.map { CGSize(width: CGFloat($0.width), height: CGFloat($0.height)) } ??
+            CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        let pixels: CGSize
+        switch image.imageOrientation {
+        case .left, .right, .leftMirrored, .rightMirrored: pixels = CGSize(width: raw.height, height: raw.width)
+        default: pixels = raw
+        }
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
-        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
+        return UIGraphicsImageRenderer(size: pixels, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: pixels))
         }
     }
 

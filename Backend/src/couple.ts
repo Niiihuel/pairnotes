@@ -60,7 +60,7 @@ export class CoupleFeatures {
     const view = (await tx.get(this.db.doc(`pairs/${pair.id}/views/${uid}`))).data();
     const latest = view?.latestMessageId ? (await tx.get(this.db.doc(`pairs/${pair.id}/messages/${view.latestMessageId}`))).data() : null;
     return {profiles: profiles.map(profile => publicProfile({...profile.data(), uid: profile.id})), startedOn: pair.startedOn ?? null,
-      latestGesture: await this.service.affection.latestGesture(tx, uid, pair), personalization: pair.personalization ?? null, latestMessage: latest ? publicMessage(latest) : null, location: await this.location(tx, uid, pair)};
+      latestPhoto: await this.service.photos.latest(tx, uid, pair), latestGesture: await this.service.affection.latestGesture(tx, uid, pair), personalization: pair.personalization ?? null, latestMessage: latest ? publicMessage(latest) : null, location: await this.location(tx, uid, pair)};
   }
   async getCoupleSpace(caller: Caller, input: Input): Promise<Input> {
     const {pairId, pairEpoch} = pairInput(input);

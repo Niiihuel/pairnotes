@@ -222,6 +222,29 @@ la sesión. Los IDs de recuerdos y mensajes admiten de 1 a 128 caracteres ASCII
   `{messages,nextCursor}`. Página predeterminada de 30, máximo 50, orden descendente
   por envío e ID. No admite acceso desde una credencial del widget.
 
+### Fotos directas y reacciones
+
+- `PUT /couplePhoto?pairId=<id>&pairEpoch=<epoch>&photoId=<UUID>&caption=<texto>`
+  recibe JPEG/PNG y devuelve `{photo}`. `caption` puede ser vacío y admite hasta
+  500 unidades UTF-16. El receptor se deriva de la pareja activa. Hasta 12 nuevos
+  envíos por minuto; repetir ID, autor, bytes originales y caption es idempotente,
+  incluso con solicitudes concurrentes. Cambiar esos valores con el mismo ID
+  produce `idempotency_conflict`; la normalización elimina metadata y aplica orientación.
+- `getPhoto {pairId,pairEpoch,photoId}` → `{photo}` permite abrir una foto por ID
+  a sus dos miembros. `GET /couplePhoto?pairId=<id>&pairEpoch=<epoch>&photoId=<UUID>&assetId=<id>`
+  devuelve PNG privado, verificando membresía y época antes y después de S3.
+- `setPhotoReaction {pairId,pairEpoch,photoId,assetId,kind}` → `{reaction,photo}`.
+  Sólo reacciona el receptor, con `heart`, `laugh`, `fire` o `tear` (❤️ 😂 🔥 🥹).
+  Repetir la selección es idempotente; cambiarla conserva una única reacción.
+  Un asset que ya no corresponde al envío produce `photo_changed`.
+
+`photo` contiene `{id,authorId,recipientId,caption,photo:{id,sha256},sentAt,reaction}`;
+`reaction` es `null` o `{authorId,photoId,kind,updatedAt}`. Las fechas son ms Unix.
+`getCoupleSpace` y `/widgetSnapshot` añaden `latestPhoto`, exclusivamente la última
+foto recibida. Las fotos directas no consumen el límite de recuerdos del álbum.
+El envío confirma foto, puntero del receptor y aviso genérico en una transacción.
+La reacción notifica al autor y solicita actualización de widgets del receptor.
+
 ### Gestos, reacciones y cartas programadas
 
 - `sendGesture {pairId,pairEpoch,gestureId,kind,replyTo?}` → `{gesture}`.
@@ -312,7 +335,7 @@ que invalida el token anterior de ese dispositivo. Autoriza exclusivamente:
 
 - `GET /widgetSnapshot` → `{schemaVersion:1,pairId,pairEpoch,generatedAt,
   validUntil,credentialExpiresAt,note:null|{id,revision,revisionHash,publishedAt,authorDisplayName,
-  imageSHA256},profiles,startedOn,latestMessage,distance}`. Los campos adicionales
+  imageSHA256},profiles,startedOn,latestMessage,latestPhoto,distance}`. Los campos adicionales
   conservan `schemaVersion:1`; usan las formas públicas descritas arriba. El mensaje
   es sólo el último recibido y la distancia nunca incluye coordenadas.
   `credentialExpiresAt` permite renovar automáticamente el acceso del dispositivo.
@@ -322,13 +345,20 @@ que invalida el token anterior de ese dispositivo. Autoriza exclusivamente:
 - `GET /widgetImage?noteId=<última recibida>` → PNG; 409 si la última nota cambió.
 - `GET /widgetAvatar?uid=<miembro>&avatarId=<id>` → PNG actual de uno de los dos
   miembros. `avatarId` es opcional y permite rechazar una foto sustituida con 409.
+- `GET /widgetPhoto?photoId=<última recibida>&assetId=<id>` → PNG; 409 si la última
+  foto cambió. Revalida credencial, época y último envío después de la descarga.
+- `POST /widgetPhotoReaction {photoId,assetId,kind}` → `{reaction,photo}` admite
+  los cuatro tipos de reacción únicamente para la última foto recibida.
+  El dispositivo y la credencial se revalidan en la transacción de escritura,
+  de modo que rotar o retirar el acceso invalida un botón ya cargado.
 - `POST /widgetPushRegistration {token:<hex>,enabled:<bool>,environment?}`
   registra/desactiva únicamente el token del dispositivo de esa credencial.
   Una retirada antigua no elimina un token más nuevo.
 
 Usan Bearer del widget y verifican dispositivo, vencimiento y época actual.
-Autorizan sólo ese resumen, la imagen de la última nota, los avatares de los dos
-miembros y el registro push propio. No autorizan historial de notas o mensajes,
+Autorizan sólo ese resumen, las imágenes de la última nota y foto recibidas,
+la reacción a esa foto, los avatares de los dos miembros y el registro push propio.
+No autorizan historial de notas o mensajes,
 recuerdos/fotos de recuerdos, fuentes editables, coordenadas ni modificaciones de
 la pareja. Un Bearer del widget tampoco autentica las rutas de la app. Al cerrar pareja,
 rotar la credencial o quitar dispositivo fallan inmediatamente nuevas consultas;
@@ -342,7 +372,8 @@ intervalos de cinco minutos.
 El worker consulta la outbox cada cinco segundos. Un lease transaccional y
 confirmaciones por dispositivo/canal permiten varios workers; los fallos se
 reintentan con backoff y un canal fallido no impide el otro. APNs estándar usa
-`alert` con “Tenés un dibujo nuevo” o “Tenés un mensaje nuevo” e identificadores.
+`alert` con texto genérico (“Tenés un dibujo nuevo”, “Tenés un mensaje nuevo”,
+“Tenés una foto nueva” o “Tu pareja reaccionó a tu foto”) e identificadores.
 APNs WidgetKit usa `widgets`, topic `<bundleID>.push-type.widgets` y
 `aps.content-changed:true`. Nunca lleva imágenes, contenido del mensaje, texto de
 una nota ni fuente. Una caída después de que APNs acepte y antes del acuse SQL

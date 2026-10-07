@@ -5,14 +5,19 @@ struct WidgetRefreshResult: Sendable {
     let snapshot: NoteWidgetSnapshot?
     let couple: CoupleWidgetSnapshot?
     let avatars: [String: Data]
+    let photoData: Data?
+    let photoInteractionMessage: String?
     let message: String
     let cached: Bool
     let expiresAt: Date?
     let needsAuthorization: Bool
 
-    init(snapshot: NoteWidgetSnapshot?, couple: CoupleWidgetSnapshot? = nil, avatars: [String: Data] = [:],
+    init(snapshot: NoteWidgetSnapshot?, couple: CoupleWidgetSnapshot? = nil, avatars: [String: Data] = [:], photoData: Data? = nil,
+         photoInteractionMessage: String? = nil,
          message: String, cached: Bool, expiresAt: Date?, needsAuthorization: Bool = false) {
         self.snapshot = snapshot; self.couple = couple; self.avatars = avatars
+        self.photoData = photoData
+        self.photoInteractionMessage = photoInteractionMessage
         self.message = message; self.cached = cached; self.expiresAt = expiresAt
         self.needsAuthorization = needsAuthorization
     }
@@ -44,6 +49,7 @@ private struct ServerWidgetSnapshot: Decodable {
     let profiles: [CoupleProfile]?
     let startedOn: CoupleDate?
     let latestMessage: CoupleMessage?
+    let latestPhoto: CouplePhoto?
     let distance: CoupleDistance?
 }
 
@@ -53,6 +59,14 @@ private struct AuthorizedWidgetCache: Codable {
     let snapshot: NoteWidgetSnapshot?
     let couple: CoupleWidgetSnapshot?
     let avatars: [String: Data]?
+    let photoData: Data?
+    let photoFeedback: PhotoInteractionFeedback?
+}
+
+private struct PhotoInteractionFeedback: Codable {
+    let photoID: String
+    let message: String
+    let expiresAt: Date
 }
 
 private final class WidgetNoRedirects: NSObject, URLSessionTaskDelegate {
@@ -74,7 +88,9 @@ actor WidgetRemoteClient {
     private var flightID: UUID?
     private var flightAuthorization: WidgetAuthorization?
     private var generation = 0
+    private var authorizationGeneration = 0
     private let maximumImageBytes = 4 * 1024 * 1024
+    private let maximumPhotoBytes = 5 * 1024 * 1024
 
     init(session: URLSession? = nil,
          authorization: @escaping @Sendable () -> WidgetAuthorization? = { WidgetAccessStore.load() },
@@ -107,6 +123,7 @@ actor WidgetRemoteClient {
 
     func clearCache() {
         generation += 1
+        authorizationGeneration += 1
         inFlight?.cancel()
         inFlight = nil
         flightID = nil
@@ -128,13 +145,17 @@ actor WidgetRemoteClient {
     }
 
     private func request(_ name: String, authorization: WidgetAuthorization, noteID: String? = nil,
-                         avatarUID: String? = nil, avatarID: String? = nil) throws -> URLRequest {
+                         avatarUID: String? = nil, avatarID: String? = nil,
+                         photoID: String? = nil, assetID: String? = nil) throws -> URLRequest {
         guard authorization.isUsable() else { throw WidgetAccessError.invalidCredential }
         let url = authorization.baseURL.appendingPathComponent(name)
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         if let noteID { components?.queryItems = [URLQueryItem(name: "noteId", value: noteID)] }
         if let avatarUID, let avatarID {
             components?.queryItems = [URLQueryItem(name: "uid", value: avatarUID), URLQueryItem(name: "avatarId", value: avatarID)]
+        }
+        if let photoID, let assetID {
+            components?.queryItems = [URLQueryItem(name: "photoId", value: photoID), URLQueryItem(name: "assetId", value: assetID)]
         }
         guard let endpoint = components?.url else { throw WidgetAccessError.invalidCredential }
         var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData)
@@ -176,7 +197,8 @@ actor WidgetRemoteClient {
             var couple: CoupleWidgetSnapshot?
             if let profiles = remote.profiles, let distance = remote.distance {
                 let value = CoupleWidgetSnapshot(profiles: profiles, startedOn: remote.startedOn,
-                                                  latestMessage: remote.latestMessage, distance: distance, personalization: remote.personalization, latestGesture: remote.latestGesture)
+                                                  latestMessage: remote.latestMessage, distance: distance, personalization: remote.personalization, latestGesture: remote.latestGesture,
+                                                  latestPhoto: remote.latestPhoto)
                 do { try value.validate(for: authorization.uid) }
                 catch { removeCache(); return .empty("Abrí PairNotes para actualizar el espacio compartido.") }
                 couple = value
@@ -219,6 +241,27 @@ actor WidgetRemoteClient {
                    ContentDigest.sha256(bytes) == avatar.sha256,
                    bytes.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) { avatars[profile.uid] = bytes }
             }
+            var photoData: Data?
+            if let photo = couple?.latestPhoto {
+                if let bytes = previousCache?.photoData, ContentDigest.sha256(bytes) == photo.photo.sha256 {
+                    photoData = bytes
+                } else {
+                    let (bytes, response) = try await session.data(for: request("widgetPhoto", authorization: authorization,
+                                                                           photoID: photo.id, assetID: photo.photo.id))
+                    guard current(authorization, generation: captured) else { return .empty("Actualizando su espacio…") }
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    if status == 401 || status == 403 {
+                        removeCache(); return .empty("Actualizando su espacio…", needsAuthorization: true)
+                    }
+                    guard status == 200, !bytes.isEmpty, bytes.count <= maximumPhotoBytes,
+                          bytes.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]),
+                          ContentDigest.sha256(bytes) == photo.photo.sha256 else {
+                        removeCache()
+                        return .empty("Abrí PairNotes para actualizar la foto recibida.")
+                    }
+                    photoData = bytes
+                }
+            }
             var cacheAuthorization = authorization
             if let renewed = remote.credentialExpiresAt, renewed > authorization.expiresAt {
                 let updated = WidgetAuthorization(token: authorization.token, expiresAt: renewed,
@@ -233,13 +276,18 @@ actor WidgetRemoteClient {
                                  Date().addingTimeInterval(24 * 60 * 60))
             guard expiration > Date() else { throw WidgetAccessError.invalidCredential }
             guard current(cacheAuthorization, generation: captured) else { return .empty("Actualizando su espacio…") }
+            let feedback = previousCache?.photoFeedback.flatMap {
+                $0.expiresAt > Date() && $0.photoID == couple?.latestPhoto?.id ? $0 : nil
+            }
             let cache = AuthorizedWidgetCache(credentialHash: authorizationHash(cacheAuthorization),
-                                             expiresAt: expiration, snapshot: snapshot, couple: couple, avatars: avatars)
+                                             expiresAt: expiration, snapshot: snapshot, couple: couple, avatars: avatars, photoData: photoData,
+                                             photoFeedback: feedback)
             if let url = cacheURL {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try JSONEncoder().encode(cache).write(to: url, options: .atomic)
             }
-            return WidgetRefreshResult(snapshot: snapshot, couple: couple, avatars: avatars,
+            return WidgetRefreshResult(snapshot: snapshot, couple: couple, avatars: avatars, photoData: photoData,
+                                       photoInteractionMessage: feedback?.message,
                                        message: snapshot == nil ? "Tu próxima nota recibida aparecerá acá." : "",
                                        cached: false, expiresAt: expiration)
         } catch {
@@ -250,7 +298,8 @@ actor WidgetRemoteClient {
                   cacheIsValid(cache, for: authorization.uid) else {
                 return .empty("Esperando conexión para actualizar…")
             }
-            return WidgetRefreshResult(snapshot: cache.snapshot, couple: cache.couple, avatars: cache.avatars ?? [:],
+            return WidgetRefreshResult(snapshot: cache.snapshot, couple: cache.couple, avatars: cache.avatars ?? [:], photoData: cache.photoData,
+                                       photoInteractionMessage: cache.photoFeedback.flatMap { $0.expiresAt > Date() ? $0.message : nil },
                                        message: "Datos guardados; sin conexión", cached: true, expiresAt: cache.expiresAt)
         }
     }
@@ -271,7 +320,69 @@ actor WidgetRemoteClient {
             guard let avatar = cache.couple?.profiles.first(where: { $0.uid == uid })?.avatar,
                   bytes.count <= 512 * 1024, ContentDigest.sha256(bytes) == avatar.sha256 else { return false }
         }
+        if let bytes = cache.photoData {
+            guard let photo = cache.couple?.latestPhoto, !bytes.isEmpty, bytes.count <= maximumPhotoBytes,
+                  bytes.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]),
+                  ContentDigest.sha256(bytes) == photo.photo.sha256 else { return false }
+        }
         return true
+    }
+
+    /// A widget credential can react only to the current received photo. The
+    /// server confirms the change before the widget shows a selected reaction.
+    func reactToPhoto(photoID: String, assetID: String, kind: PhotoReactionKind) async throws -> PhotoReaction {
+        guard UUID(uuidString: photoID) != nil, UUID(uuidString: assetID) != nil,
+              let authorization = authorizationProvider(), authorization.isUsable() else {
+            throw WidgetAccessError.invalidCredential
+        }
+        generation += 1
+        inFlight?.cancel()
+        inFlight = nil; flightID = nil; flightAuthorization = nil
+        let captured = authorizationGeneration
+        var request = try request("widgetPhotoReaction", authorization: authorization)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["photoId": photoID, "assetId": assetID, "kind": kind.rawValue])
+        let (bytes, response) = try await session.data(for: request)
+        guard !Task.isCancelled, captured == authorizationGeneration,
+              let latest = authorizationProvider(), latest.hasSameCredential(as: authorization), latest.isUsable() else {
+            throw WidgetAccessError.invalidCredential
+        }
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 401 || status == 403 { removeCache(); throw WidgetAccessError.invalidCredential }
+        guard status == 200, bytes.count <= 8 * 1024 else { throw URLError(.badServerResponse) }
+        struct Response: Decodable { let reaction: PhotoReaction }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .millisecondsSince1970
+        let reaction = try decoder.decode(Response.self, from: bytes).reaction
+        guard reaction.photoId == photoID, reaction.authorId == authorization.uid, reaction.kind == kind,
+              reaction.updatedAt.timeIntervalSince1970.isFinite,
+              reaction.updatedAt <= Date().addingTimeInterval(60) else { throw URLError(.cannotParseResponse) }
+        if let cache = cachedContent(for: authorization), let couple = cache.couple,
+           let photo = couple.latestPhoto, photo.id == photoID, photo.photo.id == assetID {
+            let updatedPhoto = CouplePhoto(id: photo.id, authorId: photo.authorId, recipientId: photo.recipientId,
+                                          caption: photo.caption, photo: photo.photo, sentAt: photo.sentAt, reaction: reaction)
+            let updated = CoupleWidgetSnapshot(profiles: couple.profiles, startedOn: couple.startedOn,
+                                              latestMessage: couple.latestMessage, distance: couple.distance,
+                                              personalization: couple.personalization, latestGesture: couple.latestGesture, latestPhoto: updatedPhoto)
+            try updated.validate(for: authorization.uid)
+            let cache = AuthorizedWidgetCache(credentialHash: cache.credentialHash, expiresAt: cache.expiresAt,
+                                              snapshot: cache.snapshot, couple: updated, avatars: cache.avatars, photoData: cache.photoData, photoFeedback: nil)
+            if let url = cacheURL { try JSONEncoder().encode(cache).write(to: url, options: .atomic) }
+        }
+        return reaction
+    }
+
+    func recordPhotoInteractionFailure(photoID: String) {
+        guard let authorization = authorizationProvider(), authorization.isUsable(),
+              let cache = cachedContent(for: authorization), cache.couple?.latestPhoto?.id == photoID,
+              let url = cacheURL else { return }
+        let feedback = PhotoInteractionFeedback(photoID: photoID, message: "No se envió. Tocá la reacción para reintentar.",
+                                                expiresAt: Date().addingTimeInterval(5 * 60))
+        let updated = AuthorizedWidgetCache(credentialHash: cache.credentialHash, expiresAt: cache.expiresAt,
+                                            snapshot: cache.snapshot, couple: cache.couple, avatars: cache.avatars,
+                                            photoData: cache.photoData, photoFeedback: feedback)
+        try? JSONEncoder().encode(updated).write(to: url, options: .atomic)
     }
 
     /// WidgetKit delivers a token in the extension. Its scoped credential can

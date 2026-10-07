@@ -75,7 +75,7 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
         request.header('content-type') ?? '', request.header('x-content-sha256') ?? ''));
     } catch (error) {sendError(response, error, false);}
   });
-  for (const route of ['profileAvatar', 'memoryPhoto'] as const) {
+  for (const route of ['profileAvatar', 'memoryPhoto', 'couplePhoto'] as const) {
     app.put(`/${route}`, async (request, response, next) => {
       try {response.locals.caller = await options.auth.authenticate(bearer(request)); next();}
       catch (error) {sendError(response, error, false);}
@@ -85,7 +85,9 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
         const caller = response.locals.caller as Caller;
         response.json(route === 'profileAvatar'
           ? await options.service.couple.profileAvatar(caller, request.body, request.header('content-type') ?? '')
-          : await options.service.couple.memoryPhoto(caller, {...request.query, pairEpoch: Number(request.query.pairEpoch)},
+          : route === 'memoryPhoto' ? await options.service.couple.memoryPhoto(caller, {...request.query, pairEpoch: Number(request.query.pairEpoch)},
+            request.body, request.header('content-type') ?? '')
+          : await options.service.photos.send(caller, {...request.query, pairEpoch: Number(request.query.pairEpoch)},
             request.body, request.header('content-type') ?? ''));
       } catch (error) {sendError(response, error, false);}
     });
@@ -149,6 +151,13 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
         {...request.query, pairEpoch: Number(request.query.pairEpoch)}));
     } catch (error) {sendError(response, error, false);}
   });
+  app.get('/couplePhoto', async (request, response) => {
+    try {
+      const identity = await options.auth.authenticate(bearer(request));
+      response.type('image/png').send(await options.service.photos.image(identity,
+        {...request.query, pairEpoch: Number(request.query.pairEpoch)}));
+    } catch (error) {sendError(response, error, false);}
+  });
   app.get('/healthz', (_request, response) => {
     const ready = options.ready?.() ?? true;
     response.status(ready ? 200 : 503).json({status: ready ? 'ok' : 'starting'});
@@ -156,7 +165,7 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
   const operations = ['upsertProfile', 'getPairState', 'createInvite', 'acceptInvite', 'revokeInvite', 'closePair',
     'createUploadSession', 'finalizeNote', 'timeline', 'note', 'latestReceivedNote', 'markNoteViewed', 'registerDevice', 'unregisterDevice', 'issueWidgetSession',
     'getCoupleSpace', 'updatePersonalization', 'restoreMemory', 'updatePairDetails', 'upsertMemory', 'memories', 'deleteMemory', 'deleteMemoryPhoto', 'deleteProfileAvatar',
-    'sendGesture', 'reactions', 'setReaction', 'letters', 'saveLetterDraft', 'sealLetter', 'openLetter', 'deleteLetterDraft', 'removeLetterAsset',
+    'getPhoto', 'setPhotoReaction', 'sendGesture', 'reactions', 'setReaction', 'letters', 'saveLetterDraft', 'sealLetter', 'openLetter', 'deleteLetterDraft', 'removeLetterAsset',
     'sendMessage', 'messages', 'setLocationConsent', 'updateLocation'] as const;
   for (const name of operations) {
     app.post(`/${name}`, async (request, response) => {
@@ -183,6 +192,18 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
     try {
       if (typeof request.query.uid !== 'string' || (request.query.avatarId !== undefined && typeof request.query.avatarId !== 'string')) fail('invalid_user_id', 'invalid-argument');
       response.type('image/png').send(await options.service.widgetAvatar(bearer(request), request.query.uid, request.query.avatarId));
+    } catch (error) {sendError(response, error, false);}
+  });
+  app.get('/widgetPhoto', async (request, response) => {
+    try {
+      if (typeof request.query.photoId !== 'string' || typeof request.query.assetId !== 'string') fail('invalid_photo_id', 'invalid-argument');
+      response.type('image/png').send(await options.service.widgetPhoto(bearer(request), request.query.photoId, request.query.assetId));
+    } catch (error) {sendError(response, error, false);}
+  });
+  app.post('/widgetPhotoReaction', async (request, response) => {
+    try {
+      if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) fail('invalid_request', 'invalid-argument');
+      response.json(await options.service.widgetPhotoReaction(bearer(request), request.body));
     } catch (error) {sendError(response, error, false);}
   });
   app.post('/widgetPushRegistration', async (request, response) => {

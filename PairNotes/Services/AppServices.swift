@@ -22,6 +22,7 @@ final class AppServices: NSObject, ObservableObject {
     var spaceSequence: UInt64 = 0
 
     var onOpenNote: ((String) -> Void)?
+    var onOpenPhoto: ((String) -> Void)?
     var onOpenCouple: (() -> Void)?
     var onOpenLetters: ((String?) -> Void)?
     var onOpenHome: (() -> Void)?
@@ -31,6 +32,7 @@ final class AppServices: NSObject, ObservableObject {
         let epoch: UInt64
         let letterID: String?
         let noteID: String?
+        let photoID: String?
     }
     var pendingAffectionRoute: PendingAffectionRoute?
     var onOpenMessages: (() -> Void)?

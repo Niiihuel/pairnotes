@@ -4,7 +4,7 @@ import PencilKit
 import SwiftUI
 
 @MainActor
-final class PaperProbeController: UIViewController, PaperMarkupViewController.Delegate {
+final class PaperProbeController: UIViewController, PaperMarkupViewController.Delegate, PKToolPickerObserver {
     let canvas = PaperMarkupViewController(markup: PaperMarkup(bounds: PaperProbeDocument.bounds),
                                            supportedFeatureSet: PaperProbeDocument.supportedFeatures)
     private let lowerCanvas = PaperMarkupViewController(markup: PaperMarkup(bounds: PaperProbeDocument.bounds),
@@ -132,14 +132,34 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     private let paper = UIView()
     private let picker = PKToolPicker()
     var snapsToGuides = false
-    var selectionMode = false
+    var selectionMode = false {
+        didSet {
+            guard selectionMode != oldValue else { return }
+            canvas.directTouchMode = selectionMode ? .selection : .drawing
+            // Selecting an object and then choosing Draw must really return to
+            // ink, even if the system palette last remembered a lasso tool.
+            if !selectionMode, !(canvas.drawingTool is PKInkingTool), !(canvas.drawingTool is PKEraserTool) {
+                picker.selectedTool = lastInk
+                canvas.drawingTool = lastInk
+            }
+        }
+    }
+    private var lastInk = PKInkingTool(.pen, color: .black, width: 12)
+    private(set) var isPaletteRequestedVisible = true
+    private var editingEnabled = true
     private var editGeneration = 0
     private var snapTask: Task<Void, Never>?
 
     func useInkColor(_ color: UIColor) {
         let ink = (picker.selectedToolItem as? PKToolPickerInkingItem)?.inkingTool
         // The compatibility setter updates the existing palette item and notifies PaperKit.
-        picker.selectedTool = PKInkingTool(ink?.inkType ?? .pen, color: color, width: ink?.width ?? 8)
+        lastInk = PKInkingTool(ink?.inkType ?? .pen, color: color, width: ink?.width ?? 12)
+        picker.selectedTool = lastInk
+        canvas.drawingTool = lastInk
+    }
+
+    func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
+        if let ink = (toolPicker.selectedToolItem as? PKToolPickerInkingItem)?.inkingTool { lastInk = ink }
     }
 
     /// Align native content, preserving editable text/images rather than rasterizing the layer.
@@ -185,7 +205,6 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         }
     }
     private var lastFittedSize: CGSize = .zero
-    override var canBecomeFirstResponder: Bool { true }
 
     /// Restoring persisted content is not an edit. Detach the delegate while
     /// assigning it so a deferred main-actor change callback cannot autosave a
@@ -247,9 +266,36 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     }
 
     func setPaletteVisible(_ visible: Bool) {
-        pencilKitResponderState.toolPickerVisibility = visible ? .visible : .hidden
-        if visible { becomeFirstResponder() }
+        guard isPaletteRequestedVisible != visible else { return }
+        isPaletteRequestedVisible = visible
+        activateCanvasInput()
     }
+
+    /// SwiftUI can temporarily disable the representable while loading a photo
+    /// or saving. Keep that transition on the actual input controller, and
+    /// recover its first responder when the operation or presentation ends.
+    func setEditingEnabled(_ enabled: Bool) {
+        let changed = editingEnabled != enabled
+        editingEnabled = enabled
+        loadViewIfNeeded()
+        if canvas.isEditable != enabled { canvas.isEditable = enabled }
+        if view.isUserInteractionEnabled != enabled { view.isUserInteractionEnabled = enabled }
+        if changed { activateCanvasInput() }
+    }
+
+    private func activateCanvasInput() {
+        guard isViewLoaded else { return }
+        let visible = editingEnabled && isPaletteRequestedVisible && !selectionMode
+        // The responder, tool picker and observed drawing controller must be
+        // the same object. Touching the child canvas otherwise leaves a palette
+        // registered only on its container without an active input responder.
+        canvas.pencilKitResponderState.activeToolPicker = picker
+        canvas.pencilKitResponderState.toolPickerVisibility = visible ? .visible : .hidden
+        guard editingEnabled, canvas.view.window != nil, presentedViewController == nil else { return }
+        if !canvas.isFirstResponder { canvas.becomeFirstResponder() }
+    }
+
+    func resumeCanvasInput() { activateCanvasInput() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -308,15 +354,20 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         view.bringSubviewToFront(upperCanvas.view)
         canvas.delegate = self
         canvas.directTouchAutomaticallyDraws = false
-        canvas.directTouchMode = .drawing
+        canvas.directTouchMode = selectionMode ? .selection : .drawing
+        canvas.indirectPointerTouchMode = .selection
         canvas.zoomRange = 0.05...4
         // Match the sheet and export renderer, regardless of the app appearance.
         picker.overrideUserInterfaceStyle = .light
         picker.colorUserInterfaceStyle = .light
         picker.colorMaximumLinearExposure = 1
+        lastInk = PKInkingTool(.pen, color: paperBackground.contrastingInkColor, width: 12)
+        picker.selectedTool = lastInk
+        canvas.drawingTool = lastInk
         picker.addObserver(canvas)
-        pencilKitResponderState.activeToolPicker = picker
-        pencilKitResponderState.toolPickerVisibility = .visible
+        picker.addObserver(self)
+        canvas.isEditable = editingEnabled
+        activateCanvasInput()
         let textItem = UIBarButtonItem(image: UIImage(systemName: "textformat"), style: .plain,
                                       target: self, action: #selector(insertText))
         textItem.accessibilityLabel = "Agregar texto"
@@ -343,7 +394,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        becomeFirstResponder()
+        activateCanvasInput()
         refreshHistory()
     }
 
@@ -358,7 +409,8 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        resignFirstResponder()
+        canvas.pencilKitResponderState.toolPickerVisibility = .hidden
+        canvas.resignFirstResponder()
     }
 
     func insertSticker(_ symbol: String) {
@@ -429,8 +481,7 @@ struct PaperProbeCanvas: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: PaperProbeController, context: Context) {
         // Status/preview updates during autosave also update this representable.
         // Reapplying PaperKit editing mode can interrupt an active native gesture.
-        if controller.canvas.isEditable != enabled { controller.canvas.isEditable = enabled }
-        if controller.view.isUserInteractionEnabled != enabled { controller.view.isUserInteractionEnabled = enabled }
+        controller.setEditingEnabled(enabled)
     }
 }
 

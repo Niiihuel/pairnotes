@@ -4,7 +4,7 @@ import {Database, Timestamp} from './database';
 import {digest} from './service';
 
 export type NotificationPayload = {aps: {alert: {title: string; body: string}; sound: string}; pairId: string; pairEpoch: number;
-  type?: 'message' | 'gesture' | 'letter' | 'reaction'; noteId?: string; messageId?: string; gestureId?: string; letterId?: string};
+  type?: 'message' | 'gesture' | 'letter' | 'reaction' | 'photo' | 'photo-reaction'; noteId?: string; messageId?: string; gestureId?: string; letterId?: string; photoId?: string};
 export interface PushTransport {
   app(token: string, payload: NotificationPayload, environment: 'development' | 'production'): Promise<void>;
   widget(token: string, environment: 'development' | 'production'): Promise<void>;
@@ -13,7 +13,7 @@ export type APNsConfiguration = {key: string; keyId: string; teamId: string; bun
 export class LivePushTransport implements PushTransport {
   constructor(readonly apns: () => APNsConfiguration | undefined) {}
   async app(token: string, payload: NotificationPayload, environment: 'development' | 'production'): Promise<void> {
-    await this.send(token, 'alert', payload, environment, payload.noteId ?? digest(`${payload.type}:${payload.messageId ?? payload.gestureId ?? payload.letterId}`));
+    await this.send(token, 'alert', payload, environment, payload.noteId ?? digest(`${payload.type}:${payload.messageId ?? payload.gestureId ?? payload.letterId ?? payload.photoId}`));
   }
   async widget(token: string, environment: 'development' | 'production'): Promise<void> {
     await this.send(token, 'widgets', {aps: {'content-changed': true}}, environment);
@@ -51,10 +51,10 @@ export async function dispatchNotification(db: Database, eventId: string, transp
     const event = (await tx.get(ref)).data();
     if (!event || event.status === 'done' || event.status === 'cancelled' || event.nextAttemptAt.toMillis() > now) return null;
     const pair = (await tx.get(db.doc(`pairs/${event.pairId}`))).data();
-    const collection = event.type === 'message' ? 'messages' : event.type === 'gesture' ? 'gestures' : event.type === 'letter' ? 'letters' : 'notes';
-    const id = event.messageId ?? event.gestureId ?? event.letterId ?? event.noteId;
+    const collection = event.type === 'message' ? 'messages' : event.type === 'gesture' ? 'gestures' : event.type === 'letter' ? 'letters' : ['photo', 'photo-reaction'].includes(event.type) ? 'photos' : 'notes';
+    const id = event.messageId ?? event.gestureId ?? event.letterId ?? event.noteId ?? event.photoId;
     const note = event.type === 'widget' ? null : (await tx.get(db.doc(`pairs/${event.pairId}/${collection}/${id}`))).data();
-    const validRecipient = event.type === 'reaction' ? note?.authorId === event.recipientId : note?.recipientId === event.recipientId;
+    const validRecipient = ['reaction', 'photo-reaction'].includes(event.type) ? note?.authorId === event.recipientId : note?.recipientId === event.recipientId;
     if (!pair || pair.status !== 'active' || pair.pairEpoch !== event.pairEpoch || !pair.members.includes(event.recipientId) ||
         (event.type !== 'widget' && (!note || !validRecipient)) ||
         (event.type === 'letter' && (note?.status !== 'sealed' || note.opensAt > now))) {
@@ -71,13 +71,15 @@ export async function dispatchNotification(db: Database, eventId: string, transp
   try {
     const devices = await db.collection(`users/${event.recipientId}/devices`).where('active', '==', true).get();
     const copy: Record<string, string> = {message: 'Tenés un mensaje nuevo', gesture: 'Tu pareja está pensando en vos',
-      letter: 'Tenés una carta lista para abrir', reaction: 'Tu pareja reaccionó a tu dibujo'};
+      letter: 'Tenés una carta lista para abrir', reaction: 'Tu pareja reaccionó a tu dibujo', photo: 'Tenés una foto nueva', 'photo-reaction': 'Tu pareja reaccionó a tu foto'};
     const payload: NotificationPayload = {aps: {alert: {title: 'PairNotes', body: copy[event.type] ?? 'Tenés un dibujo nuevo'}, sound: 'default'},
       pairId: event.pairId, pairEpoch: event.pairEpoch,
       ...(event.type === 'message' ? {type: 'message' as const, messageId: event.messageId}
         : event.type === 'gesture' ? {type: 'gesture' as const, gestureId: event.gestureId}
         : event.type === 'letter' ? {type: 'letter' as const, letterId: event.letterId}
-        : event.type === 'reaction' ? {type: 'reaction' as const, noteId: event.noteId} : {noteId: event.noteId})};
+        : event.type === 'reaction' ? {type: 'reaction' as const, noteId: event.noteId}
+        : event.type === 'photo' ? {type: 'photo' as const, photoId: event.photoId}
+        : event.type === 'photo-reaction' ? {type: 'photo-reaction' as const, photoId: event.photoId} : {noteId: event.noteId})};
     let failed = false;
     for (const device of devices.docs) {
       for (const channel of ['app', 'widget'] as const) {
