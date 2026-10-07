@@ -460,6 +460,7 @@ struct NativePaperEditorView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var pendingPhotoProvider: NSItemProvider?
     @State private var photoImportTask: Task<Void, Never>?
+    @State private var photoImportID: UUID?
     @State private var choosingPhoto = false
     @State private var choosingBackground = false
     @State private var showingLayers = false
@@ -753,11 +754,15 @@ struct NativePaperEditorView: View {
         }
         pendingPhotoProvider = nil
         photoImportTask?.cancel()
+        let importID = UUID()
+        photoImportID = importID
         // Wait for the native picker to finish dismissing before presenting
         // the cropper. Fast local photos used to race these two presentations.
         photoImportTask = Task { @MainActor in
-            defer { photoImportTask = nil }
-            guard let image = await session.loadPhoto(provider), !Task.isCancelled else { return }
+            defer {
+                if photoImportID == importID { photoImportTask = nil; photoImportID = nil }
+            }
+            guard let image = await session.loadPhoto(provider), !Task.isCancelled, photoImportID == importID else { return }
             cropPhoto = ExportImage(image: image)
         }
     }

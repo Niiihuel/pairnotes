@@ -32,7 +32,9 @@ final class PairPhotoActivityController {
         let result = await WidgetRemoteClient.shared.refresh()
         guard services.identity?.uid == uid, services.membership?.id == pair.id,
               services.membership?.pairEpoch == pair.pairEpoch, captured == generation else { throw ServiceError.sessionChanged }
-        guard result.couple?.latestPhoto?.id == photo.id, let validUntil = result.expiresAt, validUntil > Date() else { throw Failure.changed }
+        guard !result.needsAuthorization, let validUntil = result.expiresAt, validUntil > Date(),
+              let latest = result.couple?.latestPhoto else { throw Failure.unavailable }
+        guard latest.id == photo.id, latest.photo.id == photo.photo.id else { throw Failure.changed }
         let bytes = try await services.photoImage(photo)
         guard captured == generation, services.identity?.uid == uid,
               services.membership?.id == pair.id, services.membership?.pairEpoch == pair.pairEpoch,
