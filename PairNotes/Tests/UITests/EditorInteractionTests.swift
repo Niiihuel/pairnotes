@@ -53,8 +53,9 @@ final class EditorInteractionTests: XCTestCase {
         let secondInk = try darkPixelCount(paper.screenshot().image)
 
         app.buttons["editor.photo"].tap()
-        let cancelPhoto = app.buttons["Cancelar"].lastMatch
-        XCTAssertTrue(cancelPhoto.waitForExistence(timeout: 10))
+        let photoCancelButtons = app.buttons.matching(identifier: "Cancelar")
+        XCTAssertTrue(photoCancelButtons.firstMatch.waitForExistence(timeout: 10))
+        let cancelPhoto = photoCancelButtons.element(boundBy: photoCancelButtons.count - 1)
         waitUntilHittable(cancelPhoto)
         cancelPhoto.tap()
         draw(on: paper, from: CGVector(dx: 0.25, dy: 0.72), to: CGVector(dx: 0.75, dy: 0.8))
