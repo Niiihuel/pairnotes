@@ -99,7 +99,7 @@ extension AppServices: UNUserNotificationCenterDelegate {
             return
         }
         let info = response.notification.request.content.userInfo
-        if let type = info["type"] as? String, ["letter", "gesture", "reaction", "photo", "photo-reaction"].contains(type) {
+        if let type = info["type"] as? String, ["letter", "gesture", "reaction", "photo", "photo-reaction", "message"].contains(type) {
             let pairID = info["pairId"] as? String
             let epoch = (info["pairEpoch"] as? NSNumber)?.uint64Value
             let letterID = info["letterId"] as? String
@@ -113,10 +113,6 @@ extension AppServices: UNUserNotificationCenterDelegate {
             }
             return
         }
-        if response.notification.request.content.userInfo["type"] as? String == "message" {
-            await MainActor.run { onOpenMessages?(); onReceivedNote?() }
-            return
-        }
         guard let noteID = response.notification.request.content.userInfo["noteId"] as? String,
               UUID(uuidString: noteID) != nil else { return }
         await MainActor.run { onOpenNote?(noteID) }
@@ -125,11 +121,13 @@ extension AppServices: UNUserNotificationCenterDelegate {
     /// A notification can launch the process before RootView and membership are ready.
     func deliverPendingAffectionRoute() {
         guard membershipResolved, let route = pendingAffectionRoute,
-              onOpenLetters != nil, onOpenHome != nil, onOpenNote != nil, onOpenPhoto != nil else { return }
+              onOpenLetters != nil, onOpenHome != nil, onOpenNote != nil, onOpenPhoto != nil,
+              onOpenMessages != nil else { return }
         pendingAffectionRoute = nil
         guard route.pairID == membership?.id, route.epoch == membership?.pairEpoch else { return }
         if route.type == "letter" { onOpenLetters?(route.letterID) }
         else if route.type == "gesture" { onOpenHome?() }
+        else if route.type == "message" { onOpenMessages?() }
         else if ["photo", "photo-reaction"].contains(route.type), let id = route.photoID { onOpenPhoto?(id) }
         else if let id = route.noteID { onOpenNote?(id) }
         onReceivedNote?()

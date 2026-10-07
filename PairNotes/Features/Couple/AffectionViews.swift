@@ -1,6 +1,116 @@
 import PairNotesCore
 import SwiftUI
 
+enum AffectionDestination: Hashable {
+    case letters(String?)
+    case voices
+    case messages
+    case photos
+}
+
+/// Collection composers dismiss before a notification or widget opens another
+/// modal. Default callbacks keep isolated previews independent of RootView.
+struct CoupleModalControl: Sendable {
+    var dismissalVersion: UInt64 = 0
+    var onPresented: @MainActor @Sendable (UUID) -> Void = { _ in }
+    var onDismissed: @MainActor @Sendable (UUID) -> Void = { _ in }
+}
+
+private struct CoupleModalControlKey: EnvironmentKey {
+    static let defaultValue = CoupleModalControl()
+}
+
+extension EnvironmentValues {
+    var coupleModalControl: CoupleModalControl {
+        get { self[CoupleModalControlKey.self] }
+        set { self[CoupleModalControlKey.self] = newValue }
+    }
+}
+
+struct AffectionHubView: View {
+    @ObservedObject var services: AppServices
+    let connect: () -> Void
+
+    var body: some View {
+        List {
+            if services.membership != nil {
+                Section {
+                    destination("Cartas", symbol: "envelope", route: .letters(nil))
+                    destination("Audios", symbol: "waveform", route: .voices)
+                    destination("Mensajes", symbol: "bubble.left.and.text.bubble.right", route: .messages)
+                    destination("Fotos", symbol: "photo", route: .photos)
+                }
+            } else if services.identity != nil, !services.membershipResolved {
+                ProgressView().frame(maxWidth: .infinity).accessibilityLabel("Buscando tu pareja")
+            } else {
+                ContentUnavailableView {
+                    Label("Para los dos", systemImage: "person.2")
+                } description: {
+                    Text("Vinculá sus cuentas para compartir.")
+                } actions: {
+                    Button("Vincular", action: connect).buttonStyle(.borderedProminent)
+                }.listRowBackground(Color.clear)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(services.personalization.theme.canvas)
+        .navigationTitle("Para vos")
+    }
+
+    private func destination(_ title: String, symbol: String, route: AffectionDestination) -> some View {
+        NavigationLink(value: route) {
+            Label {
+                Text(title).font(.headline).foregroundStyle(.primary)
+            } icon: {
+                Image(systemName: symbol).font(.title3)
+                    .frame(width: 44, height: 44)
+                    .foregroundStyle(services.personalization.theme.accent)
+                    .background(services.personalization.theme.paper, in: RoundedRectangle(cornerRadius: 12))
+            }.padding(.vertical, 6)
+        }.accessibilityIdentifier("affection." + title.lowercased())
+    }
+}
+
+struct CouplePhotosView: View {
+    @ObservedObject var services: AppServices
+    let createPhoto: () -> Void
+    let openPhoto: (String) -> Void
+    @State private var error: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let photo = services.coupleSpace?.latestPhoto {
+                    Text("Última recibida").font(.subheadline).foregroundStyle(.secondary)
+                    Button { openPhoto(photo.id) } label: {
+                        CouplePhotoCard(services: services, photo: photo)
+                    }.buttonStyle(.plain)
+                } else {
+                    ContentUnavailableView("Sin fotos recibidas", systemImage: "photo")
+                    Button("Enviar foto", systemImage: "camera", action: createPhoto)
+                        .buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
+                }
+                if let error {
+                    Label(error, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.secondary)
+                }
+            }.padding(20)
+        }
+        .background(services.personalization.theme.canvas)
+        .navigationTitle("Fotos")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Enviar foto", systemImage: "camera", action: createPhoto)
+            }
+        }
+        .refreshable {
+            let scope = services.privateImageKey("photos")
+            do { try await services.refreshCoupleSpace(); if scope == services.privateImageKey("photos") { error = nil } }
+            catch { if scope == services.privateImageKey("photos") { self.error = "No se pudieron actualizar las fotos." } }
+        }
+        .onChange(of: services.privateImageKey("photos")) { _, _ in error = nil }
+    }
+}
+
 struct ThinkingOfYouCard: View {
     @ObservedObject var services: AppServices
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -13,10 +123,7 @@ struct ThinkingOfYouCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Te estoy pensando").font(.title3.bold())
-                    Text("Un toque, un poquito más cerca.").font(.caption).foregroundStyle(.secondary)
-                }
+                Text("Te pienso").font(.title3.bold())
                 Spacer()
                 Text(services.coupleSpace?.latestGesture?.kind.symbol ?? "♡")
                     .font(.largeTitle).id(feedback).transition(reduceMotion ? .opacity : .scale.combined(with: .opacity))
@@ -32,29 +139,26 @@ struct ThinkingOfYouCard: View {
                         Text(gesture.sentAt, style: .relative).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if gesture.recipientId == services.identity?.uid {
-                    Text("Respondé con otro detalle ↓").font(.caption).foregroundStyle(services.personalization.theme.accent)
-                }
             }
             HStack(spacing: 12) {
                 ForEach(AffectionKind.allCases, id: \.self) { kind in
                     Button { send(kind) } label: {
-                        VStack(spacing: 6) { Text(kind.symbol).font(.title); Text(kind.title).font(.caption) }
-                            .frame(maxWidth: .infinity).padding(.vertical, 10)
+                        Text(kind.symbol).font(.title).frame(maxWidth: .infinity, minHeight: 48)
                     }.buttonStyle(.bordered).disabled(sending)
+                        .accessibilityLabel("Enviar " + kind.title.lowercased())
                 }
             }
-            if sending { ProgressView("Enviando ese cariño…").font(.caption) }
+            if sending { ProgressView().accessibilityLabel("Enviando") }
             if let error {
                 Text(error).font(.footnote).foregroundStyle(.secondary)
-                if let pending { Button("Reintentar el mismo envío") { send(pending.kind, retry: true) }.disabled(sending) }
+                if let pending { Button("Reintentar") { send(pending.kind, retry: true) }.disabled(sending) }
             }
         }
         .padding(20).background(services.personalization.theme.card, in: RoundedRectangle(cornerRadius: 24))
         .sensoryFeedback(.impact(weight: .light, intensity: 0.5), trigger: feedback)
         .task(id: storage.key) {
             pending = storage.loadValue()
-            error = pending == nil ? nil : "Tenés un detalle cuyo envío no se confirmó."
+            error = pending == nil ? nil : "Envío sin confirmar."
         }
     }
     private func send(_ kind: AffectionKind, retry: Bool = false) {
@@ -74,7 +178,7 @@ struct ThinkingOfYouCard: View {
                 guard storage.key == scope else { return }
                 pending = nil
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) { feedback += 1 }
-            } catch { if storage.key == scope { self.error = "No se confirmó el envío. Podés reintentar sin duplicarlo." } }
+            } catch { if storage.key == scope { self.error = "No se pudo confirmar el envío." } }
         }
     }
 }

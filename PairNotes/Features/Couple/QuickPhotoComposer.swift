@@ -50,23 +50,22 @@ struct QuickPhotoComposer: View {
                             .frame(maxWidth: .infinity, maxHeight: 380)
                             .clipShape(RoundedRectangle(cornerRadius: 24))
                     } else {
-                        ContentUnavailableView("Un momento para compartir", systemImage: "camera.fill",
-                            description: Text("Sacá una foto o elegí una de tu biblioteca para \(services.partnerNickname)."))
+                        ContentUnavailableView("Para \(services.partnerNickname)", systemImage: "camera")
                     }
-                    HStack(spacing: 12) {
-                        Button("Sacar foto", systemImage: "camera.fill") { Task { await openCamera() } }
-                            .buttonStyle(.borderedProminent).frame(minHeight: 44)
-                        Button("Biblioteca", systemImage: "photo.on.rectangle") { choosingPhoto = true }
-                            .buttonStyle(.bordered).frame(minHeight: 44)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 12) { photoSources }
+                        VStack(spacing: 12) { photoSources }
                     }.disabled(preparing || sending)
                     if preparing { ProgressView("Preparando foto…") }
-                    TextField("Un mensaje para acompañarla", text: $caption, axis: .vertical)
+                    TextField("Mensaje opcional", text: $caption, axis: .vertical)
                         .lineLimit(2...4).padding(16)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
                         .disabled(sending)
                         .onChange(of: caption) { _, _ in photoID = UUID(); persist() }
-                    Text("Sólo para ustedes. Podés revisarla antes de enviarla.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                    if caption.utf16.count > 400 {
+                        Text("\(caption.utf16.count)/500").font(.caption)
+                            .foregroundStyle(caption.utf16.count > 500 ? .red : .secondary)
+                    }
                     if let error {
                         Label(error, systemImage: "exclamationmark.circle").font(.callout).foregroundStyle(.red)
                     }
@@ -77,7 +76,7 @@ struct QuickPhotoComposer: View {
                     }
                 }.padding(20)
             }
-            .navigationTitle("Una foto para vos").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Enviar foto").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cerrar") { persist(); dismiss() }.disabled(sending)
@@ -120,6 +119,14 @@ struct QuickPhotoComposer: View {
                 Button("Descartar", role: .destructive) { storage.clear(); imageData = nil; caption = ""; photoID = UUID(); finished = true; dismiss() }
             }
         }
+    }
+
+    @ViewBuilder
+    private var photoSources: some View {
+        Button("Cámara", systemImage: "camera") { Task { await openCamera() } }
+            .buttonStyle(.borderedProminent).frame(minHeight: 44).fixedSize(horizontal: true, vertical: false)
+        Button("Fotos", systemImage: "photo.on.rectangle") { choosingPhoto = true }
+            .buttonStyle(.bordered).frame(minHeight: 44).fixedSize(horizontal: true, vertical: false)
     }
 
     private func setPhoto(_ data: Data) {

@@ -8,19 +8,19 @@ struct HomeView: View {
     let openNote: (RemoteNote) -> Void
     let createPhoto: () -> Void
     let openPhoto: (String) -> Void
-    @State private var destination: Destination?
-    private enum Destination: String, Identifiable {
-        case message, date, distance
-        var id: String { rawValue }
-    }
+    let openMessages: () -> Void
+    let editDate: () -> Void
+    let openDistance: () -> Void
 
     init(model: AppModel, createNote: @escaping () -> Void, openNote: @escaping (RemoteNote) -> Void,
-         createPhoto: @escaping () -> Void = {}, openPhoto: @escaping (String) -> Void = { _ in }) {
+         createPhoto: @escaping () -> Void = {}, openPhoto: @escaping (String) -> Void = { _ in },
+         openMessages: @escaping () -> Void = {}, editDate: @escaping () -> Void = {}, openDistance: @escaping () -> Void = {}) {
         self.model = model
         self.services = model.services
         self.createNote = createNote
         self.openNote = openNote
         self.createPhoto = createPhoto; self.openPhoto = openPhoto
+        self.openMessages = openMessages; self.editDate = editDate; self.openDistance = openDistance
     }
 
     private var theme: CoupleTheme { services.personalization.theme }
@@ -40,50 +40,24 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(Date.now, format: .dateTime.weekday(.wide).day().month(.wide))
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Text(services.membership == nil ? "Algo lindo empieza acá" : "Su pequeño mundo")
-                        .font(.largeTitle.bold()).tracking(-1)
-                    Text(services.membership == nil ? "Dibujos, palabras y momentos para compartir." : (services.personalization.phrase.isEmpty ? "Un lugar para sentirse cerca, todos los días." : services.personalization.phrase))
-                        .font(.subheadline).foregroundStyle(.secondary)
+                    Text(services.membership == nil ? "Para compartir" : "Vos y \(services.partnerNickname)")
+                        .font(.largeTitle.bold())
+                    if !services.personalization.phrase.isEmpty {
+                        Text(services.personalization.phrase).font(.subheadline).foregroundStyle(.secondary)
+                    }
                 }
-                Button(action: createNote) {
-                    HStack(spacing: 16) {
-                        Image(systemName: "pencil.tip.crop.circle.fill").font(.largeTitle)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Un dibujo puede decir mucho").font(.headline)
-                            Text("Creá algo para esa persona especial").font(.caption)
-                        }
-                        Spacer(minLength: 0)
-                        Image(systemName: "arrow.up.right")
-                    }.foregroundStyle(.white).padding(22)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(LinearGradient(colors: [theme == .night ? Color(rgb: 0x73558A) : Color(rgb: theme.accentRGB), Color(rgb: 0x482C4F)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 26))
-                }.buttonStyle(.plain).accessibilityLabel("Crear un dibujo")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) { quickActions }
+                    VStack(spacing: 12) { quickActions }
+                }
 
                 if services.membership != nil {
-                    Button(action: createPhoto) {
-                        Label("Mandarle una foto", systemImage: "camera.fill")
-                            .font(.headline).frame(maxWidth: .infinity, minHeight: 48)
-                    }.buttonStyle(.bordered)
                     if let photo = services.coupleSpace?.latestPhoto {
                         Button { openPhoto(photo.id) } label: {
                             CouplePhotoCard(services: services, photo: photo)
                         }.buttonStyle(.plain)
                     }
                     ThinkingOfYouCard(services: services)
-                    NavigationLink {
-                        LettersView(services: services, notes: model.notes, catalog: model.catalog)
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "envelope.badge.shield.half.filled").font(.title)
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text("Cartitas para después").font(.headline)
-                                Text("Palabras que esperan su momento").font(.caption)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                        }.padding(20).background(theme.paper, in: RoundedRectangle(cornerRadius: 24))
-                    }.buttonStyle(.plain)
                 }
                 ForEach(services.personalization.homeOrder, id: \.self) { section in
                     homeSection(section)
@@ -91,23 +65,28 @@ struct HomeView: View {
                 if let status = model.status ?? services.spaceError {
                     Label(status, systemImage: "info.circle").font(.footnote).foregroundStyle(.secondary)
                 }
-                Text("Hecho de pequeños detalles, pensado para los dos.")
-                    .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 8)
             }.padding(20)
         }
         .foregroundStyle(theme.ink)
         .background(theme.canvas)
         .navigationTitle("Inicio").navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.foreground() }
-        .sheet(item: $destination) { destination in
-            switch destination {
-            case .message: MessageComposer(services: services)
-            case .date: TogetherDateEditor(services: services)
-            case .distance: NavigationStack { DistanceSettingsView(services: services) }
-            }
+    }
+
+    @ViewBuilder
+    private var quickActions: some View {
+        Button(action: createNote) {
+            Label("Dibujar", systemImage: "pencil.tip.crop.circle")
+                .font(.headline).fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }.buttonStyle(.borderedProminent).accessibilityLabel("Crear un dibujo")
+        if services.membership != nil {
+            Button(action: createPhoto) {
+                Label("Enviar foto", systemImage: "camera")
+                    .font(.headline).fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }.buttonStyle(.bordered)
         }
-        .onChange(of: services.identity?.uid) { _, _ in destination = nil }
-        .onChange(of: services.membership?.id) { _, _ in destination = nil }
     }
 
     @ViewBuilder
@@ -117,17 +96,16 @@ struct HomeView: View {
                 if services.membership != nil {
                     card {
                         CouplePortraits(services: services)
-                        Divider().padding(.vertical, 4)
-                        Button { destination = .date } label: {
+                        Divider()
+                        Button(action: editDate) {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text("NUESTRA HISTORIA").font(.caption2.weight(.bold)).tracking(1.5)
                                     if let started = services.coupleSpace?.startedOn,
                                        let days = started.daysTogether(on: Date(), calendar: .current) {
                                         Text("\(days) días juntos").font(.title2.bold())
                                         Text("Desde \(started.date(in: .current)?.formatted(date: .long, time: .omitted) ?? started.rawValue)")
                                             .font(.caption).foregroundStyle(.secondary)
-                                    } else { Text("Elegí su primera fecha").font(.headline) }
+                                    } else { Text("Nuestra fecha").font(.headline) }
                                 }
                                 Spacer()
                                 Image(systemName: "heart.circle.fill").font(.largeTitle).foregroundStyle(theme.accent)
@@ -137,7 +115,7 @@ struct HomeView: View {
                 }
         case .message:
                 if services.membership != nil {
-                    sectionTitle("Palabras que abrazan", subtitle: "El último mensaje que te dejó")
+                    sectionTitle("Último mensaje")
                     card {
                         if let message = services.coupleSpace?.latestMessage {
                             HStack(alignment: .top, spacing: 12) {
@@ -150,13 +128,13 @@ struct HomeView: View {
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                             }
-                        } else { Text("A veces, un «te pienso» cambia todo el día.").foregroundStyle(.secondary) }
-                        Button("Escribir un mensaje", systemImage: "bubble.left.and.text.bubble.right") { destination = .message }
+                        } else { Text("Sin mensajes recibidos").foregroundStyle(.secondary) }
+                        Button("Ver mensajes", systemImage: "bubble.left.and.text.bubble.right", action: openMessages)
                             .font(.subheadline.weight(.semibold)).padding(.top, 6)
                     }
                 }
         case .drawing:
-                sectionTitle("Para guardar cerquita", subtitle: "El último dibujo recibido")
+                sectionTitle("Último dibujo")
                 card {
                     if let note = model.latestReceived {
                         Button { openNote(note) } label: {
@@ -175,22 +153,20 @@ struct HomeView: View {
                                 }
                             }
                         }.buttonStyle(.plain).accessibilityLabel("Abrir el último dibujo recibido")
-                    } else if model.isLoading { ProgressView("Buscando recuerdos…") }
+                    } else if model.isLoading { ProgressView().accessibilityLabel("Buscando dibujos") }
                     else {
                         Image(systemName: "heart.text.square").font(.largeTitle).foregroundStyle(theme.accent)
-                        Text("Un espacio para su próximo dibujo").font(.headline)
-                        Text(services.membership == nil ? "Vinculá sus cuentas en Nosotros para empezar a compartir." : "Cuando tu pareja te envíe algo, lo vas a encontrar acá.")
-                            .font(.subheadline).foregroundStyle(.secondary)
+                        Text("Sin dibujos recibidos").foregroundStyle(.secondary)
                     }
                 }
         case .distance:
                 if services.membership != nil {
                     card {
-                        Button { destination = .distance } label: {
+                        Button(action: openDistance) {
                             HStack(spacing: 14) {
                                 Image(systemName: "location.circle.fill").font(.largeTitle).foregroundStyle(theme.accent)
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text("Entre ustedes").font(.headline)
+                                    Text("Distancia").font(.headline)
                                     DistanceSummary(distance: services.coupleSpace?.location.distance).font(.subheadline)
                                 }
                                 Spacer(minLength: 0)
@@ -202,11 +178,8 @@ struct HomeView: View {
         }
     }
 
-    private func sectionTitle(_ title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.title3.bold())
-            Text(subtitle).font(.caption).foregroundStyle(.secondary)
-        }
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title).font(.title3.bold())
     }
 
     private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {

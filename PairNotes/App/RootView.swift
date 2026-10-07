@@ -4,7 +4,7 @@ import UIKit
 @preconcurrency import WidgetKit
 import PairNotesCore
 
-private enum AppTab: Hashable { case home, create, memories, couple }
+private enum AppTab: Hashable { case home, create, memories, affection, couple }
 private struct EditorRoute: Identifiable {
     let id = UUID()
     let store: DraftCatalogStore
@@ -15,6 +15,10 @@ private struct EditorRoute: Identifiable {
 }
 private struct NoteRoute: Identifiable { let id: String }
 private struct PhotoRoute: Identifiable { let id: String }
+private enum HomeSheet: String, Identifiable {
+    case date, distance
+    var id: String { rawValue }
+}
 
 struct RootView: View {
     @StateObject private var services = AppServices.shared
@@ -33,34 +37,74 @@ struct RootView: View {
     @State private var widgetSyncedScope: String?
     @State private var nextWidgetSync = Date.distantPast
     @State private var widgetGeneration: UInt64 = 0
-    @State private var messagesShowing = false
-    @State private var lettersShowing = false
-    @State private var focusedLetterID: String?
+    @State private var affectionPath: [AffectionDestination] = []
+    @State private var pendingAffection: AffectionDestination?
+    @State private var pendingTab: AppTab?
+    @State private var homeSheet: HomeSheet?
+    @State private var collectionModalOwners: Set<UUID> = []
+    @State private var collectionDismissalVersion: UInt64 = 0
+    @State private var resettingAffectionPath = false
+    @State private var dismissingGlobalSheet = false
+    @State private var observedUID: String?
+    @State private var linkedScope: String?
 
     private var scope: String {
         [services.identity?.uid ?? "guest", services.membership?.id ?? "none",
          String(services.membership?.pairEpoch ?? 0), String(services.membershipResolved)].joined(separator: ":")
     }
 
+    private var hasPresentedSheet: Bool {
+        editor != nil || noteRoute != nil || photoRoute != nil || cameraShowing ||
+        homeSheet != nil || dismissingGlobalSheet || !collectionModalOwners.isEmpty
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
                 HomeView(model: model, createNote: { openDraft(nil) }, openNote: openNote,
-                         createPhoto: { openCamera(capture: false) }, openPhoto: routePhoto)
+                         createPhoto: { openCamera(capture: false) }, openPhoto: routePhoto,
+                         openMessages: { routeAffection(.messages) }, editDate: { homeSheet = .date },
+                         openDistance: { homeSheet = .distance })
             }.tabItem { Label("Inicio", systemImage: "house") }.tag(AppTab.home)
             NavigationStack {
                 DraftLibraryView(model: model, openDraft: openDraft, openNote: openNote)
-            }.tabItem { Label("Crear", systemImage: "pencil.tip.crop.circle") }.tag(AppTab.create)
+            }.tabItem { Label("Dibujos", systemImage: "pencil.tip.crop.circle") }.tag(AppTab.create)
             NavigationStack {
                 TimelineView(model: model, openNote: openNote)
             }.tabItem { Label("Recuerdos", systemImage: "rectangle.stack") }.tag(AppTab.memories)
+            NavigationStack(path: $affectionPath) {
+                AffectionHubView(services: services, connect: { selectedTab = .couple })
+                    .navigationDestination(for: AffectionDestination.self) { destination in
+                        switch destination {
+                        case .letters(let id):
+                            LettersView(services: services, notes: model.notes, catalog: model.catalog, focusID: id)
+                                .id(id ?? "letters")
+                        case .voices:
+                            VoiceNotesView(services: services, notes: model.notes, catalog: model.catalog)
+                        case .messages:
+                            MessagesView(services: services)
+                        case .photos:
+                            CouplePhotosView(services: services, createPhoto: { openCamera(capture: false) }, openPhoto: routePhoto)
+                        }
+                    }
+            }.tabItem { Label("Para vos", systemImage: "heart.text.clipboard") }.tag(AppTab.affection)
             NavigationStack {
                 CoupleView(services: services)
             }.tabItem { Label("Nosotros", systemImage: "person.2") }.tag(AppTab.couple)
         }
         .tint(services.personalization.theme.accent)
         .preferredColorScheme(services.personalization.theme == .night ? .dark : nil)
-        .sheet(item: $editor, onDismiss: { Task { await model.reloadDrafts() }; presentPendingRoute() }) { route in
+        .environment(\.coupleModalControl, CoupleModalControl(
+            dismissalVersion: collectionDismissalVersion,
+            onPresented: { collectionModalOwners.insert($0) },
+            onDismissed: { owner in
+                collectionModalOwners.remove(owner)
+                if collectionModalOwners.isEmpty, resettingAffectionPath {
+                    affectionPath = []; resettingAffectionPath = false
+                }
+                presentPendingRoute()
+            }))
+        .sheet(item: $editor, onDismiss: { Task { await model.reloadDrafts() }; globalSheetDismissed() }) { route in
             NativePaperEditorView(store: route.store, draft: route.draft, theme: services.personalization.theme,
                                   onSaved: { Task { await model.reloadDrafts() } },
                                   onSend: { archive in
@@ -72,47 +116,42 @@ struct RootView: View {
                 return queued
             })
         }
-        .sheet(item: $noteRoute, onDismiss: presentPendingRoute) { route in
+        .sheet(item: $noteRoute, onDismiss: globalSheetDismissed) { route in
             NavigationStack { ReceivedNoteDetailView(noteID: route.id, services: services) }
         }
-        .sheet(item: $photoRoute, onDismiss: presentPendingRoute) { route in
+        .sheet(item: $photoRoute, onDismiss: globalSheetDismissed) { route in
             NavigationStack { CouplePhotoDetailView(photoID: route.id, services: services,
-                replyWithPhoto: { photoRoute = nil; pendingCamera = true; cameraRequested = true }) }
+                replyWithPhoto: { pendingCamera = true; cameraRequested = true; closePresentedSheets() }) }
         }
-        .sheet(isPresented: $cameraShowing, onDismiss: presentPendingRoute) {
+        .sheet(isPresented: $cameraShowing, onDismiss: globalSheetDismissed) {
             QuickPhotoComposer(services: services, opensCamera: cameraRequested)
         }
-        .sheet(isPresented: $lettersShowing, onDismiss: presentPendingRoute) {
-            NavigationStack {
-                LettersView(services: services, notes: model.notes, catalog: model.catalog, focusID: focusedLetterID)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { lettersShowing = false } } }
-            }
-        }
-        .sheet(isPresented: $messagesShowing, onDismiss: presentPendingRoute) {
-            NavigationStack {
-                MessagesView(services: services)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { messagesShowing = false } } }
+        .sheet(item: $homeSheet, onDismiss: globalSheetDismissed) { destination in
+            switch destination {
+            case .date: TogetherDateEditor(services: services)
+            case .distance: NavigationStack { DistanceSettingsView(services: services, isPresentedModally: true) }
             }
         }
         .task {
             services.onOpenNote = { id in routeNote(id) }
             services.onOpenPhoto = { id in routePhoto(id) }
-            services.onOpenCouple = { selectedTab = .couple }
-            services.onOpenHome = { selectedTab = .home }
-            services.onOpenLetters = { id in
-                if services.membership != nil { focusedLetterID = id; lettersShowing = true }
-                else { selectedTab = .couple }
-            }
-            services.onOpenMessages = {
-                if services.membership != nil { messagesShowing = true }
-                else { selectedTab = .couple }
-            }
+            services.onOpenCouple = { routeTab(.couple) }
+            services.onOpenHome = { routeTab(.home) }
+            services.onOpenLetters = { id in routeAffection(.letters(id)) }
+            services.onOpenMessages = { routeAffection(.messages) }
             services.onSessionInvalidated = {
                 widgetGeneration &+= 1
                 WidgetAccessStore.clear()
-                noteRoute = nil
-                photoRoute = nil; cameraShowing = false
-                messagesShowing = false; lettersShowing = false; focusedLetterID = nil
+                closePresentedSheets()
+                // The first membership fetch also invalidates widget state.
+                // Preserve an incoming link until that fetch resolves; an
+                // established relationship or account change cancels it.
+                if services.membership != nil || linkedScope != nil || (observedUID != nil && services.identity == nil) {
+                    pendingAffection = nil
+                    pendingCamera = false; pendingNoteID = nil; pendingPhotoID = nil
+                }
+                linkedScope = nil
+                resetAffectionNavigation()
                 widgetSyncedScope = nil
                 nextWidgetSync = .distantPast
                 LocationSharingController.shared.invalidate()
@@ -135,12 +174,16 @@ struct RootView: View {
         }
         .task(id: scope) {
             await model.reconcileSession()
+            guard !Task.isCancelled else { return }
+            observedUID = services.identity?.uid
+            if services.membershipResolved, services.membership != nil { linkedScope = scope }
             services.deliverPendingAffectionRoute()
             if services.membershipResolved, services.membership != nil {
-                await synchronizeWidgets()
                 if let pendingNoteID { routeNote(pendingNoteID) }
                 if let pendingPhotoID { routePhoto(pendingPhotoID) }
-                if pendingCamera { pendingCamera = false; openCamera(capture: true) }
+                if pendingCamera { pendingCamera = false; openCamera(capture: cameraRequested) }
+                if let pendingAffection { routeAffection(pendingAffection) }
+                await synchronizeWidgets()
             }
         }
         .task(id: scenePhase) {
@@ -163,22 +206,36 @@ struct RootView: View {
                 await PairPhotoActivityController.shared.synchronize(services: services)
             }
         }
-        .onChange(of: services.identity?.uid) { _, _ in editor = nil; noteRoute = nil; photoRoute = nil; cameraShowing = false; messagesShowing = false; lettersShowing = false; focusedLetterID = nil }
+        .onChange(of: services.identity?.uid) { old, uid in
+            observedUID = uid
+            if old != nil {
+                pendingAffection = nil; resetAffectionNavigation()
+                pendingCamera = false; pendingNoteID = nil; pendingPhotoID = nil
+                closePresentedSheets()
+            }
+        }
+        .onChange(of: services.membership?.pairEpoch) { old, _ in
+            // Preserve a cold link while membership first resolves; discard it
+            // when an existing relationship is replaced or revoked.
+            if old != nil { pendingAffection = nil; resetAffectionNavigation() }
+        }
+        .onChange(of: services.membership?.id) { old, _ in
+            if old != nil { homeSheet = nil; pendingAffection = nil; resetAffectionNavigation() }
+        }
         .onOpenURL { url in
-            if url.scheme == "pairnotes", url.host == "home" { selectedTab = .home; return }
+            if url.scheme == "pairnotes", url.host == "home" { routeTab(.home); return }
             if url.scheme == "pairnotes", ["letters", "letter"].contains(url.host ?? "") {
-                guard services.membership != nil else { selectedTab = .couple; return }
-                focusedLetterID = url.pathComponents.last.flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
-                lettersShowing = true; return
+                let id = url.pathComponents.last.flatMap { UUID(uuidString: $0)?.uuidString.lowercased() }
+                routeAffection(.letters(id)); return
             }
             if services.handle(url: url) { return }
             guard url.scheme == "pairnotes" else { return }
             switch url.host {
-            case "create": selectedTab = .create
-            case "couple": selectedTab = .couple
-            case "messages":
-                if services.membership != nil { messagesShowing = true }
-                else { selectedTab = .couple }
+            case "create": routeTab(.create)
+            case "couple": routeTab(.couple)
+            case "messages": routeAffection(.messages)
+            case "voices": routeAffection(.voices)
+            case "photos": routeAffection(.photos)
             case "note": routeNote(url.lastPathComponent)
             case "photo": routePhoto(url.lastPathComponent)
             case "camera": openCamera(capture: true)
@@ -196,51 +253,101 @@ struct RootView: View {
     private func openNote(_ note: RemoteNote) { routeNote(note.id) }
 
     private func openCamera(capture: Bool) {
-        pendingPhotoID = nil; pendingNoteID = nil
+        pendingPhotoID = nil; pendingNoteID = nil; pendingAffection = nil; pendingTab = nil
+        cameraRequested = capture
         guard services.identity != nil, services.membershipResolved, services.membership != nil else {
             pendingCamera = true; selectedTab = .couple; return
         }
-        cameraRequested = capture
-        if editor != nil || noteRoute != nil || photoRoute != nil || lettersShowing || messagesShowing {
+        if hasPresentedSheet {
             pendingCamera = true
-            editor = nil; noteRoute = nil; photoRoute = nil; lettersShowing = false; messagesShowing = false
+            closePresentedSheets()
         } else { cameraShowing = true }
     }
 
     private func presentPendingRoute() {
-        guard services.membership != nil, editor == nil, noteRoute == nil,
-              photoRoute == nil, !cameraShowing, !lettersShowing, !messagesShowing else { return }
+        guard !hasPresentedSheet else { return }
+        if let tab = pendingTab { pendingTab = nil; routeTab(tab); return }
+        guard services.membership != nil else { return }
         if let id = pendingPhotoID { pendingPhotoID = nil; routePhoto(id) }
         else if let id = pendingNoteID { pendingNoteID = nil; routeNote(id) }
         else if pendingCamera { pendingCamera = false; cameraShowing = true }
+        else if let pendingAffection { routeAffection(pendingAffection) }
+    }
+
+    private func routeAffection(_ destination: AffectionDestination) {
+        pendingCamera = false; pendingPhotoID = nil; pendingNoteID = nil; pendingTab = nil
+        guard services.identity != nil, services.membershipResolved, services.membership != nil else {
+            pendingAffection = destination; selectedTab = .couple; return
+        }
+        if hasPresentedSheet {
+            pendingAffection = destination
+            closePresentedSheets()
+        } else {
+            pendingAffection = nil
+            selectedTab = .affection
+            affectionPath = [destination]
+        }
     }
 
     private func routePhoto(_ id: String) {
         guard let uuid = UUID(uuidString: id) else { return }
-        pendingCamera = false; pendingNoteID = nil
+        pendingCamera = false; pendingNoteID = nil; pendingAffection = nil; pendingTab = nil
         guard services.identity != nil, services.membershipResolved, services.membership != nil else {
             pendingPhotoID = uuid.uuidString.lowercased(); selectedTab = .couple; return
         }
         if photoRoute?.id == uuid.uuidString.lowercased() { return }
-        if editor != nil || noteRoute != nil || photoRoute != nil || cameraShowing || lettersShowing || messagesShowing {
+        if hasPresentedSheet {
             pendingPhotoID = uuid.uuidString.lowercased()
-            editor = nil; noteRoute = nil; photoRoute = nil; cameraShowing = false; lettersShowing = false; messagesShowing = false
+            closePresentedSheets()
         } else { pendingPhotoID = nil; photoRoute = PhotoRoute(id: uuid.uuidString.lowercased()) }
     }
 
     private func routeNote(_ id: String) {
         guard let uuid = UUID(uuidString: id) else { return }
-        pendingCamera = false; pendingPhotoID = nil
+        pendingCamera = false; pendingPhotoID = nil; pendingAffection = nil; pendingTab = nil
         guard services.identity != nil, services.membershipResolved, services.membership != nil else {
             pendingNoteID = uuid.uuidString.lowercased()
             selectedTab = .couple
             return
         }
         if noteRoute?.id == uuid.uuidString.lowercased() { return }
-        if editor != nil || photoRoute != nil || noteRoute != nil || cameraShowing || lettersShowing || messagesShowing {
+        if hasPresentedSheet {
             pendingNoteID = uuid.uuidString.lowercased()
-            editor = nil; photoRoute = nil; noteRoute = nil; cameraShowing = false; lettersShowing = false; messagesShowing = false
+            closePresentedSheets()
         } else { pendingNoteID = nil; noteRoute = NoteRoute(id: uuid.uuidString.lowercased()) }
+    }
+
+    private func closePresentedSheets() {
+        if editor != nil || noteRoute != nil || photoRoute != nil || cameraShowing || homeSheet != nil {
+            dismissingGlobalSheet = true
+        }
+        editor = nil; noteRoute = nil; photoRoute = nil; cameraShowing = false; homeSheet = nil
+        if !collectionModalOwners.isEmpty { collectionDismissalVersion &+= 1 }
+    }
+
+    private func routeTab(_ tab: AppTab) {
+        pendingCamera = false; pendingPhotoID = nil; pendingNoteID = nil; pendingAffection = nil
+        if hasPresentedSheet {
+            pendingTab = tab; closePresentedSheets()
+        } else {
+            pendingTab = nil; selectedTab = tab
+        }
+    }
+
+    private func globalSheetDismissed() {
+        dismissingGlobalSheet = false
+        presentPendingRoute()
+    }
+
+    private func resetAffectionNavigation() {
+        if collectionModalOwners.isEmpty {
+            affectionPath = []; resettingAffectionPath = false
+        } else {
+            // Keep the presenting collection alive until UIKit completes the
+            // dismiss. Its scope guards already hide the previous account.
+            resettingAffectionPath = true
+            collectionDismissalVersion &+= 1
+        }
     }
 
     private func synchronizeWidgets() async {
