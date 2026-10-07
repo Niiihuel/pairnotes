@@ -368,7 +368,7 @@ export class PairNotesService {
       tx.update(this.db.doc(`pairs/${pairId}`), {lastPublishedMillis: publishedAt.toMillis()});
       tx.update(sessionRef, {status: 'published'});
       tx.set(this.db.doc(`pairs/${pairId}/views/${recipientId}`), {latestNoteId: session.noteId, pairEpoch}, {merge: true});
-      tx.create(this.db.doc(`notificationEvents/${digest(`${pairId}:${session.noteId}`)}`), {pairId, pairEpoch, noteId: session.noteId, recipientId,
+      tx.create(this.db.doc(`notificationEvents/${digest(`${pairId}:${session.noteId}`)}`), {pairId, pairEpoch, noteId: session.noteId, recipientId, actorId: caller.uid,
         status: 'pending', attempts: 0, nextAttemptAt: publishedAt});
       return value;
     }).catch(async error => {

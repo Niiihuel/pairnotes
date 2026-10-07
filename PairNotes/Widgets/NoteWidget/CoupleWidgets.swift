@@ -55,6 +55,7 @@ private enum CoupleWidgetContent { case message, together, anniversary, distance
 
 private struct CoupleWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetRenderingMode) private var renderingMode
     let entry: CoupleEntry
     let content: CoupleWidgetContent
     private var theme: CoupleTheme { entry.snapshot?.personalization?.theme ?? .rose }
@@ -75,6 +76,7 @@ private struct CoupleWidgetView: View {
             if !(accessory && (content == .distance || content == .message || content == .together)) {
                 Label(title, systemImage: content == .message ? "bubble.left.fill" : "heart")
                     .font(accessory ? .caption.weight(.semibold) : .headline).lineLimit(1)
+                    .widgetAccentable()
             }
             if let snapshot = entry.snapshot {
                 contentView(snapshot).privacySensitive()
@@ -86,7 +88,7 @@ private struct CoupleWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .foregroundStyle(accessory ? Color.primary : theme.ink)
+        .foregroundStyle(accessory || renderingMode != .fullColor ? Color.primary : theme.ink)
         .containerBackground(theme.paper, for: .widget)
         .widgetURL(URL(string: content == .gesture ? "pairnotes://home" : (content == .message ? "pairnotes://messages" : "pairnotes://couple")))
     }
@@ -135,6 +137,7 @@ private struct CoupleWidgetView: View {
                             .overlay(alignment: .topTrailing) {
                                 Image(systemName: "heart.fill").font(.system(size: 8)).offset(x: 4, y: -2)
                             }
+                            .widgetAccentable()
                         Text(days.formatted(.number.grouping(.never))).font(.headline.bold()).lineLimit(1).minimumScaleFactor(0.85)
                         Text("días juntos").font(.caption2).lineLimit(1)
                     }.frame(maxWidth: .infinity)
@@ -173,7 +176,8 @@ private struct CoupleWidgetView: View {
                             Image(systemName: "heart.fill").font(.system(size: accessory ? 9 : 13)).offset(x: 4, y: -3)
                         }
                         .frame(width: accessory ? 24 : 30)
-                        .foregroundStyle(accessory ? Color.primary : theme.accent)
+                        .foregroundStyle(accessory || renderingMode != .fullColor ? Color.primary : theme.accent)
+                        .widgetAccentable()
                         .opacity(presentation.fresh ? 1 : 0.5)
                     Spacer().frame(width: spread / 2)
                     if let last = snapshot.profiles.last, snapshot.profiles.count > 1 { avatar(last, size: size) }
@@ -188,19 +192,8 @@ private struct CoupleWidgetView: View {
     }
 
     private func avatar(_ profile: CoupleProfile, size: CGFloat) -> some View {
-        Group {
-            if let data = entry.avatars[profile.uid], let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().widgetAccentedRenderingMode(.fullColor).scaledToFill()
-            } else {
-                ZStack {
-                    Circle().fill(accessory ? Color.primary.opacity(0.09) : theme.accent.opacity(0.12))
-                    Text(profile.initials.isEmpty ? "♡" : profile.initials).font(.system(size: size * 0.35, weight: .semibold))
-                }
-            }
-        }
-        .frame(width: size, height: size).clipShape(Circle())
-        .overlay { Circle().strokeBorder(accessory ? Color.primary.opacity(0.35) : theme.accent.opacity(0.25), lineWidth: 1) }
-        .accessibilityLabel(profile.displayName)
+        WidgetProfileAvatar(data: entry.avatars[profile.uid], name: profile.displayName,
+                            initials: profile.initials, theme: theme, size: size)
     }
 
     private func avatars(_ snapshot: CoupleWidgetSnapshot) -> some View {
@@ -281,5 +274,72 @@ struct ThinkingOfYouWidget: Widget {
         .description("El último corazón, abrazo o beso entre ustedes. Tocá para responder desde Inicio.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
         .pushHandler(PairNotesWidgetPushHandler.self)
+    }
+}
+
+private enum CoupleWidgetPreviewData {
+    @MainActor
+    static func entry(missingAvatars: Bool = false, stale: Bool = false) -> CoupleEntry {
+        let now = Date()
+        let first = portrait(background: UIColor(red: 0.16, green: 0.32, blue: 0.51, alpha: 1))
+        let second = portrait(background: UIColor(red: 0.54, green: 0.23, blue: 0.32, alpha: 1))
+        let profiles = [CoupleProfile(uid: "preview-alex", displayName: "Alex"),
+                        CoupleProfile(uid: "preview-sam", displayName: "Sam")]
+        let snapshot = CoupleWidgetSnapshot(profiles: profiles,
+            startedOn: CoupleDate(rawValue: "2023-05-07"),
+            latestMessage: CoupleMessage(id: "preview-message", authorID: "preview-sam", recipientID: "preview-alex",
+                                         text: "Te extraño demasiado ♡", sentAt: now),
+            distance: CoupleDistance(status: .available, meters: 2500,
+                updatedAt: stale ? now.addingTimeInterval(-20 * 60) : now, accuracyMeters: 20))
+        return CoupleEntry(date: now, snapshot: snapshot,
+            avatars: missingAvatars ? [:] : ["preview-alex": first, "preview-sam": second],
+            message: "", cached: stale)
+    }
+
+    @MainActor
+    private static func portrait(background: UIColor) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1; format.opaque = true
+        return UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: format).image { _ in
+            background.setFill(); UIBezierPath(rect: CGRect(x: 0, y: 0, width: 96, height: 96)).fill()
+            UIColor(red: 0.91, green: 0.69, blue: 0.53, alpha: 1).setFill()
+            UIBezierPath(ovalIn: CGRect(x: 28, y: 17, width: 40, height: 47)).fill()
+            UIColor(white: 0.13, alpha: 1).setFill()
+            UIBezierPath(ovalIn: CGRect(x: 18, y: 62, width: 60, height: 64)).fill()
+            UIBezierPath(ovalIn: CGRect(x: 36, y: 36, width: 4, height: 4)).fill()
+            UIBezierPath(ovalIn: CGRect(x: 56, y: 36, width: 4, height: 4)).fill()
+        }.pngData() ?? Data()
+    }
+}
+
+struct CoupleWidgetAvatar_Previews: PreviewProvider {
+    static var previews: some View {
+        Group {
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(), content: .distance)
+                .environment(\.widgetRenderingMode, .fullColor)
+                .previewContext(WidgetPreviewContext(family: .systemMedium))
+                .previewDisplayName("Avatares · color")
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(), content: .distance)
+                .environment(\.widgetRenderingMode, .accented)
+                .previewContext(WidgetPreviewContext(family: .systemMedium))
+                .previewDisplayName("Avatares · inicio con tinte")
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(), content: .distance)
+                .environment(\.widgetRenderingMode, .vibrant)
+                .previewContext(WidgetPreviewContext(family: .accessoryRectangular))
+                .previewDisplayName("Avatares · bloqueo")
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(missingAvatars: true), content: .distance)
+                .environment(\.widgetRenderingMode, .vibrant)
+                .previewContext(WidgetPreviewContext(family: .accessoryRectangular))
+                .previewDisplayName("Avatares · iniciales visibles")
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(stale: true), content: .distance)
+                .environment(\.widgetRenderingMode, .vibrant)
+                .previewContext(WidgetPreviewContext(family: .accessoryRectangular))
+                .previewDisplayName("Avatares · distancia desactualizada")
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(), content: .message)
+                .environment(\.widgetRenderingMode, .vibrant)
+                .redacted(reason: .privacy)
+                .previewContext(WidgetPreviewContext(family: .accessoryRectangular))
+                .previewDisplayName("Avatares · contenido privado")
+        }
     }
 }

@@ -1,6 +1,6 @@
 import {createPrivateKey, randomUUID, sign} from 'node:crypto';
 import {connect} from 'node:http2';
-import {Database, Timestamp} from './database';
+import {Database, DocumentData, Timestamp} from './database';
 import {digest} from './service';
 
 export type NotificationPayload = {aps: {alert: {title: string; body: string}; sound: string}; pairId: string; pairEpoch: number;
@@ -10,6 +10,14 @@ export interface PushTransport {
   widget(token: string, environment: 'development' | 'production'): Promise<void>;
 }
 export type APNsConfiguration = {key: string; keyId: string; teamId: string; bundleId: string};
+
+/** Read the public profile at delivery, never snapshot its name in the outbox. */
+function senderTitle(displayName: unknown): string {
+  if (typeof displayName !== 'string') return 'PairNotes';
+  const name = displayName.trim().replace(/\s+/g, ' ');
+  return name && name.length <= 80 && !/[\u0000-\u001f\u007f]/.test(name) ? name : 'PairNotes';
+}
+
 export class LivePushTransport implements PushTransport {
   constructor(readonly apns: () => APNsConfiguration | undefined) {}
   async app(token: string, payload: NotificationPayload, environment: 'development' | 'production'): Promise<void> {
@@ -47,21 +55,31 @@ export class LivePushTransport implements PushTransport {
  * and before SQL acknowledgement can duplicate it: delivery is at least once. */
 export async function dispatchNotification(db: Database, eventId: string, transport: PushTransport, clock: () => number = Date.now): Promise<void> {
   const ref = db.doc(`notificationEvents/${eventId}`), now = clock(), leaseOwner = randomUUID();
-  const event = await db.runTransaction(async tx => {
+  const event = await db.runTransaction<DocumentData | null>(async tx => {
     const event = (await tx.get(ref)).data();
     if (!event || event.status === 'done' || event.status === 'cancelled' || event.nextAttemptAt.toMillis() > now) return null;
     const pair = (await tx.get(db.doc(`pairs/${event.pairId}`))).data();
-    const collection = event.type === 'message' ? 'messages' : event.type === 'gesture' ? 'gestures' : event.type === 'letter' ? 'letters' : ['photo', 'photo-reaction'].includes(event.type) ? 'photos' : 'notes';
-    const id = event.messageId ?? event.gestureId ?? event.letterId ?? event.noteId ?? event.photoId;
-    const note = event.type === 'widget' ? null : (await tx.get(db.doc(`pairs/${event.pairId}/${collection}/${id}`))).data();
-    const validRecipient = ['reaction', 'photo-reaction'].includes(event.type) ? note?.authorId === event.recipientId : note?.recipientId === event.recipientId;
-    if (!pair || pair.status !== 'active' || pair.pairEpoch !== event.pairEpoch || !pair.members.includes(event.recipientId) ||
-        (event.type !== 'widget' && (!note || !validRecipient)) ||
+    const collections: Record<string, string> = {drawing: 'notes', reaction: 'notes', message: 'messages', gesture: 'gestures', letter: 'letters', photo: 'photos', 'photo-reaction': 'photos'};
+    const type = event.type ?? 'drawing', collection = collections[type];
+    const validPair = pair?.status === 'active' && pair.pairEpoch === event.pairEpoch &&
+      Array.isArray(pair.members) && pair.members.length === 2 && new Set(pair.members).size === 2 && pair.members.includes(event.recipientId);
+    const id = type === 'message' ? event.messageId : type === 'gesture' ? event.gestureId : type === 'letter' ? event.letterId : ['photo', 'photo-reaction'].includes(type) ? event.photoId : event.noteId;
+    const note = validPair && collection && typeof id === 'string'
+      ? (await tx.get(db.doc(`pairs/${event.pairId}/${collection}/${id}`))).data() : null;
+    const reaction = ['reaction', 'photo-reaction'].includes(type);
+    const actorId = reaction ? note?.recipientId : note?.authorId;
+    // Infer missing legacy actorId only from content in the still-current pair.
+    const validContent = note && pair!.members.includes(note.authorId) && pair!.members.includes(note.recipientId) &&
+      note.authorId !== note.recipientId && (reaction ? note.authorId : note.recipientId) === event.recipientId &&
+      (note.pairId == null || note.pairId === event.pairId) && (note.pairEpoch == null || note.pairEpoch === event.pairEpoch) &&
+      (event.actorId === undefined || event.actorId === actorId);
+    if (!validPair || (event.type !== 'widget' && !validContent) ||
         (event.type === 'letter' && (note?.status !== 'sealed' || note.opensAt > now))) {
       tx.update(ref, {status: 'cancelled'}); return null;
     }
-    tx.update(ref, {status: 'pending', leaseOwner, nextAttemptAt: Timestamp.fromMillis(now + 60_000), attempts: event.attempts + 1});
-    return event;
+    tx.update(ref, {status: 'pending', leaseOwner, ...(event.type !== 'widget' ? {actorId} : {}),
+      nextAttemptAt: Timestamp.fromMillis(now + 60_000), attempts: event.attempts + 1});
+    return {...event, actorId};
   });
   if (!event) return;
   const updateIfOwned = async (values: Record<string, unknown>) => db.runTransaction(async tx => {
@@ -70,9 +88,9 @@ export async function dispatchNotification(db: Database, eventId: string, transp
   });
   try {
     const devices = await db.collection(`users/${event.recipientId}/devices`).where('active', '==', true).get();
-    const copy: Record<string, string> = {message: 'Tenés un mensaje nuevo', gesture: 'Tu pareja está pensando en vos',
-      letter: 'Tenés una carta lista para abrir', reaction: 'Tu pareja reaccionó a tu dibujo', photo: 'Tenés una foto nueva', 'photo-reaction': 'Tu pareja reaccionó a tu foto'};
-    const payload: NotificationPayload = {aps: {alert: {title: 'PairNotes', body: copy[event.type] ?? 'Tenés un dibujo nuevo'}, sound: 'default'},
+    const copy: Record<string, string> = {message: 'Te envió un mensaje', gesture: 'Está pensando en vos',
+      letter: 'Te dejó una carta lista para abrir', reaction: 'Reaccionó a tu dibujo', photo: 'Te envió una foto', 'photo-reaction': 'Reaccionó a tu foto'};
+    const payload: NotificationPayload = {aps: {alert: {title: 'PairNotes', body: copy[event.type] ?? 'Te envió un dibujo'}, sound: 'default'},
       pairId: event.pairId, pairEpoch: event.pairEpoch,
       ...(event.type === 'message' ? {type: 'message' as const, messageId: event.messageId}
         : event.type === 'gesture' ? {type: 'gesture' as const, gestureId: event.gestureId}
@@ -89,12 +107,17 @@ export async function dispatchNotification(db: Database, eventId: string, transp
         const delivery = ref.collection('deliveries').doc(digest(`${device.id}:${channel}:${value}`));
         if ((await delivery.get()).exists) continue;
         await updateIfOwned({nextAttemptAt: Timestamp.fromMillis(Date.now() + 60_000)});
-        const [freshPair, freshDevice] = await Promise.all([db.doc(`pairs/${event.pairId}`).get(), device.ref.get()]);
-        if (freshPair.data()?.status !== 'active' || freshPair.data()?.pairEpoch !== event.pairEpoch || !freshDevice.data()?.active || freshDevice.data()?.[field] !== value) continue;
+        const [freshPair, freshDevice, sender] = await Promise.all([db.doc(`pairs/${event.pairId}`).get(), device.ref.get(),
+          channel === 'app' ? db.doc(`users/${event.actorId}`).get() : Promise.resolve(null)]);
+        if (freshPair.data()?.status !== 'active' || freshPair.data()?.pairEpoch !== event.pairEpoch ||
+            !freshPair.data()?.members.includes(event.recipientId) || (channel === 'app' && !freshPair.data()?.members.includes(event.actorId)) ||
+            !freshDevice.data()?.active || freshDevice.data()?.[field] !== value) continue;
         const environment = channel === 'widget' ? (freshDevice.data()!.widgetPushEnvironment ?? freshDevice.data()!.apnsEnvironment) : freshDevice.data()!.apnsEnvironment;
         if (!['development', 'production'].includes(environment)) {failed = true; continue;}
         try {
-          if (channel === 'app') await transport.app(value, payload, environment); else await transport.widget(value, environment);
+          if (channel === 'app') await transport.app(value, {...payload, aps: {...payload.aps,
+            alert: {...payload.aps.alert, title: senderTitle(sender?.data()?.displayName)}}}, environment);
+          else await transport.widget(value, environment);
           await delivery.create({channel, sentAt: Timestamp.now()});
         } catch (error) {
           if ((error as Error).message === 'apns_status_410') {
