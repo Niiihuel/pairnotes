@@ -23,6 +23,7 @@ final class PairPhotoActivityController {
     }
 
     func show(photo: CouplePhoto, services: AppServices) async throws {
+        removeOrphanImages()
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { throw Failure.disabled }
         guard !working, let uid = services.identity?.uid, let pair = services.membership,
               photo.recipientId == uid, let directory = SharedWidgetContainer.directory() else { throw Failure.unavailable }
@@ -60,6 +61,7 @@ final class PairPhotoActivityController {
     }
 
     func synchronize(services: AppServices) async {
+        removeOrphanImages()
         let activities = Activity<PairPhotoActivityAttributes>.activities
         guard !activities.isEmpty else { return }
         let captured = generation
@@ -90,7 +92,7 @@ final class PairPhotoActivityController {
     func invalidate() {
         generation &+= 1
         let activities = Activity<PairPhotoActivityAttributes>.activities
-        Task { for activity in activities { await finish(activity) } }
+        Task { for activity in activities { await finish(activity) }; removeOrphanImages() }
     }
 
     private func finish(_ activity: Activity<PairPhotoActivityAttributes>) async {
@@ -99,6 +101,21 @@ final class PairPhotoActivityController {
         if file.hasPrefix("photo-activity-"), file.hasSuffix(".png"), !file.contains("/"),
            let directory = SharedWidgetContainer.directory() {
             try? FileManager.default.removeItem(at: directory.appendingPathComponent(file))
+        }
+    }
+
+    /// A swipe or the system's duration limit can dismiss an activity without
+    /// executing our Close intent. Retain only files used by current activities.
+    private func removeOrphanImages() {
+        guard !working, let directory = SharedWidgetContainer.directory(),
+              let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        let retained = Set(Activity<PairPhotoActivityAttributes>.activities.map { $0.content.state.imageFileName })
+        let prefix = "photo-activity-"
+        for file in files {
+            let name = file.lastPathComponent
+            guard !retained.contains(name), name.hasPrefix(prefix), name.hasSuffix(".png"),
+                  UUID(uuidString: String(name.dropFirst(prefix.count).dropLast(4))) != nil else { continue }
+            try? FileManager.default.removeItem(at: file)
         }
     }
 }

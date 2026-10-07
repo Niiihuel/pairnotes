@@ -204,16 +204,16 @@ private struct PhotoWidgetImageView: View {
 }
 
 private enum PhotoWidgetImage {
-    static func decode(_ data: Data) -> UIImage? {
+    static func decode(_ data: Data, maximumPixelSize: Int = 900, scale: CGFloat = 1) -> UIImage? {
         guard data.count <= 5 * 1024 * 1024,
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 900,
+                kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
                 kCGImageSourceShouldCacheImmediately: true
               ] as CFDictionary) else { return nil }
-        return UIImage(cgImage: image)
+        return UIImage(cgImage: image, scale: scale, orientation: .up)
     }
 }
 
@@ -238,13 +238,14 @@ struct PairPhotoLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    PhotoWidgetImageView(image: activityImage(context))
+                    PhotoActivityImageView(context: context, maximumPointSize: 70)
                         .frame(width: 60, height: 70).clipShape(RoundedRectangle(cornerRadius: 12))
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(context.state.authorName).font(.caption.bold()).lineLimit(1)
-                        Text(context.state.caption.isEmpty ? "Una foto para vos" : context.state.caption)
+                        Text(context.isStale ? "Foto finalizada" : context.state.authorName).font(.caption.bold()).lineLimit(1)
+                        Text(context.isStale ? "Abrí PairNotes para volver a verla." :
+                                context.state.interactionMessage ?? (context.state.caption.isEmpty ? "Una foto para vos" : context.state.caption))
                             .font(.subheadline).lineLimit(2)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -252,7 +253,7 @@ struct PairPhotoLiveActivity: Widget {
             } compactLeading: {
                 Image(systemName: "photo.fill").accessibilityLabel("Foto de tu pareja")
             } compactTrailing: {
-                Text(PhotoReactionKind(rawValue: context.state.reactionKind ?? "")?.symbol ?? "♡").font(.caption)
+                Text(context.isStale ? "♡" : PhotoReactionKind(rawValue: context.state.reactionKind ?? "")?.symbol ?? "♡").font(.caption)
             } minimal: {
                 Image(systemName: "heart.fill")
             }
@@ -267,21 +268,24 @@ private struct PhotoActivityCard: View {
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Link(destination: photoURL(context.attributes.photoID)) {
-                PhotoWidgetImageView(image: activityImage(context))
+                PhotoActivityImageView(context: context, maximumPointSize: 126)
                     .frame(width: 86, height: 126).clipShape(RoundedRectangle(cornerRadius: 18))
             }.buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 4) {
-                    Text(context.state.authorName).fontWeight(.semibold).lineLimit(1)
-                    Text("·")
-                    Text(context.state.sentAt, style: .time).lineLimit(1)
+                    Text(context.isStale ? "Foto finalizada" : context.state.authorName).fontWeight(.semibold).lineLimit(1)
+                    if !context.isStale {
+                        Text("·")
+                        Text(context.state.sentAt, style: .time).lineLimit(1)
+                    }
                     Spacer(minLength: 0)
                     Button(intent: DismissPhotoActivityIntent(activityID: context.activityID)) {
                         Image(systemName: "xmark").font(.caption2.bold()).frame(width: 26, height: 26)
                             .background(.white.opacity(0.12), in: Circle())
                     }.buttonStyle(.plain).accessibilityLabel("Cerrar la foto en vivo")
                 }.font(.caption).foregroundStyle(.white.opacity(0.75))
-                Text(context.state.interactionMessage ?? (context.isStale ? "Abrí la foto para actualizar" : context.state.caption.isEmpty ? "Una foto para vos" : context.state.caption))
+                Text(context.isStale ? "Abrí PairNotes para volver a verla." :
+                        context.state.interactionMessage ?? (context.state.caption.isEmpty ? "Una foto para vos" : context.state.caption))
                     .font(.headline).lineLimit(2)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 PhotoActivityControls(context: context)
@@ -291,6 +295,23 @@ private struct PhotoActivityCard: View {
         .foregroundStyle(.white)
         .privacySensitive()
         .widgetURL(photoURL(context.attributes.photoID))
+    }
+}
+
+private struct PhotoActivityImageView: View {
+    @Environment(\.displayScale) private var displayScale
+    let context: ActivityViewContext<PairPhotoActivityAttributes>
+    let maximumPointSize: CGFloat
+
+    var body: some View {
+        if context.isStale {
+            ZStack {
+                Rectangle().fill(.primary.opacity(0.06))
+                Image(systemName: "lock.fill").font(.title2).foregroundStyle(.secondary)
+            }.accessibilityLabel("Foto finalizada")
+        } else {
+            PhotoWidgetImageView(image: activityImage(context, maximumPointSize: maximumPointSize, scale: displayScale))
+        }
     }
 }
 
@@ -316,9 +337,10 @@ private struct PhotoActivityControls: View {
     }
 }
 
-private func activityImage(_ context: ActivityViewContext<PairPhotoActivityAttributes>) -> UIImage? {
+private func activityImage(_ context: ActivityViewContext<PairPhotoActivityAttributes>,
+                           maximumPointSize: CGFloat, scale: CGFloat) -> UIImage? {
     let attributes = context.attributes
-    guard let authorization = WidgetAccessStore.load(), authorization.isUsable(),
+    guard !context.isStale, let authorization = WidgetAccessStore.load(), authorization.isUsable(),
           authorization.uid == attributes.viewerID, authorization.pairID == attributes.pairID,
           authorization.pairEpoch == attributes.pairEpoch,
           context.state.expiresAt > Date(),
@@ -327,7 +349,10 @@ private func activityImage(_ context: ActivityViewContext<PairPhotoActivityAttri
           context.state.imageFileName.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46 }),
           let directory = SharedWidgetContainer.directory(),
           let data = try? Data(contentsOf: directory.appendingPathComponent(context.state.imageFileName)) else { return nil }
-    return PhotoWidgetImage.decode(data)
+    // ActivityKit requires image assets no larger than their presentation. A
+    // decoded bitmap has both bounded pixels and the actual display scale.
+    let imageScale = max(1, scale)
+    return PhotoWidgetImage.decode(data, maximumPixelSize: Int((maximumPointSize * imageScale).rounded(.up)), scale: imageScale)
 }
 
 private func photoURL(_ id: String) -> URL { URL(string: "pairnotes://photo/\(id)")! }
