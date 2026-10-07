@@ -195,7 +195,7 @@ export class CoupleFeatures {
       tx.create(ref, message); tx.update(this.db.doc(`pairs/${pairId}`), {lastMessageMillis: sentAt.toMillis()});
       tx.set(this.db.doc(`pairs/${pairId}/views/${recipientId}`), {latestMessageId: messageId}, {merge: true});
       tx.create(this.db.doc(`notificationEvents/${digest(`${pairId}:message:${messageId}`)}`), {
-        pairId, pairEpoch, type: 'message', messageId, recipientId, status: 'pending', attempts: 0, nextAttemptAt: sentAt});
+        pairId, pairEpoch, type: 'message', messageId, recipientId, actorId: caller.uid, status: 'pending', attempts: 0, nextAttemptAt: sentAt});
       return {message: publicMessage(message)};
     });
   }

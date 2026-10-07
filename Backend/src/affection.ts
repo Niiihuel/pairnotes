@@ -46,9 +46,9 @@ export function normalizeVoice(bytes: Buffer): {bytes: Buffer; duration: number}
 export class AffectionFeatures {
   constructor(readonly service: PairNotesService) {}
   get db() {return this.service.db;}
-  private event(tx: Transaction, pair: DocumentData, recipientId: string, type: string, id: string, due = this.service.now()) {
+  private event(tx: Transaction, pair: DocumentData, recipientId: string, actorId: string, type: string, id: string, due = this.service.now()) {
     tx.create(this.db.doc(`notificationEvents/${digest(`${pair.id}:${type}:${id}`)}`), {
-      pairId: pair.id, pairEpoch: pair.pairEpoch, recipientId, type,
+      pairId: pair.id, pairEpoch: pair.pairEpoch, recipientId, actorId, type,
       ...(type === 'gesture' ? {gestureId: id} : {letterId: id}),
       status: 'pending', attempts: 0, nextAttemptAt: Timestamp.fromMillis(due)
     });
@@ -79,7 +79,7 @@ export class AffectionFeatures {
       const gesture = {id, authorId: caller.uid, recipientId, kind, replyTo, sentAt};
       tx.create(ref, gesture); tx.update(this.db.doc(`pairs/${pairId}`), {lastGestureMillis: sentAt.toMillis()});
       for (const uid of pair.members) tx.set(this.db.doc(`pairs/${pairId}/views/${uid}`), {latestGestureId: id}, {merge: true});
-      this.event(tx, pair, recipientId, 'gesture', id);
+      this.event(tx, pair, recipientId, caller.uid, 'gesture', id);
       return {gesture: publicGesture(gesture)};
     });
   }
@@ -105,7 +105,7 @@ export class AffectionFeatures {
       if (!kind && !reply) {tx.delete(ref); return;}
       if (old?.kind === kind && old?.reply === reply) return;
       tx.set(ref, {id: caller.uid, authorId: caller.uid, noteId, kind, reply, updatedAt: Timestamp.fromMillis(this.service.now())});
-      tx.create(this.db.doc(`notificationEvents/${randomUUID()}`), {pairId, pairEpoch, recipientId: note.authorId,
+      tx.create(this.db.doc(`notificationEvents/${randomUUID()}`), {pairId, pairEpoch, recipientId: note.authorId, actorId: caller.uid,
         type: 'reaction', noteId, status: 'pending', attempts: 0, nextAttemptAt: Timestamp.fromMillis(this.service.now())});
     });
     return this.reactions(caller, input);
@@ -164,7 +164,7 @@ export class AffectionFeatures {
       const pair = await this.service.pair(tx, caller.uid, pairId, pairEpoch);
       const sealed = {...value, status: 'sealed'};
       tx.set(this.db.doc(`pairs/${pairId}/letters/${value.id}`), sealed);
-      this.event(tx, pair, value.recipientId, 'letter', value.id, value.opensAt);
+      this.event(tx, pair, value.recipientId, caller.uid, 'letter', value.id, value.opensAt);
       return {letter: this.publicLetter(sealed, caller.uid)};
     });
   }

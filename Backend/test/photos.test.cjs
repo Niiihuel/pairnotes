@@ -124,24 +124,27 @@ test('widget exposes only latest received photo, denies history and invalidates 
   assert.equal((await request(photoPath(pair, id), b, undefined, 'GET')).status, 403);
 });
 
-test('photo pushes are generic and photo reactions notify the sender after commit', async () => {
+test('photo alerts use current profile names and photo reactions notify the sender after commit', async () => {
   const {a, b, pair} = await paired();
   for (const member of [a, b]) await call('registerDevice', member, {deviceId: randomUUID(), apnsToken: randomBytes(32).toString('hex'),
     widgetPushToken: randomBytes(32).toString('hex'), apnsEnvironment: 'development'});
   const photo = await send(a, pair, randomUUID(), await picture(), 'Private fictional caption');
   const eventId = digest(`${pair.id}:photo:${photo.id}`), deliveries = [];
+  assert.equal((await db.doc(`notificationEvents/${eventId}`).get()).data().actorId, a.uid);
+  await call('upsertProfile', a, {displayName: 'Luna'});
   await db.doc(`notificationEvents/${eventId}`).update({nextAttemptAt: Timestamp.fromMillis(Date.now() - 1)});
   await dispatchNotification(db, eventId, {app: async (_token, payload) => deliveries.push(payload), widget: async () => deliveries.push('widget')});
   assert.equal(deliveries.length, 2); assert.equal(deliveries[0].type, 'photo'); assert.equal(deliveries[0].photoId, photo.id);
-  assert.equal(deliveries[0].aps.alert.body, 'Tenés una foto nueva');
+  assert.deepEqual(deliveries[0].aps.alert, {title: 'Luna', body: 'Te envió una foto'});
   assert.equal(JSON.stringify(deliveries).includes(photo.caption), false); assertPublic(deliveries[0]);
   await call('setPhotoReaction', b, {...scope(pair), photoId: photo.id, assetId: photo.photo.id, kind: 'tear'});
   const events = await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'photo-reaction').get();
-  assert.equal(events.size, 1); assert.equal(events.docs[0].data().recipientId, a.uid);
+  assert.equal(events.size, 1); assert.equal(events.docs[0].data().recipientId, a.uid); assert.equal(events.docs[0].data().actorId, b.uid);
+  await call('upsertProfile', b, {displayName: 'Sol'});
   await events.docs[0].ref.update({nextAttemptAt: Timestamp.fromMillis(Date.now() - 1)});
   await dispatchNotification(db, events.docs[0].id, {app: async (_token, payload) => deliveries.push(payload), widget: async () => {}});
   assert.equal(deliveries.at(-1).type, 'photo-reaction');
-  assert.equal(deliveries.at(-1).aps.alert.body, 'Tu pareja reaccionó a tu foto');
+  assert.deepEqual(deliveries.at(-1).aps.alert, {title: 'Sol', body: 'Reaccionó a tu foto'});
 });
 
 test('widget credential rotation between snapshot authorization and reaction cannot commit a stale button', async () => {
