@@ -64,8 +64,6 @@ else
   xcodebuild "${common[@]}" \
     -destination "platform=iOS Simulator,id=$simulator_id" \
     -destination-timeout 180 -parallel-testing-enabled NO \
-    -only-testing:PairNotesNativeTests/NativeEditorPersistenceTests/testVisiblePaperColorAndLayerFramesSurviveLayoutPaletteAndAppearanceChanges \
-    -only-testing:PairNotesNativeTests/NativeEditorPersistenceTests/testLetterComposerLayoutInLightAndDarkAppearance \
     -only-testing:PairNotesUITests/EditorInteractionTests/testFingerDrawingSurvivesModesPhotoCancellationAndSaveReopen \
     -resultBundlePath "$evidence/Tests.xcresult" \
     test 2>&1 | tee "$evidence/xcodebuild.log" || test_status=$?
