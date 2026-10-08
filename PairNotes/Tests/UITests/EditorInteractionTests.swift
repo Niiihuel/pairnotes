@@ -44,11 +44,13 @@ final class EditorInteractionTests: XCTestCase {
         XCTAssertTrue(newDrawing.waitForExistence(timeout: 10))
         waitUntilEnabled(newDrawing)
         newDrawing.tap()
-        let paper = app.descendants(matching: .any)["editor.paper"].firstMatch
-        XCTAssertTrue(paper.waitForExistence(timeout: 10))
+        let paper = try waitForVisiblePaper(in: app)
 
         let title = "Gesto UI " + String(UUID().uuidString.prefix(8))
-        app.buttons["editor.rename"].tap()
+        let renameButton = app.buttons["editor.rename"]
+        waitUntilEnabled(renameButton)
+        waitUntilHittable(renameButton)
+        renameButton.tap()
         let rename = app.alerts["Renombrar dibujo"]
         XCTAssertTrue(rename.waitForExistence(timeout: 5))
         let field = rename.textFields.firstMatch
