@@ -12,6 +12,7 @@ app = project.new_target(:application, 'PairNotes', :ios, '26.0')
 widget = project.new_target(:app_extension, 'PairNotesWidgets', :ios, '26.0')
 core = project.new_target(:framework, 'PairNotesCore', :ios, '26.0')
 tests = project.new_target(:unit_test_bundle, 'PairNotesNativeTests', :ios, '26.0')
+ui_tests = project.new_target(:ui_test_bundle, 'PairNotesUITests', :ios, '26.0')
 
 # xcodeproj's built-in SDK table can name an older SDK that the selected Xcode
 # no longer ships. Resolve Apple frameworks through the SDK chosen at build time.
@@ -30,6 +31,7 @@ add_sources(project, core, ['PairNotes/Core/**/*.swift'])
 add_sources(project, app, ['PairNotes/App/**/*.swift', 'PairNotes/Features/**/*.swift', 'PairNotes/Canvas/**/*.swift', 'PairNotes/Services/**/*.swift', 'PairNotes/Widgets/SharedSnapshot/**/*.swift'])
 add_sources(project, widget, ['PairNotes/Widgets/**/*.swift'])
 add_sources(project, tests, ['PairNotes/Tests/NativeTests/**/*.swift'])
+add_sources(project, ui_tests, ['PairNotes/Tests/UITests/**/*.swift'])
 assets = project.main_group.new_file('PairNotes/App/Assets.xcassets')
 app.resources_build_phase.add_file_reference(assets)
 [[app, 'PairNotes/App/PrivacyInfo.xcprivacy'], [widget, 'PairNotes/Widgets/PrivacyInfo.xcprivacy']].each do |target, path|
@@ -61,6 +63,7 @@ add_package(project, app, 'https://github.com/google/GoogleSignIn-iOS.git', '9.2
   target.frameworks_build_phase.add_file_reference(core.product_reference)
 end
 tests.add_dependency(app)
+ui_tests.add_dependency(app)
 app.add_dependency(widget)
 embed = app.new_copy_files_build_phase('Embed App Extensions')
 embed.dst_subfolder_spec = '13'
@@ -102,11 +105,18 @@ end
 tests.build_configurations.each do |config|
   config.build_settings.merge!('TEST_HOST' => '$(BUILT_PRODUCTS_DIR)/PairNotes.app/PairNotes', 'BUNDLE_LOADER' => '$(TEST_HOST)')
 end
+ui_tests.build_configurations.each do |config|
+  config.build_settings['TEST_TARGET_NAME'] = 'PairNotes'
+end
+project.root_object.attributes['TargetAttributes'] ||= {}
+project.root_object.attributes['TargetAttributes'][ui_tests.uuid] = { 'TestTargetID' => app.uuid }
 project.save
 scheme = Xcodeproj::XCScheme.new
 scheme.add_build_target(app)
 scheme.add_build_target(tests, false)
+scheme.add_build_target(ui_tests, false)
 scheme.set_launch_target(app)
 scheme.add_test_target(tests)
+scheme.add_test_target(ui_tests)
 scheme.save_as(project.path, 'PairNotes', true)
-puts 'Generated PairNotes.xcodeproj: app, extension, static core and native tests (not compiled).'
+puts 'Generated PairNotes.xcodeproj: app, extension, static core, native tests and interaction UI tests (not compiled).'

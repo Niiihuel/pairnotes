@@ -9,7 +9,8 @@ enum SharedWidgetContainer {
     static let anniversaryKind = "PairNotes.Anniversary"
     static let gestureKind = "PairNotes.ThinkingOfYou"
     static let distanceKind = "PairNotes.Distance"
-    static let allWidgetKinds: Set<String> = [widgetKind, messageKind, togetherKind, anniversaryKind, distanceKind, gestureKind]
+    static let photoKind = "PairNotes.PartnerPhoto"
+    static let allWidgetKinds: Set<String> = [widgetKind, messageKind, togetherKind, anniversaryKind, distanceKind, gestureKind, photoKind]
 
     static func directory(
         fileManager: FileManager = .default,

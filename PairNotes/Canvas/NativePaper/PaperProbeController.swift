@@ -4,13 +4,15 @@ import PencilKit
 import SwiftUI
 
 @MainActor
-final class PaperProbeController: UIViewController, PaperMarkupViewController.Delegate {
+final class PaperProbeController: UIViewController, PaperMarkupViewController.Delegate, PKToolPickerObserver {
     let canvas = PaperMarkupViewController(markup: PaperMarkup(bounds: PaperProbeDocument.bounds),
                                            supportedFeatureSet: PaperProbeDocument.supportedFeatures)
     private let lowerCanvas = PaperMarkupViewController(markup: PaperMarkup(bounds: PaperProbeDocument.bounds),
         supportedFeatureSet: PaperProbeDocument.supportedFeatures)
     private let upperCanvas = PaperMarkupViewController(markup: PaperMarkup(bounds: PaperProbeDocument.bounds),
         supportedFeatureSet: PaperProbeDocument.supportedFeatures)
+    private let lowerPreviewHost = PaperLayerPreviewHost()
+    private let upperPreviewHost = PaperLayerPreviewHost()
     private var layers = [PaperLayer(name: "Capa 1", markup: PaperMarkup(bounds: PaperProbeDocument.bounds))]
     private(set) var activeLayerID: UUID?
     var onLayersChanged: (([PaperLayer], UUID) -> Void)?
@@ -115,11 +117,53 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         onLayersChanged?(layers, layers[index].id)
     }
 
+    private var synchronizingLayerViewport = false
+    private var synchronizedViewport: [CGRect]?
+
     private func synchronizeLayerViewport() {
+        guard isViewLoaded, !synchronizingLayerViewport else { return }
+        synchronizingLayerViewport = true
+        defer { synchronizingLayerViewport = false }
+        // The parent receives its layout callback before UIKit finishes laying
+        // out its child controllers. Resolve those layouts before using the
+        // active controller's viewport to position the paper and other layers.
+        canvas.view.layoutIfNeeded()
+        lowerPreviewHost.layoutManagedView()
+        upperPreviewHost.layoutManagedView()
         let frame = canvas.contentVisibleFrame
-        guard frame.width > 0, frame.height > 0 else { return }
-        lowerCanvas.setContentVisibleFrame(frame, animated: false)
-        upperCanvas.setContentVisibleFrame(frame, animated: false)
+        guard frame.width.isFinite, frame.height.isFinite, frame.width > 0, frame.height > 0,
+              canvas.view.bounds.width > 0, canvas.view.bounds.height > 0 else { return }
+        let observed = layerViewportState()
+        if let previous = synchronizedViewport,
+           zip(previous, observed).allSatisfy({ Self.nearlyEqual($0, $1) }) { return }
+        // The method only ensures a rect is visible and is a no-op when a
+        // zoomed-out preview already contains it. The property sets the exact
+        // viewport so all three layers keep the same scale and position.
+        lowerCanvas.contentVisibleFrame = frame
+        upperCanvas.contentVisibleFrame = frame
+        // PaperKit may reset or replace a read-only controller's root view
+        // while assigning markup/viewport. Its app-owned host is the boundary
+        // that sizes that current view, rather than constraints on an old root.
+        if lowerPreviewHost.layoutManagedView() { lowerCanvas.contentVisibleFrame = frame }
+        if upperPreviewHost.layoutManagedView() { upperCanvas.contentVisibleFrame = frame }
+        lowerPreviewHost.layoutManagedView()
+        upperPreviewHost.layoutManagedView()
+        // Cache the actual readback after PaperKit's layout/normalization. Its
+        // nonisolated delegate callbacks arrive later; observing the same state
+        // must not repeat a setter and create a feedback loop.
+        synchronizedViewport = layerViewportState()
+    }
+
+    private func layerViewportState() -> [CGRect] {
+        [canvas.contentVisibleFrame, lowerCanvas.contentVisibleFrame, upperCanvas.contentVisibleFrame] +
+        [canvas, lowerCanvas, upperCanvas].flatMap { child in
+            [child.view.bounds, child.contentView.map { $0.convert($0.bounds, to: view) } ?? .zero]
+        }
+    }
+
+    private static func nearlyEqual(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        zip([lhs.minX, lhs.minY, lhs.width, lhs.height], [rhs.minX, rhs.minY, rhs.width, rhs.height])
+            .allSatisfy { abs($0 - $1) <= 0.01 }
     }
 
     var onMarkupChanged: (() -> Void)?
@@ -132,14 +176,51 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     private let paper = UIView()
     private let picker = PKToolPicker()
     var snapsToGuides = false
-    var selectionMode = false
+    var selectionMode = false {
+        didSet {
+            guard selectionMode != oldValue else { return }
+            canvas.directTouchMode = selectionMode ? .selection : .drawing
+            // Selecting an object and then choosing Draw must really return to
+            // ink, even if the system palette last remembered a lasso tool.
+            if !selectionMode, !(canvas.drawingTool is PKInkingTool), !(canvas.drawingTool is PKEraserTool) {
+                picker.selectedTool = lastInk
+                canvas.drawingTool = lastInk
+            }
+        }
+    }
+    private var lastInk = PKInkingTool(.pen, color: .black, width: 12)
+    private(set) var isPaletteRequestedVisible = true
+    private var editingEnabled = true
     private var editGeneration = 0
     private var snapTask: Task<Void, Never>?
+
+    init() {
+        super.init(nibName: nil, bundle: nil)
+        // A session can import, cancel or restore a draft before UIKit loads its
+        // view. PaperKit defaults to selection, so establish our input policy
+        // when the controller is created rather than only in viewDidLoad.
+        synchronizeTouchMode()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func synchronizeTouchMode() {
+        canvas.directTouchAutomaticallyDraws = false
+        let mode: PaperMarkupViewController.TouchMode = selectionMode ? .selection : .drawing
+        if canvas.directTouchMode != mode { canvas.directTouchMode = mode }
+        canvas.indirectPointerTouchMode = .selection
+    }
 
     func useInkColor(_ color: UIColor) {
         let ink = (picker.selectedToolItem as? PKToolPickerInkingItem)?.inkingTool
         // The compatibility setter updates the existing palette item and notifies PaperKit.
-        picker.selectedTool = PKInkingTool(ink?.inkType ?? .pen, color: color, width: ink?.width ?? 8)
+        lastInk = PKInkingTool(ink?.inkType ?? .pen, color: color, width: ink?.width ?? 12)
+        picker.selectedTool = lastInk
+        canvas.drawingTool = lastInk
+    }
+
+    func toolPickerSelectedToolItemDidChange(_ toolPicker: PKToolPicker) {
+        if let ink = (toolPicker.selectedToolItem as? PKToolPickerInkingItem)?.inkingTool { lastInk = ink }
     }
 
     /// Align native content, preserving editable text/images rather than rasterizing the layer.
@@ -185,16 +266,31 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         }
     }
     private var lastFittedSize: CGSize = .zero
-    override var canBecomeFirstResponder: Bool { true }
 
     /// Restoring persisted content is not an edit. Detach the delegate while
     /// assigning it so a deferred main-actor change callback cannot autosave a
     /// legacy draft merely because the user opened it.
     func restoreMarkup(_ markup: PaperMarkup) {
+        // Assigning markup resets PaperKit's zoom even when its mounted view
+        // keeps the same size. Retain the whole viewport, including a person's
+        // pan/zoom, rather than relying on a later size change to fit it again.
+        var previousVisibleFrame: CGRect?
+        if let parent = viewIfLoaded, let mounted = canvas.viewIfLoaded,
+           mounted.superview === parent,
+           mounted.bounds.width.isFinite, mounted.bounds.height.isFinite,
+           mounted.bounds.width > 0, mounted.bounds.height > 0 {
+            let frame = canvas.contentVisibleFrame
+            if frame.minX.isFinite, frame.minY.isFinite, frame.width.isFinite, frame.height.isFinite,
+               frame.width > 0, frame.height > 0 {
+                previousVisibleFrame = frame
+            }
+        }
         let previousDelegate = canvas.delegate
         canvas.delegate = nil
         canvas.markup = markup
+        if let previousVisibleFrame { canvas.contentVisibleFrame = previousVisibleFrame }
         canvas.delegate = previousDelegate
+        synchronizeTouchMode()
     }
 
     func refreshHistory() {
@@ -247,9 +343,41 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     }
 
     func setPaletteVisible(_ visible: Bool) {
-        pencilKitResponderState.toolPickerVisibility = visible ? .visible : .hidden
-        if visible { becomeFirstResponder() }
+        guard isPaletteRequestedVisible != visible else { return }
+        isPaletteRequestedVisible = visible
+        activateCanvasInput()
     }
+
+    /// SwiftUI can temporarily disable the representable while loading a photo
+    /// or saving. Keep that transition on the actual input controller, and
+    /// recover its first responder when the operation or presentation ends.
+    func setEditingEnabled(_ enabled: Bool) {
+        let changed = editingEnabled != enabled
+        editingEnabled = enabled
+        loadViewIfNeeded()
+        if canvas.isEditable != enabled { canvas.isEditable = enabled }
+        if view.isUserInteractionEnabled != enabled { view.isUserInteractionEnabled = enabled }
+        if canvas.view.isUserInteractionEnabled != enabled { canvas.view.isUserInteractionEnabled = enabled }
+        if changed { activateCanvasInput() }
+    }
+
+    private func activateCanvasInput() {
+        synchronizeTouchMode()
+        guard isViewLoaded else { return }
+        // PaperKit can update its own view when editability changes. The
+        // editable controller alone must participate in UIKit hit testing.
+        if canvas.view.isUserInteractionEnabled != editingEnabled { canvas.view.isUserInteractionEnabled = editingEnabled }
+        let visible = editingEnabled && isPaletteRequestedVisible && !selectionMode
+        // The responder, tool picker and observed drawing controller must be
+        // the same object. Touching the child canvas otherwise leaves a palette
+        // registered only on its container without an active input responder.
+        canvas.pencilKitResponderState.activeToolPicker = picker
+        canvas.pencilKitResponderState.toolPickerVisibility = visible ? .visible : .hidden
+        guard editingEnabled, canvas.view.window != nil, presentedViewController == nil else { return }
+        if !canvas.isFirstResponder { canvas.becomeFirstResponder() }
+    }
+
+    func resumeCanvasInput() { activateCanvasInput() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -274,23 +402,25 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         }
         alignmentGuides.isHidden = !showsAlignmentGuides
         upperCanvas.contentView = alignmentGuides
-        for backdrop in [lowerCanvas, upperCanvas] {
+        for (backdrop, host) in [(lowerCanvas, lowerPreviewHost), (upperCanvas, upperPreviewHost)] {
             backdrop.overrideUserInterfaceStyle = .light
             backdrop.isEditable = false
             backdrop.zoomRange = 0.05...4
             addChild(backdrop)
-            backdrop.view.backgroundColor = .clear
-            backdrop.view.isOpaque = false
-            backdrop.view.isUserInteractionEnabled = false
-            backdrop.view.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(backdrop.view)
+            // Keep the pass-through boundary outside PaperKit's managed view.
+            // Framework lifecycle/layout updates must never re-enable touches
+            // on a read-only preview above the actual drawing controller.
+            host.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(host)
             NSLayoutConstraint.activate([
-                backdrop.view.topAnchor.constraint(equalTo: view.topAnchor),
-                backdrop.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-                backdrop.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                backdrop.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+                host.topAnchor.constraint(equalTo: view.topAnchor),
+                host.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                host.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: view.trailingAnchor)
             ])
+            host.install(backdrop)
             backdrop.didMove(toParent: self)
+            backdrop.delegate = self
         }
         canvas.view.backgroundColor = .clear
         canvas.view.isOpaque = false
@@ -305,18 +435,21 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
             canvas.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
         canvas.didMove(toParent: self)
-        view.bringSubviewToFront(upperCanvas.view)
+        view.bringSubviewToFront(upperPreviewHost)
         canvas.delegate = self
-        canvas.directTouchAutomaticallyDraws = false
-        canvas.directTouchMode = .drawing
+        synchronizeTouchMode()
         canvas.zoomRange = 0.05...4
         // Match the sheet and export renderer, regardless of the app appearance.
         picker.overrideUserInterfaceStyle = .light
         picker.colorUserInterfaceStyle = .light
         picker.colorMaximumLinearExposure = 1
+        lastInk = PKInkingTool(.pen, color: paperBackground.contrastingInkColor, width: 12)
+        picker.selectedTool = lastInk
+        canvas.drawingTool = lastInk
         picker.addObserver(canvas)
-        pencilKitResponderState.activeToolPicker = picker
-        pencilKitResponderState.toolPickerVisibility = .visible
+        picker.addObserver(self)
+        canvas.isEditable = editingEnabled
+        activateCanvasInput()
         let textItem = UIBarButtonItem(image: UIImage(systemName: "textformat"), style: .plain,
                                       target: self, action: #selector(insertText))
         textItem.accessibilityLabel = "Agregar texto"
@@ -327,9 +460,10 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
 
     nonisolated func paperMarkupViewControllerDidChangeMarkup(_ paperMarkupViewController: PaperMarkupViewController) {
         Task { @MainActor [weak self] in
-            self?.scheduleSnap()
-            self?.onMarkupChanged?()
-            self?.refreshHistory()
+            guard let self, paperMarkupViewController === self.canvas else { return }
+            self.scheduleSnap()
+            self.onMarkupChanged?()
+            self.refreshHistory()
         }
     }
 
@@ -343,22 +477,28 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        becomeFirstResponder()
+        activateCanvasInput()
         refreshHistory()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        guard !synchronizingLayerViewport else { return }
+        if canvas.view.isUserInteractionEnabled != editingEnabled { canvas.view.isUserInteractionEnabled = editingEnabled }
+        canvas.view.layoutIfNeeded()
         let size = canvas.view.bounds.size
-        guard size.width > 0, size.height > 0, size != lastFittedSize else { return }
-        lastFittedSize = size
-        canvas.setContentVisibleFrame(PaperProbeDocument.bounds, animated: false)
+        guard size.width > 0, size.height > 0 else { return }
+        if size != lastFittedSize {
+            lastFittedSize = size
+            fitPaper()
+        }
         synchronizeLayerViewport()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        resignFirstResponder()
+        canvas.pencilKitResponderState.toolPickerVisibility = .hidden
+        canvas.resignFirstResponder()
     }
 
     func insertSticker(_ symbol: String) {
@@ -422,6 +562,72 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     }
 }
 
+/// A preview controller may manage the interaction flags of its own view.
+/// This app-owned ancestor makes the entire layer visual-only regardless of
+/// those internal updates, including hit tests inside images or native text.
+private final class PaperLayerPreviewHost: UIView {
+    private weak var controller: UIViewController?
+    private weak var installedView: UIView?
+    private var layingOutManagedView = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        isUserInteractionEnabled = false
+        accessibilityElementsHidden = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+
+    func install(_ controller: UIViewController) {
+        self.controller = controller
+        layoutManagedView()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutManagedView()
+    }
+
+    @discardableResult
+    func layoutManagedView() -> Bool {
+        guard !layingOutManagedView, let controller else { return false }
+        layingOutManagedView = true
+        defer { layingOutManagedView = false }
+        let managed = controller.view!
+        var changed = false
+        if installedView !== managed || managed.superview !== self {
+            installedView?.removeFromSuperview()
+            managed.removeFromSuperview()
+            addSubview(managed)
+            installedView = managed
+            changed = true
+        }
+        managed.translatesAutoresizingMaskIntoConstraints = true
+        managed.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        managed.backgroundColor = .clear
+        managed.isOpaque = false
+        managed.isUserInteractionEnabled = false
+        if managed.frame != bounds {
+            managed.frame = bounds
+            changed = true
+        }
+        managed.layoutIfNeeded()
+        // Containment/layout can resize a newly installed PaperKit root again.
+        // Reassert only its public frame; PaperKit lays out its own subviews.
+        if managed.frame != bounds {
+            managed.frame = bounds
+            managed.layoutIfNeeded()
+            changed = true
+        }
+        managed.backgroundColor = .clear
+        managed.isOpaque = false
+        managed.isUserInteractionEnabled = false
+        return changed
+    }
+}
+
 struct PaperProbeCanvas: UIViewControllerRepresentable {
     let controller: PaperProbeController
     let enabled: Bool
@@ -429,8 +635,7 @@ struct PaperProbeCanvas: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: PaperProbeController, context: Context) {
         // Status/preview updates during autosave also update this representable.
         // Reapplying PaperKit editing mode can interrupt an active native gesture.
-        if controller.canvas.isEditable != enabled { controller.canvas.isEditable = enabled }
-        if controller.view.isUserInteractionEnabled != enabled { controller.view.isUserInteractionEnabled = enabled }
+        controller.setEditingEnabled(enabled)
     }
 }
 

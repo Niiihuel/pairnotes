@@ -6,17 +6,21 @@ struct HomeView: View {
     @ObservedObject private var services: AppServices
     let createNote: () -> Void
     let openNote: (RemoteNote) -> Void
+    let createPhoto: () -> Void
+    let openPhoto: (String) -> Void
     @State private var destination: Destination?
     private enum Destination: String, Identifiable {
         case message, date, distance
         var id: String { rawValue }
     }
 
-    init(model: AppModel, createNote: @escaping () -> Void, openNote: @escaping (RemoteNote) -> Void) {
+    init(model: AppModel, createNote: @escaping () -> Void, openNote: @escaping (RemoteNote) -> Void,
+         createPhoto: @escaping () -> Void = {}, openPhoto: @escaping (String) -> Void = { _ in }) {
         self.model = model
         self.services = model.services
         self.createNote = createNote
         self.openNote = openNote
+        self.createPhoto = createPhoto; self.openPhoto = openPhoto
     }
 
     private var theme: CoupleTheme { services.personalization.theme }
@@ -57,6 +61,15 @@ struct HomeView: View {
                 }.buttonStyle(.plain).accessibilityLabel("Crear un dibujo")
 
                 if services.membership != nil {
+                    Button(action: createPhoto) {
+                        Label("Mandarle una foto", systemImage: "camera.fill")
+                            .font(.headline).frame(maxWidth: .infinity, minHeight: 48)
+                    }.buttonStyle(.bordered)
+                    if let photo = services.coupleSpace?.latestPhoto {
+                        Button { openPhoto(photo.id) } label: {
+                            CouplePhotoCard(services: services, photo: photo)
+                        }.buttonStyle(.plain)
+                    }
                     ThinkingOfYouCard(services: services)
                     NavigationLink {
                         LettersView(services: services, notes: model.notes, catalog: model.catalog)

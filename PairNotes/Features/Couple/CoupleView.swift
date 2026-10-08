@@ -336,7 +336,7 @@ private struct ProfileEditor: View {
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var discarding = false
-    @State private var photoItem: PhotosPickerItem?
+    @State private var choosingPhoto = false
     @State private var photoData: Data?
     @State private var removePhoto = false
     @State private var loadingPhoto = false
@@ -367,7 +367,7 @@ private struct ProfileEditor: View {
                         }
                         Spacer()
                     }.listRowBackground(Color.clear)
-                    PhotosPicker(selection: $photoItem, matching: .images) { Label("Elegir foto", systemImage: "photo") }
+                    Button("Elegir foto", systemImage: "photo") { choosingPhoto = true }.disabled(loadingPhoto || saving)
                     if photoData != nil || (services.profileAvatar != nil && !removePhoto) {
                         Button("Quitar foto", systemImage: "trash", role: .destructive) { photoData = nil; removePhoto = true }
                     }
@@ -406,16 +406,10 @@ private struct ProfileEditor: View {
                     crop = nil
                 })
             }
-            .task(id: photoItem) {
-                guard let photoItem else { return }
-                loadingPhoto = true
-                defer { if self.photoItem == photoItem { loadingPhoto = false } }
-                do {
-                    guard let bytes = try await photoItem.loadTransferable(type: Data.self), !Task.isCancelled, self.photoItem == photoItem,
-                          let image = UIImage(data: try SelectedPhoto.jpeg(bytes, maximum: 800)) else { return }
-                    crop = SelectedPhotoCrop(image: image)
-                } catch { errorMessage = "No se pudo abrir esta foto. Elegí otra imagen." }
-            }
+            .photoLibrarySheet(isPresented: $choosingPhoto, preparing: $loadingPhoto, onImage: { image in
+                guard services.identity?.uid == identity.uid else { return }
+                crop = SelectedPhotoCrop(image: image)
+            }, onFailure: { errorMessage = $0 })
         }
     }
 

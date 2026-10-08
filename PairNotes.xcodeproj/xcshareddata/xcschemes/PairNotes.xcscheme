@@ -34,6 +34,20 @@
                ReferencedContainer = "container:PairNotes.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "F4BF87CC2398A4F2E5D2C99C"
+               BuildableName = "PairNotesUITests.xctest"
+               BlueprintName = "PairNotesUITests"
+               ReferencedContainer = "container:PairNotes.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -58,6 +72,16 @@
                BlueprintIdentifier = "3141CF32608FB9520C1D2EE9"
                BuildableName = "PairNotesNativeTests.xctest"
                BlueprintName = "PairNotesNativeTests"
+               ReferencedContainer = "container:PairNotes.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "F4BF87CC2398A4F2E5D2C99C"
+               BuildableName = "PairNotesUITests.xctest"
+               BlueprintName = "PairNotesUITests"
                ReferencedContainer = "container:PairNotes.xcodeproj">
             </BuildableReference>
          </TestableReference>

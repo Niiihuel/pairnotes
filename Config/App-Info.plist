@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
+    <key>NSCameraUsageDescription</key>
+    <string>Sacá una foto para revisarla y enviársela en privado a tu pareja.</string>
+    <key>NSSupportsLiveActivities</key><true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Grabá una nota de voz para adjuntarla a una carta privada para tu pareja.</string>
     <key>CFBundleDisplayName</key><string>PairNotes</string>

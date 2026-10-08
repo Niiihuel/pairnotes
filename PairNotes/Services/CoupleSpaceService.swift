@@ -17,6 +17,7 @@ struct CoupleSpaceState: Decodable, Equatable {
     let location: CoupleLocationState
     var latestGesture: CoupleGesture?
     var personalization: CouplePersonalization?
+    var latestPhoto: CouplePhoto?
 }
 
 extension AppServices {
@@ -34,7 +35,7 @@ extension AppServices {
         }
         for memory in value.memories { try memory.validate(for: pair) }
         try CoupleWidgetSnapshot(profiles: value.profiles, startedOn: value.startedOn,
-            latestMessage: value.latestMessage, distance: value.location.distance, personalization: value.personalization, latestGesture: value.latestGesture).validate(for: uid)
+            latestMessage: value.latestMessage, distance: value.location.distance, personalization: value.personalization, latestGesture: value.latestGesture, latestPhoto: value.latestPhoto).validate(for: uid)
         coupleSpace = value
         rememberTheme(value.personalization?.theme ?? .rose)
         // Warm both portraits once; subsequent views and foreground refreshes
@@ -209,6 +210,51 @@ extension AppServices {
         return bytes
     }
 
+    /// The caller keeps the same ID and bytes for retries after an uncertain response.
+    @discardableResult
+    func sendPhoto(id: UUID, data: Data, caption: String = "") async throws -> CouplePhoto {
+        let uid = try requireUID(), pair = try requirePair()
+        guard !data.isEmpty, data.count <= 5 * 1_024 * 1_024, caption.utf16.count <= 500 else { throw ServiceError.invalidResponse }
+        let bytes = try await requireClient().authenticatedData(path: "couplePhoto", method: "PUT",
+            query: photoQuery(id: id.uuidString.lowercased(), pair: pair) + [URLQueryItem(name: "caption", value: caption)],
+            body: data, headers: ["Content-Type": "image/jpeg"])
+        try checkSpaceContext(uid: uid, pair: pair)
+        guard let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { throw ServiceError.invalidResponse }
+        struct Response: Decodable { let photo: CouplePhoto }
+        let value: Response = try decodeSpace(object)
+        try value.photo.validate(memberIDs: pair.memberIDs)
+        guard value.photo.id == id.uuidString.lowercased(), value.photo.authorId == uid else { throw ServiceError.invalidResponse }
+        // Publication is confirmed even if a later foreground refresh fails.
+        try? await refreshCoupleSpace()
+        WidgetCenter.shared.reloadAllTimelines()
+        return value.photo
+    }
+
+    func photo(id: String) async throws -> CouplePhoto {
+        let uid = try requireUID(), pair = try requirePair()
+        var payload = pairPayload(pair); payload["photoId"] = id
+        let response = try await call("getPhoto", payload)
+        try checkSpaceContext(uid: uid, pair: pair)
+        struct Response: Decodable { let photo: CouplePhoto }
+        let value: Response = try decodeSpace(response)
+        try value.photo.validate(memberIDs: pair.memberIDs)
+        guard value.photo.id.caseInsensitiveCompare(id) == .orderedSame else { throw ServiceError.invalidResponse }
+        return value.photo
+    }
+
+    func photoImage(_ photo: CouplePhoto) async throws -> Data {
+        let uid = try requireUID(), pair = try requirePair()
+        try photo.validate(memberIDs: pair.memberIDs)
+        let client = try requireClient()
+        let query = photoQuery(id: photo.id, pair: pair) + [URLQueryItem(name: "assetId", value: photo.photo.id)]
+        let bytes = try await privateImages.data(key: privateImageKey("photo:\(photo.id):\(photo.photo.id)"), expectedSHA256: photo.photo.sha256) {
+            try await client.authenticatedData(path: "couplePhoto", query: query)
+        }
+        try checkSpaceContext(uid: uid, pair: pair)
+        guard bytes.count <= 5 * 1_024 * 1_024, ContentDigest.sha256(bytes) == photo.photo.sha256 else { throw ServiceError.invalidResponse }
+        return bytes
+    }
+
     func setLocationConsent(_ enabled: Bool) async throws {
         let uid = try requireUID(), pair = try requirePair()
         var payload = pairPayload(pair); payload["enabled"] = enabled
@@ -255,6 +301,10 @@ extension AppServices {
     private func memoryQuery(id: String, pair: PairMembership) -> [URLQueryItem] {
         [URLQueryItem(name: "pairId", value: pair.id), URLQueryItem(name: "pairEpoch", value: String(pair.pairEpoch)),
          URLQueryItem(name: "memoryId", value: id)]
+    }
+    private func photoQuery(id: String, pair: PairMembership) -> [URLQueryItem] {
+        [URLQueryItem(name: "pairId", value: pair.id), URLQueryItem(name: "pairEpoch", value: String(pair.pairEpoch)),
+         URLQueryItem(name: "photoId", value: id)]
     }
     func decodeSpace<T: Decodable>(_ object: [String: Any]) throws -> T {
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970

@@ -195,14 +195,18 @@ public struct CoupleWidgetSnapshot: Codable, Equatable, Sendable {
     public let distance: CoupleDistance
     public let personalization: CouplePersonalization?
     public let latestGesture: CoupleGesture?
+    public let latestPhoto: CouplePhoto?
 
-    public init(profiles: [CoupleProfile], startedOn: CoupleDate?, latestMessage: CoupleMessage?, distance: CoupleDistance, personalization: CouplePersonalization? = nil, latestGesture: CoupleGesture? = nil) {
+    public init(profiles: [CoupleProfile], startedOn: CoupleDate?, latestMessage: CoupleMessage?, distance: CoupleDistance, personalization: CouplePersonalization? = nil, latestGesture: CoupleGesture? = nil, latestPhoto: CouplePhoto? = nil) {
         self.profiles = profiles; self.startedOn = startedOn; self.latestMessage = latestMessage; self.distance = distance; self.personalization = personalization; self.latestGesture = latestGesture
+        self.latestPhoto = latestPhoto
     }
 
     public func validate(for uid: String, at date: Date = Date()) throws {
         try personalization?.validate(memberIDs: profiles.map(\.uid))
         try latestGesture?.validate(memberIDs: profiles.map(\.uid))
+        try latestPhoto?.validate(memberIDs: profiles.map(\.uid), at: date)
+        if let latestPhoto, latestPhoto.recipientId != uid { throw AccountDomainError.invalidPublication }
         guard profiles.count == 2, Set(profiles.map(\.uid)).count == 2,
               profiles.contains(where: { $0.uid == uid }),
               profiles.allSatisfy({ !$0.uid.isEmpty && $0.uid.utf8.count <= 256 &&

@@ -58,7 +58,7 @@ private struct CoupleWidgetView: View {
     let entry: CoupleEntry
     let content: CoupleWidgetContent
     private var theme: CoupleTheme { entry.snapshot?.personalization?.theme ?? .rose }
-    private var accessory: Bool { family == .accessoryRectangular }
+    private var accessory: Bool { family == .accessoryRectangular || family == .accessoryCircular }
 
     private var title: String {
         switch content {
@@ -72,11 +72,13 @@ private struct CoupleWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: accessory ? 2 : 7) {
-            Label(title, systemImage: content == .message ? "heart.text.clipboard" : "heart")
-                .font(accessory ? .caption.weight(.semibold) : .headline).lineLimit(1)
+            if !(accessory && (content == .distance || content == .message || content == .together)) {
+                Label(title, systemImage: content == .message ? "bubble.left.fill" : "heart")
+                    .font(accessory ? .caption.weight(.semibold) : .headline).lineLimit(1)
+            }
             if let snapshot = entry.snapshot {
                 contentView(snapshot).privacySensitive()
-                if entry.cached {
+                if entry.cached && !accessory {
                     Text("Sin conexión").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }
             } else {
@@ -84,7 +86,7 @@ private struct CoupleWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .foregroundStyle(theme.ink)
+        .foregroundStyle(accessory ? Color.primary : theme.ink)
         .containerBackground(theme.paper, for: .widget)
         .widgetURL(URL(string: content == .gesture ? "pairnotes://home" : (content == .message ? "pairnotes://messages" : "pairnotes://couple")))
     }
@@ -103,29 +105,44 @@ private struct CoupleWidgetView: View {
             } else { Text("Un corazón, un abrazo, un beso. Tocá para acercarte.").font(.caption) }
         case .message:
             if let message = snapshot.latestMessage {
-                HStack(alignment: .bottom, spacing: 8) {
+                HStack(alignment: .center, spacing: accessory ? 5 : 8) {
                     if let sender = snapshot.profiles.first(where: { $0.uid == message.authorID }) {
-                        avatar(sender, size: accessory ? 24 : 38)
+                        avatar(sender, size: accessory ? 28 : 38)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text(message.text)
-                            .font(accessory ? .caption : .body)
+                            .font(accessory ? .caption.weight(.semibold) : .body)
                             .lineLimit(accessory ? 2 : 4)
                         if !accessory {
                             Text(snapshot.personalization?.name(for: message.authorID, fallback: snapshot.profiles.first(where: { $0.uid == message.authorID })?.displayName ?? "Tu pareja") ?? snapshot.profiles.first(where: { $0.uid == message.authorID })?.displayName ?? "Tu pareja")
                                 .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
-                    .padding(accessory ? 5 : 10)
-                    .background(theme.accent.opacity(0.12), in: UnevenRoundedRectangle(
-                        topLeadingRadius: 14, bottomLeadingRadius: 3, bottomTrailingRadius: 14, topTrailingRadius: 14))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, accessory ? 7 : 10)
+                    .padding(.leading, accessory ? 10 : 14)
+                    .padding(.trailing, accessory ? 7 : 10)
+                    .background {
+                        MessageBubbleShape().fill(accessory ? Color.primary.opacity(0.17) : theme.accent.opacity(0.16))
+                    }
                 }
             } else { Text("Tu próximo mensaje recibido aparecerá acá.").font(.caption).lineLimit(2) }
         case .together:
             if let started = snapshot.startedOn, let days = started.daysTogether(on: entry.date) {
-                Text("\(days) días juntos").font(accessory ? .headline : .title2.bold()).minimumScaleFactor(0.7).lineLimit(1)
-                if let date = started.date() {
-                    Text(date, format: .dateTime.day().month(.abbreviated).year()).font(.caption2).foregroundStyle(.secondary)
+                if accessory {
+                    VStack(spacing: 0) {
+                        Image(systemName: "heart.fill").font(.caption)
+                            .overlay(alignment: .topTrailing) {
+                                Image(systemName: "heart.fill").font(.system(size: 8)).offset(x: 4, y: -2)
+                            }
+                        Text(days.formatted(.number.grouping(.never))).font(.headline.bold()).lineLimit(1).minimumScaleFactor(0.85)
+                        Text("días juntos").font(.caption2).lineLimit(1)
+                    }.frame(maxWidth: .infinity)
+                } else {
+                    Text("\(days) días juntos").font(.title2.bold()).minimumScaleFactor(0.7).lineLimit(1)
+                    if let date = started.date() {
+                        Text(date, format: .dateTime.day().month(.abbreviated).year()).font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
             } else { Text("Elegí su fecha en Nosotros.").font(.caption).lineLimit(2) }
         case .anniversary:
@@ -135,39 +152,39 @@ private struct CoupleWidgetView: View {
                 if !accessory { avatars(snapshot) }
             } else { Text("Elegí su fecha en Nosotros.").font(.caption).lineLimit(2) }
         case .distance:
-            VStack(spacing: accessory ? 2 : 10) {
-                HStack(spacing: 4) {
-                    if let first = snapshot.profiles.first { avatar(first, size: accessory ? 24 : (family == .systemSmall ? 36 : 48)) }
-                    VStack(spacing: 5) {
-                        Text(distanceText(snapshot.distance))
-                            .font(accessory ? .caption2 : .caption.weight(.semibold))
-                            .minimumScaleFactor(0.7).lineLimit(2).multilineTextAlignment(.center)
-                        GeometryReader { geometry in
-                            Path { path in
-                                path.move(to: CGPoint(x: 0, y: 3))
-                                path.addLine(to: CGPoint(x: geometry.size.width, y: 3))
-                            }.stroke(theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [1, 5]))
-                        }.frame(height: 6)
-                    }.frame(maxWidth: .infinity)
-                    if let last = snapshot.profiles.last, snapshot.profiles.count > 1 {
-                        avatar(last, size: accessory ? 24 : (family == .systemSmall ? 36 : 48))
-                    }
-                }
-                if !accessory { Text("Siempre cerquita").font(.caption2).foregroundStyle(.secondary) }
-            }
+            distanceContent(snapshot)
         }
     }
 
-    private func distanceText(_ distance: CoupleDistance) -> String {
-        switch distance.displayStatus(at: entry.date) {
-        case .disabled: return "Ubicación pausada"
-        case .waiting: return "Esperando ubicación"
-        case .available, .stale:
-            guard let meters = distance.displayMeters(at: entry.date) else { return "Sin ubicación reciente" }
-            if meters < 100 { return "< 100 m" }
-            if meters < 1_000 { return "\(Int((meters / 100).rounded()) * 100) m" }
-            return "\((meters / 1_000).formatted(.number.precision(.fractionLength(1)))) km"
+    private func distanceContent(_ snapshot: CoupleWidgetSnapshot) -> some View {
+        let presentation = CoupleDistancePresentation(distance: snapshot.distance, at: entry.date)
+        let size: CGFloat = accessory ? 28 : family == .systemSmall ? 36 : 48
+        return VStack(spacing: accessory ? 2 : 8) {
+            Text(presentation.title).font(accessory ? .caption.bold() : .headline)
+                .minimumScaleFactor(0.85).lineLimit(1)
+            GeometryReader { geometry in
+                let available = max(0, geometry.size.width - size * 2 - (accessory ? 24 : 30))
+                let spread = available * presentation.separation
+                HStack(spacing: 0) {
+                    if let first = snapshot.profiles.first { avatar(first, size: size) }
+                    Spacer().frame(width: spread / 2)
+                    Image(systemName: "heart.fill").font(.system(size: accessory ? 14 : 20))
+                        .overlay(alignment: .topTrailing) {
+                            Image(systemName: "heart.fill").font(.system(size: accessory ? 9 : 13)).offset(x: 4, y: -3)
+                        }
+                        .frame(width: accessory ? 24 : 30)
+                        .foregroundStyle(accessory ? Color.primary : theme.accent)
+                        .opacity(presentation.fresh ? 1 : 0.5)
+                    Spacer().frame(width: spread / 2)
+                    if let last = snapshot.profiles.last, snapshot.profiles.count > 1 { avatar(last, size: size) }
+                }
+                .frame(width: geometry.size.width, height: size)
+            }.frame(height: size)
+            Text(presentation.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(snapshot.profiles.map(\.displayName).joined(separator: " y ")). \(presentation.title). \(presentation.detail)")
     }
 
     private func avatar(_ profile: CoupleProfile, size: CGFloat) -> some View {
@@ -176,12 +193,13 @@ private struct CoupleWidgetView: View {
                 Image(uiImage: image).resizable().widgetAccentedRenderingMode(.fullColor).scaledToFill()
             } else {
                 ZStack {
-                    Circle().fill(Color(uiColor: .secondarySystemBackground))
+                    Circle().fill(accessory ? Color.primary.opacity(0.09) : theme.accent.opacity(0.12))
                     Text(profile.initials.isEmpty ? "♡" : profile.initials).font(.system(size: size * 0.35, weight: .semibold))
                 }
             }
         }
         .frame(width: size, height: size).clipShape(Circle())
+        .overlay { Circle().strokeBorder(accessory ? Color.primary.opacity(0.35) : theme.accent.opacity(0.25), lineWidth: 1) }
         .accessibilityLabel(profile.displayName)
     }
 
@@ -189,6 +207,20 @@ private struct CoupleWidgetView: View {
         HStack(spacing: 6) {
             ForEach(snapshot.profiles) { profile in avatar(profile, size: accessory ? 22 : 34) }
         }
+    }
+}
+
+private struct MessageBubbleShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let tail: CGFloat = 5
+        let radius = min(12, rect.height / 3)
+        let body = CGRect(x: tail, y: 0, width: max(0, rect.width - tail), height: rect.height)
+        var path = Path(roundedRect: body, cornerRadius: radius)
+        path.move(to: CGPoint(x: tail + radius, y: rect.height - 3))
+        path.addQuadCurve(to: CGPoint(x: 0, y: rect.height - 1), control: CGPoint(x: tail / 2, y: rect.height + 1))
+        path.addQuadCurve(to: CGPoint(x: tail + 1, y: rect.height - radius - 2), control: CGPoint(x: tail + 2, y: rect.height - 5))
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -211,7 +243,7 @@ struct TogetherWidget: Widget {
         }
         .configurationDisplayName("Juntos desde")
         .description("Días del calendario desde su fecha elegida.")
-        .supportedFamilies([.systemSmall, .accessoryRectangular])
+        .supportedFamilies([.systemSmall, .accessoryCircular, .accessoryRectangular])
         .pushHandler(PairNotesWidgetPushHandler.self)
     }
 }

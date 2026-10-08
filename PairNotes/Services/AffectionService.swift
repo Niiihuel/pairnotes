@@ -35,6 +35,23 @@ extension AppServices {
             ["", "heart", "hug", "sparkles"].contains($0.kind) && $0.reply.utf16.count <= 280 }) else { throw ServiceError.invalidResponse }
         return value.reactions
     }
+
+    func setPhotoReaction(photoID: String, assetID: String, kind: PhotoReactionKind) async throws -> CouplePhoto {
+        let uid = try requireUID(), pair = try requirePair()
+        let response = try await affectionCall("setPhotoReaction", ["photoId": photoID, "assetId": assetID, "kind": kind.rawValue])
+        struct Response: Decodable { let reaction: PhotoReaction; let photo: CouplePhoto }
+        let value: Response = try decodeSpace(response)
+        try value.photo.validate(memberIDs: pair.memberIDs)
+        guard value.reaction.authorId == uid, value.reaction.photoId == photoID, value.reaction.kind == kind,
+              value.photo.id == photoID, value.photo.photo.id == assetID, value.photo.reaction == value.reaction,
+              value.reaction.updatedAt.timeIntervalSince1970.isFinite else { throw ServiceError.invalidResponse }
+        if let current = coupleSpace?.latestPhoto, current.id == photoID {
+            coupleSpace?.latestPhoto = value.photo
+        }
+        try checkSpaceContext(uid: uid, pair: pair)
+        WidgetCenter.shared.reloadAllTimelines()
+        return value.photo
+    }
     func letters() async throws -> [TimeCapsuleLetter] {
         struct Response: Decodable { let letters: [TimeCapsuleLetter] }
         let response = try await affectionCall("letters")

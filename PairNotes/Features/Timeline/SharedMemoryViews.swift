@@ -179,7 +179,7 @@ struct SharedMemoryEditor: View {
     @State private var bodyText: String
     @State private var recursYearly: Bool
     @State private var noteID: String
-    @State private var photoItem: PhotosPickerItem?
+    @State private var choosingPhoto = false
     @State private var photoData: Data?
     @State private var photoNeedsSaving = false
     @State private var removePhoto = false
@@ -271,7 +271,7 @@ struct SharedMemoryEditor: View {
                     } else if let original, original.photo != nil, !removePhoto {
                         MemoryPhotoView(services: services, memory: original).frame(height: 220).clipShape(RoundedRectangle(cornerRadius: 12))
                     }
-                    PhotosPicker(selection: $photoItem, matching: .images) { Label("Elegir foto", systemImage: "photo.badge.plus") }
+                    Button("Elegir foto", systemImage: "photo.badge.plus") { choosingPhoto = true }.disabled(loadingPhoto || busy)
                     if photoData != nil || (original?.photo != nil && !removePhoto) {
                         Button("Quitar foto", systemImage: "trash", role: .destructive) { photoData = nil; removePhoto = true; canvasStorage.clear() }
                     }
@@ -316,23 +316,18 @@ struct SharedMemoryEditor: View {
                         onSend: { archive in attachCanvas(archive); return true })
                 }
             }
-            .sheet(item: $crop, onDismiss: { photoItem = nil }) { selection in
+            .sheet(item: $crop) { selection in
                 PhotoCropEditor(image: selection.image, onCancel: { crop = nil }, onConfirm: { image in
                     photoData = image.jpegData(compressionQuality: 0.85); removePhoto = false; crop = nil
                     // A replacement photo starts a new composition. The prior source remains in Crear.
                     canvasStorage.clear()
                 })
             }
-            .task(id: photoItem) {
-                guard let photoItem else { return }
-                loadingPhoto = true
-                defer { if self.photoItem == photoItem { loadingPhoto = false } }
-                do {
-                    guard let bytes = try await photoItem.loadTransferable(type: Data.self), !Task.isCancelled, self.photoItem == photoItem,
-                          let image = UIImage(data: try SelectedPhoto.jpeg(bytes)) else { return }
-                    crop = SelectedPhotoCrop(image: image)
-                } catch { self.error = "No se pudo abrir esta foto. Elegí otra imagen." }
-            }
+            .photoLibrarySheet(isPresented: $choosingPhoto, preparing: $loadingPhoto, onImage: { image in
+                guard services.membership?.id == pairID,
+                      storage.key == services.privateImageKey("composition:\(original?.id ?? "new")") else { return }
+                crop = SelectedPhotoCrop(image: image)
+            }, onFailure: { error = $0 })
         }
     }
     private func attachCanvas(_ archive: DraftArchive) {

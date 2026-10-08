@@ -60,17 +60,26 @@ struct PairNotesWidgetPushHandler: WidgetPushHandler {
 }
 
 struct ReceivedNoteWidgetView: View {
+    @Environment(\.widgetFamily) private var family
     let entry: ReceivedNoteEntry
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let image = entry.image {
+                HStack(spacing: 4) {
+                    Image(systemName: "heart.fill").font(.caption2)
+                    Text(entry.authorName ?? "Tu pareja").font(.caption.weight(.semibold)).lineLimit(1)
+                    Spacer(minLength: 0)
+                    if let published = entry.publishedAt, family != .systemSmall {
+                        Text(published, style: .time).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }.padding(.horizontal, 12).padding(.top, 10)
                 Image(uiImage: image).resizable().widgetAccentedRenderingMode(.fullColor).scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel("Último dibujo recibido de \(entry.authorName ?? "tu pareja")")
                     .privacySensitive()
                     .clipped()
-
+                    .padding(.horizontal, 8).padding(.bottom, 8)
             } else {
                 Label("PairNotes", systemImage: "heart.text.clipboard").font(.headline)
                 Text(entry.message).font(.caption).foregroundStyle(.secondary)
@@ -79,6 +88,7 @@ struct ReceivedNoteWidgetView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .privacySensitive()
         .containerBackground(.background, for: .widget)
         .widgetURL(entry.noteID.flatMap { URL(string: "pairnotes://note/\($0.uuidString.lowercased())") }
                    ?? URL(string: "pairnotes://couple"))
@@ -92,7 +102,7 @@ struct NoteWidget: Widget {
         }
         .configurationDisplayName("Último dibujo")
         .description("La última nota que tu pareja te envió. Tocala para abrir el recuerdo.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         .contentMarginsDisabled()
         .pushHandler(PairNotesWidgetPushHandler.self)
     }

@@ -4,6 +4,7 @@ import PaperKit
 import PairNotesCore
 import PhotosUI
 import ImageIO
+import UniformTypeIdentifiers
 
 /// The editor shares the app's catalog actor. An injectable boundary also lets
 /// persistence races be exercised without replacing PaperKit or its renderer.
@@ -14,6 +15,153 @@ protocol NativePaperDraftStore: Sendable {
 }
 
 extension DraftCatalogStore: NativePaperDraftStore {}
+
+/// Photos hands out a temporary file whose lifetime ends with its completion
+/// handler. Downsample and copy the result there, before crossing back to UI.
+/// This avoids loading an entire RAW/panorama into memory merely to reject it.
+enum PaperPhotoImport {
+    static let maximumInputBytes = 100 * 1024 * 1024
+    static let maximumPixelSide = 1536
+
+    enum Failure: Error {
+        case unsupported, tooLarge, unreadable
+
+        var message: String {
+            switch self {
+            case .unsupported: "Elegí una imagen compatible desde Fotos."
+            case .tooLarge: "La foto supera los 100 MB. Elegí una versión más pequeña."
+            case .unreadable: "No se pudo abrir esta foto. Probá con otra imagen."
+            }
+        }
+    }
+
+    static func loadData(from provider: NSItemProvider) async throws -> Data {
+        guard provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { throw Failure.unsupported }
+        let operation = PaperPhotoLoadOperation()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard operation.begin(continuation) else { return }
+                let progress = provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, error in
+                    do {
+                        if let error { throw error }
+                        guard let url else { throw Failure.unreadable }
+                        let values = try url.resourceValues(forKeys: [.fileSizeKey])
+                        guard let size = values.fileSize, size > 0 else { throw Failure.unreadable }
+                        guard size <= maximumInputBytes else { throw Failure.tooLarge }
+                        guard let source = CGImageSourceCreateWithURL(url as CFURL, [
+                            kCGImageSourceShouldCache: false
+                        ] as CFDictionary) else { throw Failure.unreadable }
+                        let image = try thumbnail(source)
+                        let data = NSMutableData()
+                        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
+                            throw Failure.unreadable
+                        }
+                        CGImageDestinationAddImage(destination, image, nil)
+                        guard CGImageDestinationFinalize(destination) else { throw Failure.unreadable }
+                        operation.finish(.success(data as Data))
+                    } catch { operation.finish(.failure(error)) }
+                }
+                operation.attach(progress)
+            }
+        } onCancel: { operation.cancel() }
+    }
+
+    @MainActor
+    static func decode(_ data: Data) throws -> UIImage {
+        guard !data.isEmpty else { throw Failure.unreadable }
+        guard data.count <= maximumInputBytes else { throw Failure.tooLarge }
+        guard let source = CGImageSourceCreateWithData(data as CFData, [
+            kCGImageSourceShouldCache: false
+        ] as CFDictionary) else { throw Failure.unreadable }
+        return UIImage(cgImage: try thumbnail(source))
+    }
+
+    private static func thumbnail(_ source: CGImageSource) throws -> CGImage {
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumPixelSide
+        ] as CFDictionary) else { throw Failure.unreadable }
+        return image
+    }
+}
+
+/// The provider may complete after cancellation, or fail to deliver a callback
+/// promptly while downloading from iCloud. Resume the UI waiter exactly once.
+private final class PaperPhotoLoadOperation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Data, Error>?
+    private var progress: Progress?
+    private var finished = false
+
+    func begin(_ continuation: CheckedContinuation<Data, Error>) -> Bool {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return false
+        } else {
+            self.continuation = continuation
+            lock.unlock()
+            return true
+        }
+    }
+
+    func attach(_ progress: Progress) {
+        lock.lock()
+        let shouldCancel = finished
+        if !finished { self.progress = progress }
+        lock.unlock()
+        if shouldCancel { progress.cancel() }
+    }
+
+    func finish(_ result: Result<Data, Error>, cancelling: Bool = false) {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true
+        let waiter = continuation
+        let active = progress
+        continuation = nil
+        progress = nil
+        lock.unlock()
+        waiter?.resume(with: result)
+        if cancelling { active?.cancel() }
+    }
+
+    func cancel() {
+        // Claim the waiter and its progress under the same lock. Otherwise
+        // attach() can install a download between reading progress and finish,
+        // releasing the UI while leaving that cloud download uncancelled.
+        finish(.failure(CancellationError()), cancelling: true)
+    }
+}
+
+struct PaperPhotoPicker: UIViewControllerRepresentable {
+    let onChoose: (NSItemProvider?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onChoose: onChoose) }
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        configuration.preferredAssetRepresentationMode = .current
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ controller: PHPickerViewController, context: Context) {}
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        let onChoose: (NSItemProvider?) -> Void
+        init(onChoose: @escaping (NSItemProvider?) -> Void) { self.onChoose = onChoose }
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            onChoose(results.first?.itemProvider)
+        }
+    }
+}
 
 @MainActor
 final class NativePaperSession: ObservableObject {
@@ -35,7 +183,7 @@ final class NativePaperSession: ObservableObject {
         }
     }
     @Published var selecting = false {
-        didSet { controller.canvas.directTouchMode = selecting ? .selection : .drawing; controller.selectionMode = selecting }
+        didSet { controller.selectionMode = selecting }
     }
     private let store: any NativePaperDraftStore
     private let documentID: UUID
@@ -255,28 +403,34 @@ final class NativePaperSession: ObservableObject {
         }
     }
 
-    func loadPhoto(_ item: PhotosPickerItem) async -> UIImage? {
+    func loadPhoto(_ provider: NSItemProvider) async -> UIImage? {
         guard loaded, !busy, !readOnly, !finished else { return nil }
         busy = true
+        status = "Cargando la foto… Si está en iCloud, puede tardar un momento."
         defer { busy = false }
         do {
-            guard let data = try await item.loadTransferable(type: Data.self), data.count <= 20 * 1024 * 1024,
-                  let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 1536
-                  ] as CFDictionary) else {
-                status = "No se pudo importar la foto (máximo 20 MB)."
-                return nil
-            }
-            return UIImage(cgImage: image)
-        } catch { status = "No se pudo cargar la foto seleccionada."; return nil }
+            let data = try await PaperPhotoImport.loadData(from: provider)
+            try Task.checkCancellation()
+            guard !finished else { return nil }
+            let image = try PaperPhotoImport.decode(data)
+            status = "Elegí el recorte y tocá Usar foto."
+            return image
+        } catch is CancellationError { status = "Carga de foto cancelada. Podés seguir dibujando."; return nil }
+        catch {
+            status = (error as? PaperPhotoImport.Failure)?.message ??
+                "No se pudo descargar la foto. Revisá la conexión y volvé a elegirla."
+            return nil
+        }
     }
 
     @discardableResult
     func insertPhoto(_ image: UIImage, sticker: Bool = false) -> Bool {
-        guard loaded, !busy, !readOnly, !finished, let image = image.cgImage else { return false }
+        guard loaded, !busy, !readOnly, !finished else { return false }
+        let normalized = PhotoCropGeometry.normalized(image)
+        guard let image = normalized.cgImage, image.width > 0, image.height > 0 else {
+            status = "No se pudo preparar la foto. Volvé a elegirla."
+            return false
+        }
         controller.addLayer(name: sticker ? "Mi sticker" : "Foto")
         guard var markup = controller.canvas.markup else { return false }
         let width: CGFloat = sticker ? 360 : 900
@@ -304,7 +458,10 @@ struct NativePaperEditorView: View {
     let onSaved: () -> Void
     let onSend: (DraftArchive) async -> Bool
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedPhoto: PhotosPickerItem?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var pendingPhotoProvider: NSItemProvider?
+    @State private var photoImportTask: Task<Void, Never>?
+    @State private var photoImportID: UUID?
     @State private var choosingPhoto = false
     @State private var choosingBackground = false
     @State private var showingLayers = false
@@ -337,7 +494,7 @@ struct NativePaperEditorView: View {
     var body: some View {
         NavigationStack {
             GeometryReader { geometry in
-                let paperSide = max(100, min(640, geometry.size.width - 32, geometry.size.height - 272))
+                let paperSide = max(100, min(640, geometry.size.width - 32, geometry.size.height - 210))
                 VStack(spacing: 10) {
                     if !session.readOnly { editingControls }
                     HStack(spacing: 8) {
@@ -347,6 +504,11 @@ struct NativePaperEditorView: View {
                             .lineLimit(2)
                             .accessibilityIdentifier("editor.status")
                         Spacer(minLength: 0)
+                        if photoImportTask != nil {
+                            Button("Cancelar carga") { photoImportTask?.cancel() }
+                                .font(.caption).frame(minHeight: 44)
+                                .accessibilityIdentifier("editor.cancelPhotoImport")
+                        }
                     }
                     if session.readOnly {
                         if let preview = session.preview {
@@ -387,10 +549,12 @@ struct NativePaperEditorView: View {
                 }
                 ToolbarItem(placement: .principal) {
                     Button(action: beginRenaming) {
-                        Text(session.title).font(.headline).lineLimit(1).foregroundStyle(.primary)
+                        Text(session.title).font(.headline).lineLimit(1).truncationMode(.tail)
+                            .frame(maxWidth: 120).foregroundStyle(.primary)
                     }
                     .disabled(session.readOnly || working)
                     .accessibilityLabel("Renombrar dibujo: \(session.title)")
+                    .accessibilityIdentifier("editor.rename")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Guardar y cerrar", systemImage: "checkmark", action: saveAndClose)
@@ -406,7 +570,13 @@ struct NativePaperEditorView: View {
             .interactiveDismissDisabled()
             .task { await session.load() }
             .onAppear { session.resumeAutosave() }
-            .onDisappear { session.suspendAutosave() }
+            .onDisappear { session.suspendAutosave(); photoImportTask?.cancel() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    session.resumeAutosave()
+                    if !presentingTools && !working { session.controller.resumeCanvasInput() }
+                } else { session.suspendAutosave() }
+            }
             .onChange(of: confirmingClose) { _, showing in
                 if !showing && !closing { session.resumeAutosave() }
             }
@@ -416,12 +586,10 @@ struct NativePaperEditorView: View {
             .onChange(of: session.selecting) { _, selecting in
                 session.controller.setPaletteVisible(!selecting && !presentingTools)
             }
-            .photosPicker(isPresented: $choosingPhoto, selection: $selectedPhoto, matching: .images)
-            .onChange(of: selectedPhoto) { _, item in
-                guard let item else { return }
-                Task {
-                    if let image = await session.loadPhoto(item) { cropPhoto = ExportImage(image: image) }
-                    selectedPhoto = nil
+            .sheet(isPresented: $choosingPhoto, onDismiss: importSelectedPhoto) {
+                PaperPhotoPicker { provider in
+                    pendingPhotoProvider = provider
+                    choosingPhoto = false
                 }
             }
             .alert("Renombrar dibujo", isPresented: $renaming) {
@@ -438,27 +606,27 @@ struct NativePaperEditorView: View {
             } message: {
                 Text("Descartar vuelve al último guardado que confirmaste, aunque haya una copia automática de recuperación.")
             }
-            .sheet(isPresented: $showingLayers) { layerSheet }
-            .sheet(isPresented: $showingStickers) {
+            .sheet(isPresented: $showingLayers, onDismiss: session.controller.resumeCanvasInput) { layerSheet }
+            .sheet(isPresented: $showingStickers, onDismiss: session.controller.resumeCanvasInput) {
                 PersonalStickerLibrary(store: stickerStore) { image in _ = session.insertPhoto(image, sticker: true) }
             }
-            .sheet(item: $eyedropperImage) { item in
+            .sheet(item: $eyedropperImage, onDismiss: session.controller.resumeCanvasInput) { item in
                 PaperEyedropper(image: item.image) { color in
                     session.controller.useInkColor(color); session.selecting = false
                     session.status = "Color elegido. Ya podés dibujar con él."
                 }
             }
-            .sheet(isPresented: $choosingBackground) {
+            .sheet(isPresented: $choosingBackground, onDismiss: session.controller.resumeCanvasInput) {
                 PaperBackgroundPicker(background: $session.paperBackground)
                     .disabled(session.busy).presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
             }
-            .fullScreenCover(item: $cropPhoto) { item in
+            .fullScreenCover(item: $cropPhoto, onDismiss: session.controller.resumeCanvasInput) { item in
                 PhotoCropEditor(image: item.image, onCancel: { cropPhoto = nil }) { image in
                     if session.insertPhoto(image) { cropPhoto = nil }
                 }
             }
-            .sheet(item: $exportImage) { ShareImageView(image: $0.image) }
+            .sheet(item: $exportImage, onDismiss: session.controller.resumeCanvasInput) { ShareImageView(image: $0.image) }
         }
     }
 
@@ -514,14 +682,22 @@ struct NativePaperEditorView: View {
                 }.pickerStyle(.segmented).accessibilityIdentifier("editor.selection")
             }
             HStack(spacing: 4) {
-                tool("Agregar foto y recortar", icon: "photo.badge.plus", id: "editor.photo") { choosingPhoto = true }
-                tool("Capas", icon: "square.3.layers.3d", id: "editor.layers") { showingLayers = true }
+                Button("Foto", systemImage: "photo.badge.plus") { choosingPhoto = true }
+                    .frame(minHeight: 44).padding(.horizontal, 8)
+                    .accessibilityLabel("Agregar foto y recortar").accessibilityIdentifier("editor.photo")
                 tool("Agregar texto", icon: "textformat", id: "editor.text", action: session.controller.insertText)
                 tool("Color de la hoja", icon: "paintpalette", id: "editor.background") { choosingBackground = true }
-                tool("Exportar imagen", icon: "square.and.arrow.up", id: "editor.export", action: export)
-            }
-            HStack(spacing: 4) {
+                Spacer(minLength: 0)
                 Menu {
+                    Button("Capas", systemImage: "square.3.layers.3d") { showingLayers = true }
+                        .accessibilityIdentifier("editor.layers")
+                    Button("Exportar imagen", systemImage: "square.and.arrow.up", action: export)
+                        .accessibilityIdentifier("editor.export")
+                    Section("Vista de la hoja") {
+                        Button("Alejar", systemImage: "minus.magnifyingglass") { session.controller.zoom(by: 1 / 1.35) }
+                        Button("Ajustar hoja", systemImage: "arrow.up.left.and.arrow.down.right", action: session.controller.fitPaper)
+                        Button("Acercar", systemImage: "plus.magnifyingglass") { session.controller.zoom(by: 1.35) }
+                    }
                     Section("Stickers") {
                         ForEach(["♡", "✨", "🌸", "⭐️", "🌙", "💌"], id: \.self) { symbol in
                             Button(symbol) { session.controller.insertSticker(symbol); session.selecting = true }
@@ -556,12 +732,8 @@ struct NativePaperEditorView: View {
                         }
                     }
                     Toggle("Guías de centrado", isOn: $showingGuides)
-                } label: { Label("Detalles", systemImage: "sparkles").font(.subheadline) }
+                } label: { Label("Más", systemImage: "ellipsis.circle").font(.subheadline).frame(minWidth: 44, minHeight: 44) }
                 .onChange(of: showingGuides) { _, value in session.controller.showsAlignmentGuides = value; session.controller.snapsToGuides = value }
-                Spacer(minLength: 0)
-                tool("Alejar", icon: "minus.magnifyingglass", id: "editor.zoomOut") { session.controller.zoom(by: 1 / 1.35) }
-                tool("Ajustar hoja", icon: "arrow.up.left.and.arrow.down.right", id: "editor.fit", action: session.controller.fitPaper)
-                tool("Acercar", icon: "plus.magnifyingglass", id: "editor.zoomIn") { session.controller.zoom(by: 1.35) }
             }
         }.disabled(working || confirmingClose)
     }
@@ -575,6 +747,26 @@ struct NativePaperEditorView: View {
     private func beginRenaming() {
         proposedTitle = session.title
         renaming = true
+    }
+
+    private func importSelectedPhoto() {
+        guard let provider = pendingPhotoProvider else {
+            session.controller.resumeCanvasInput()
+            return
+        }
+        pendingPhotoProvider = nil
+        photoImportTask?.cancel()
+        let importID = UUID()
+        photoImportID = importID
+        // Wait for the native picker to finish dismissing before presenting
+        // the cropper. Fast local photos used to race these two presentations.
+        photoImportTask = Task { @MainActor in
+            defer {
+                if photoImportID == importID { photoImportTask = nil; photoImportID = nil }
+            }
+            guard let image = await session.loadPhoto(provider), !Task.isCancelled, photoImportID == importID else { return }
+            cropPhoto = ExportImage(image: image)
+        }
     }
 
     private func requestClose() {

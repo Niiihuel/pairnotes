@@ -10,5 +10,7 @@ struct PairNotesWidgetBundle: WidgetBundle {
         AnniversaryWidget()
         DistanceWidget()
         ThinkingOfYouWidget()
+        PartnerPhotoWidget()
+        PairPhotoLiveActivity()
     }
 }

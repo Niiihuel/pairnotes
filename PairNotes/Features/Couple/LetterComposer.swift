@@ -34,7 +34,7 @@ struct LetterComposer: View {
     @State private var drawing: Data?
     @State private var photo: Data?
     @State private var audio: Data?
-    @State private var photoItem: PhotosPickerItem?
+    @State private var choosingPhoto = false
     @State private var crop: SelectedPhotoCrop?
     @State private var loadingPhoto = false
     @State private var busy = false
@@ -121,20 +121,15 @@ struct LetterComposer: View {
                         onSend: { archive in attachDrawing(archive); return drawing != nil })
                 }
             }
-            .sheet(item: $crop, onDismiss: { photoItem = nil }) { selection in
+            .sheet(item: $crop) { selection in
                 PhotoCropEditor(image: selection.image, onCancel: { crop = nil }, onConfirm: { image in
                     photo = image.jpegData(compressionQuality: 0.85); draft.removePhoto = false; persistPhoto(); crop = nil
                 })
             }
-            .task(id: photoItem) {
-                guard let photoItem else { return }
-                loadingPhoto = true; defer { loadingPhoto = false }
-                do {
-                    guard let bytes = try await photoItem.loadTransferable(type: Data.self), !Task.isCancelled,
-                          let image = UIImage(data: try SelectedPhoto.jpeg(bytes)) else { return }
-                    crop = SelectedPhotoCrop(image: image)
-                } catch { self.error = "No se pudo cargar la foto." }
-            }
+            .photoLibrarySheet(isPresented: $choosingPhoto, preparing: $loadingPhoto, onImage: { image in
+                guard scope == services.privateImageKey("letters") else { return }
+                crop = SelectedPhotoCrop(image: image)
+            }, onFailure: { error = $0 })
         }
     }
     @ViewBuilder private var recipientSection: some View {
@@ -177,7 +172,7 @@ struct LetterComposer: View {
             if let photo, let image = UIImage(data: photo) {
                 Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220)
             } else if original?.photo != nil && !draft.removePhoto { Label("Foto adjunta guardada", systemImage: "photo") }
-            PhotosPicker(selection: $photoItem, matching: .images) { Label("Agregar foto", systemImage: "photo.badge.plus") }
+            Button("Agregar foto", systemImage: "photo.badge.plus") { choosingPhoto = true }.disabled(loadingPhoto || busy)
             if photo != nil || (original?.photo != nil && !draft.removePhoto) {
                 Button("Quitar foto", role: .destructive) { photo = nil; draft.removePhoto = true; persistPhoto() }
             }
