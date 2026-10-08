@@ -334,9 +334,14 @@ struct LetterComposer: View {
                 if draft.sealAttempted { send() } else { confirm = true }
             } label: {
                 Label(busy ? "Enviando…" : draft.sealAttempted ? "Confirmar envío" : startsWithVoice ? "Enviar audio" : "Enviar carta",
-                      systemImage: startsWithVoice ? "paperplane.fill" : "envelope.fill").frame(maxWidth: .infinity)
-            }.buttonStyle(.borderedProminent).controlSize(.large).disabled(!canSend)
-                .foregroundStyle(canSend ? (colorScheme == .dark ? stationery.canvas : .white) : stationery.secondaryInk)
+                      systemImage: startsWithVoice ? "paperplane.fill" : "envelope.fill")
+                    .frame(maxWidth: .infinity, minHeight: 50).contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(canSend ? (colorScheme == .dark ? stationery.canvas : .white) : Color(uiColor: .secondaryLabel))
+            .background(canSend ? stationery.accent : Color(uiColor: .tertiarySystemFill), in: Capsule())
+            .disabled(!canSend)
         }.padding().background(.regularMaterial)
     }
 
