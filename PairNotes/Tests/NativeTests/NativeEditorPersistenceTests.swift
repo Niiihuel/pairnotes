@@ -453,6 +453,110 @@ final class NativeEditorPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testVisiblePaperColorAndLayerFramesSurviveLayoutPaletteAndAppearanceChanges() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        for appearance in [UIUserInterfaceStyle.light, .dark] {
+            let controller = PaperProbeController()
+            let container = UIViewController()
+            let window = UIWindow(windowScene: scene)
+            window.frame = scene.screen.bounds
+            window.overrideUserInterfaceStyle = appearance
+            window.rootViewController = container
+            container.loadViewIfNeeded()
+            container.addChild(controller)
+            container.view.addSubview(controller.view)
+            controller.didMove(toParent: container)
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+
+            let side = window.bounds.width - 32
+            for palette in [false, true] {
+                controller.setPaletteVisible(palette)
+                // Exercise the child-layout transition that a sheet, keyboard
+                // or a changed SwiftUI viewport creates. No content is replaced.
+                controller.view.frame = CGRect(x: 16, y: 180, width: side, height: side + (palette ? 20 : 0))
+                for background in [PaperBackground.white, .cream, .charcoal] {
+                    controller.paperBackground = background
+                    window.layoutIfNeeded()
+                    controller.view.setNeedsLayout()
+                    controller.view.layoutIfNeeded()
+                    // PaperKit's delegate is nonisolated; let its main-actor
+                    // synchronization finish without a timed production fix.
+                    await Task.yield()
+                    controller.view.layoutIfNeeded()
+                    let label = "\(appearance == .dark ? "dark" : "light")-\(palette ? "palette" : "no-palette")-\(background)"
+                    try assertVisiblePaper(controller, background: background, label: label)
+                    XCTAssertEqual(controller.canvas.directTouchMode, .drawing)
+                    let point = CGPoint(x: controller.view.bounds.midX, y: controller.view.bounds.midY)
+                    let target = try XCTUnwrap(controller.view.hitTest(point, with: nil))
+                    XCTAssertTrue(target === controller.canvas.view || target.isDescendant(of: controller.canvas.view),
+                                  "Synchronizing the paper must not take touches away from the editable controller")
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func assertVisiblePaper(_ controller: PaperProbeController, background: PaperBackground, label: String) throws {
+        let content = try XCTUnwrap(controller.canvas.contentView)
+        let editableFrame = content.convert(content.bounds, to: controller.view)
+        let frames = controller.children.compactMap { $0 as? PaperMarkupViewController }.compactMap { child in
+            child.contentView.map { $0.convert($0.bounds, to: controller.view) }
+        }
+        let aligned = frames.count == 3 && frames.allSatisfy { frame in
+            abs(frame.minX - editableFrame.minX) < 0.5 && abs(frame.minY - editableFrame.minY) < 0.5 &&
+            abs(frame.width - editableFrame.width) < 0.5 && abs(frame.height - editableFrame.height) < 0.5
+        }
+        var drawn = false
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let image = UIGraphicsImageRenderer(bounds: controller.view.bounds, format: format).image { _ in
+            drawn = controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+        }
+        XCTAssertTrue(drawn)
+        let cg = try XCTUnwrap(image.cgImage)
+        let interior = editableFrame.intersection(controller.view.bounds).insetBy(dx: 8, dy: 8)
+        XCTAssertGreaterThan(interior.width, 20)
+        XCTAssertGreaterThan(interior.height, 20)
+        var mismatches: [String] = []
+        for x: CGFloat in [0.1, 0.5, 0.9] {
+            for y: CGFloat in [0.1, 0.5, 0.9] {
+                let point = CGPoint(x: (interior.minX + interior.width * x) / image.size.width,
+                                    y: (interior.minY + interior.height * y) / image.size.height)
+                let sampled = try XCTUnwrap(PaperPixelSampler.color(cg, at: point))
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                sampled.getRed(&r, green: &g, blue: &b, alpha: &a)
+                if abs(r * 255 - CGFloat(background.red)) > 2 || abs(g * 255 - CGFloat(background.green)) > 2 ||
+                   abs(b * 255 - CGFloat(background.blue)) > 2 || a < 0.99 {
+                    mismatches.append("\(point): \(r),\(g),\(b),\(a)")
+                }
+            }
+        }
+        XCTAssertTrue(aligned, "\(label): editable document frame \(editableFrame); layer document frames \(frames)")
+        XCTAssertTrue(mismatches.isEmpty, "\(label): the visible sheet must use its literal opaque color everywhere: \(mismatches)")
+        if !aligned || !mismatches.isEmpty || background == .white {
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "visible-paper-" + label
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        if !aligned || !mismatches.isEmpty {
+            let diagnostic = XCTAttachment(string: paperViewTree(controller.view))
+            diagnostic.name = "paper-view-geometry-" + label
+            diagnostic.lifetime = .keepAlways
+            add(diagnostic)
+        }
+    }
+
+    @MainActor
+    private func paperViewTree(_ view: UIView, depth: Int = 0) -> String {
+        let row = String(repeating: "  ", count: depth) + "\(type(of: view)) frame=\(view.frame) bounds=\(view.bounds) " +
+            "opaque=\(view.isOpaque) hidden=\(view.isHidden) background=\(String(describing: view.backgroundColor?.resolvedColor(with: view.traitCollection)))"
+        guard depth < 8 else { return row }
+        return ([row] + view.subviews.map { paperViewTree($0, depth: depth + 1) }).joined(separator: "\n")
+    }
+
+    @MainActor
     func testPhotoFileImportDownsamplesAndPersistsVisiblePhotoWithoutLeavingDrawingBlocked() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

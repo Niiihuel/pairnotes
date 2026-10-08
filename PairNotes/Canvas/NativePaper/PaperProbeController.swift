@@ -117,14 +117,46 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         onLayersChanged?(layers, layers[index].id)
     }
 
+    private var synchronizingLayerViewport = false
+    private var synchronizedViewport: [CGRect]?
+
     private func synchronizeLayerViewport() {
+        guard isViewLoaded, !synchronizingLayerViewport else { return }
+        synchronizingLayerViewport = true
+        defer { synchronizingLayerViewport = false }
+        // The parent receives its layout callback before UIKit finishes laying
+        // out its child controllers. Resolve those layouts before using the
+        // active controller's viewport to position the paper and other layers.
+        for child in [canvas, lowerCanvas, upperCanvas] { child.view.layoutIfNeeded() }
         let frame = canvas.contentVisibleFrame
-        guard frame.width > 0, frame.height > 0 else { return }
+        guard frame.width.isFinite, frame.height.isFinite, frame.width > 0, frame.height > 0,
+              canvas.view.bounds.width > 0, canvas.view.bounds.height > 0 else { return }
+        let observed = layerViewportState()
+        if let previous = synchronizedViewport,
+           zip(previous, observed).allSatisfy({ Self.nearlyEqual($0, $1) }) { return }
         // The method only ensures a rect is visible and is a no-op when a
         // zoomed-out preview already contains it. The property sets the exact
         // viewport so all three layers keep the same scale and position.
         lowerCanvas.contentVisibleFrame = frame
         upperCanvas.contentVisibleFrame = frame
+        lowerCanvas.view.layoutIfNeeded()
+        upperCanvas.view.layoutIfNeeded()
+        // Cache the actual readback after PaperKit's layout/normalization. Its
+        // nonisolated delegate callbacks arrive later; observing the same state
+        // must not repeat a setter and create a feedback loop.
+        synchronizedViewport = layerViewportState()
+    }
+
+    private func layerViewportState() -> [CGRect] {
+        [canvas.contentVisibleFrame, lowerCanvas.contentVisibleFrame, upperCanvas.contentVisibleFrame] +
+        [canvas, lowerCanvas, upperCanvas].flatMap { child in
+            [child.view.bounds, child.contentView.map { $0.convert($0.bounds, to: view) } ?? .zero]
+        }
+    }
+
+    private static func nearlyEqual(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        zip([lhs.minX, lhs.minY, lhs.width, lhs.height], [rhs.minX, rhs.minY, rhs.width, rhs.height])
+            .allSatisfy { abs($0 - $1) <= 0.01 }
     }
 
     var onMarkupChanged: (() -> Void)?
@@ -376,6 +408,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
                 backdrop.view.trailingAnchor.constraint(equalTo: host.trailingAnchor)
             ])
             backdrop.didMove(toParent: self)
+            backdrop.delegate = self
         }
         canvas.view.backgroundColor = .clear
         canvas.view.isOpaque = false
@@ -415,9 +448,10 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
 
     nonisolated func paperMarkupViewControllerDidChangeMarkup(_ paperMarkupViewController: PaperMarkupViewController) {
         Task { @MainActor [weak self] in
-            self?.scheduleSnap()
-            self?.onMarkupChanged?()
-            self?.refreshHistory()
+            guard let self, paperMarkupViewController === self.canvas else { return }
+            self.scheduleSnap()
+            self.onMarkupChanged?()
+            self.refreshHistory()
         }
     }
 
@@ -437,11 +471,15 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        guard !synchronizingLayerViewport else { return }
         if canvas.view.isUserInteractionEnabled != editingEnabled { canvas.view.isUserInteractionEnabled = editingEnabled }
+        canvas.view.layoutIfNeeded()
         let size = canvas.view.bounds.size
-        guard size.width > 0, size.height > 0, size != lastFittedSize else { return }
-        lastFittedSize = size
-        fitPaper()
+        guard size.width > 0, size.height > 0 else { return }
+        if size != lastFittedSize {
+            lastFittedSize = size
+            fitPaper()
+        }
         synchronizeLayerViewport()
     }
 
