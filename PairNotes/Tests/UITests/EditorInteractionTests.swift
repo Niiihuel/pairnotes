@@ -82,21 +82,29 @@ final class EditorInteractionTests: XCTestCase {
         let secondInk = try darkPixelCount(paper.screenshot().image)
 
         app.buttons["editor.photo"].tap()
-        // Match the identifier exactly: PHPicker also contains an unavailable
-        // offscreen button whose label is "Cancel" and whose frame is infinite.
-        // Its AX hittability lookup can fail even while the real button is visible.
-        let cancelPhoto = app.buttons.matching(NSPredicate(format: "identifier == %@", "Cancel")).firstMatch
+        // The loading sheet and loaded PHPicker can expose different cancel
+        // labels/identifiers. Ignore unavailable AX placeholders (infinite frames)
+        // and editor.cancel beneath the sheet; never ask the placeholder isHittable.
         let cancelVisible = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
-            visibleFrame(of: cancelPhoto, in: app) != nil
+            visiblePickerCancelFrame(in: app) != nil
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [cancelVisible], timeout: 10), .completed)
-        let cancelFrame = try XCTUnwrap(visibleFrame(of: cancelPhoto, in: app))
+        let cancelResult = XCTWaiter.wait(for: [cancelVisible], timeout: 10)
+        if cancelResult != .completed {
+            attach(app.screenshot(), name: "editor-photo-picker-cancel-timeout")
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = "editor-photo-picker-cancel-hierarchy"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+        }
+        XCTAssertEqual(cancelResult, .completed, "The presented photo picker must have a visible cancel control")
+        let cancelFrame = try XCTUnwrap(visiblePickerCancelFrame(in: app))
         let appFrame = app.frame
         app.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: cancelFrame.midX - appFrame.minX,
                                  dy: cancelFrame.midY - appFrame.minY)).tap()
-        let pickerDismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
-                                                       object: cancelPhoto)
+        let pickerDismissed = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+            visiblePickerCancelFrame(in: app) == nil
+        }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [pickerDismissed], timeout: 10), .completed)
         draw(on: paper, from: CGVector(dx: 0.38, dy: 0.6), to: CGVector(dx: 0.62, dy: 0.62))
         waitForInk(on: paper, above: secondInk + 100)
@@ -117,6 +125,21 @@ final class EditorInteractionTests: XCTestCase {
         waitUntilHittable(paper)
         paper.coordinate(withNormalizedOffset: start)
             .press(forDuration: 0.05, thenDragTo: paper.coordinate(withNormalizedOffset: end))
+    }
+
+    private func visiblePickerCancelFrame(in app: XCUIApplication) -> CGRect? {
+        let names = ["Cancel", "Cancelar", "Close", "Cerrar"]
+        let candidates = app.buttons.matching(NSPredicate(
+            format: "(identifier IN %@ OR label IN %@) AND identifier != %@",
+            argumentArray: [names, names, "editor.cancel"])).allElementsBoundByIndex
+        let window = app.frame
+        for candidate in candidates {
+            guard let frame = visibleFrame(of: candidate, in: app),
+                  frame.midX < window.minX + window.width * 0.25,
+                  frame.midY < window.minY + window.height * 0.25 else { continue }
+            return frame
+        }
+        return nil
     }
 
     private func visibleFrame(of element: XCUIElement, in app: XCUIApplication) -> CGRect? {
