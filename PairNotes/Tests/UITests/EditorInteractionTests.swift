@@ -114,8 +114,13 @@ final class EditorInteractionTests: XCTestCase {
         attach(paper.screenshot(), name: "editor-touch-after-cancel-photo")
 
         app.buttons["editor.done"].tap()
-        let saved = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+        waitForLibraryAfterClosingEditor(in: app)
+        // The editor's title button also contains the draft title. Resolve a
+        // library row only after that presentation has actually disappeared.
+        let saved = app.buttons.matching(NSPredicate(
+            format: "label CONTAINS %@ AND identifier != %@", title, "editor.rename")).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 20), "A drawn draft must be saved and shown in the library")
+        waitUntilHittable(saved)
         saved.tap()
         // Resolve the newly presented editor instead of reusing the first
         // presentation's AX element, which can survive with an empty frame.
@@ -171,6 +176,19 @@ final class EditorInteractionTests: XCTestCase {
     private func waitUntilHittable(_ element: XCUIElement) {
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: element)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+    }
+
+    @MainActor
+    private func waitForLibraryAfterClosingEditor(in app: XCUIApplication) {
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+            !app.buttons["editor.done"].exists && paperCandidates(in: app).isEmpty
+        }, object: nil)
+        let result = XCTWaiter.wait(for: [dismissed], timeout: 20)
+        if result != .completed { attachPaperDiagnostic(in: app, name: "editor-save-dismissal-timeout") }
+        XCTAssertEqual(result, .completed, "The editor must close before the saved draft is reopened")
+        let library = app.segmentedControls["library.tabs"]
+        XCTAssertTrue(library.waitForExistence(timeout: 10), "The draft library must be visible after saving")
+        waitUntilHittable(library)
     }
 
     @MainActor
