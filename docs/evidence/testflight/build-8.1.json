@@ -1,0 +1,98 @@
+{
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37745257466",
+  "commit": "0955ded5d59e65270be5c611bcca53e49a02e67d",
+  "workflowConclusion": "success",
+  "marketingVersion": "1.0",
+  "buildNumber": "8.1",
+  "xcode": "26.2 (17C52)",
+  "minimumOS": "26.0",
+  "ipaSHA256": "cd4ad3f7fe1ffecaf40f34388490e5b187238fd597835afd39d8c1d414bb0c68",
+  "archiveAndExportSucceeded": true,
+  "exportStepVerification": {
+    "app_and_widget_signatures_verified": true,
+    "bundle_ids_and_versions_verified": true,
+    "embedded_profiles_verified": true,
+    "production_entitlements_verified": true,
+    "keychain_isolation_verified": true,
+    "privacy_manifests_present": true,
+    "api_and_google_configuration_present": true,
+    "uploaded_to_apple": false
+  },
+  "uploadReceipt": {
+    "upload_status": "upload_confirmed",
+    "command_exit_code": 0,
+    "success_receipt_observed": true,
+    "error_observed": false,
+    "delivery_uuid": "b29f230a-09ce-4f8b-b267-f5bc06c286fb",
+    "error_codes": [],
+    "apple_processing_status": "not_checked",
+    "testflight_availability": "not_checked",
+    "tester_configuration_changed": false,
+    "store_submission_requested": false,
+    "encryption_declaration_changed": false
+  },
+  "appStoreConnectReadback": {
+    "queriedAt": "2026-10-08T07:50:23.104106+00:00",
+    "appID": "6819083456",
+    "appName": "PairNotes",
+    "bundleID": "com.niiihuel.pairnotes",
+    "groups": [
+      {
+        "id": "fd36449c-a82b-4c1d-aa50-d259a0c3649d",
+        "name": "amorchi",
+        "isInternalGroup": true,
+        "hasAccessToAllBuilds": true,
+        "publicLinkEnabled": null
+      }
+    ],
+    "groupTesterAccountCount": 3,
+    "groupTesterCountComplete": true,
+    "builds": [
+      {
+        "id": "b29f230a-09ce-4f8b-b267-f5bc06c286fb",
+        "version": "8.1",
+        "processingState": "VALID",
+        "uploadedDate": "2026-10-08T00:48:35-07:00",
+        "expired": false,
+        "usesNonExemptEncryption": false,
+        "preRelease": "1.0",
+        "beta": {
+          "autoNotifyEnabled": true,
+          "internalBuildState": "IN_BETA_TESTING",
+          "externalBuildState": "READY_FOR_BETA_SUBMISSION"
+        },
+        "groups": [
+          {
+            "id": "fd36449c-a82b-4c1d-aa50-d259a0c3649d",
+            "name": "amorchi",
+            "isInternalGroup": true,
+            "hasAccessToAllBuilds": true,
+            "publicLinkEnabled": null
+          }
+        ],
+        "individualTesterCount": 0,
+        "individualTesterCountComplete": true,
+        "matchesUploadDeliveryUUID": true
+      }
+    ],
+    "requestsReadOnly": true
+  },
+  "validation": {
+    "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37742965381",
+    "commit": "0955ded5d59e65270be5c611bcca53e49a02e67d",
+    "conclusion": "success"
+  },
+  "apiBaseURLVerified": "https://pairnotes-api-development.up.railway.app/",
+  "liveActivitiesDeclared": true,
+  "cameraAndMicrophonePurposeStringsPresent": true,
+  "physicalDeviceTestsExecuted": false,
+  "publicAppStoreSubmissionRequested": false,
+  "editorReopenScreenshot": {
+    "path": "build-8.1-editor-reopened.png",
+    "sourceRun": "https://github.com/Niiihuel/pairnotes/actions/runs/37742965381",
+    "sha256": "5202e9394acd0c5f7432f02e28794ef910c851ac3aea63c45ce053536f609d8a",
+    "description": "Paper component captured by the UI test after saving and reopening three finger-drawn strokes.",
+    "syntheticTestData": true,
+    "physicalDeviceCapture": false
+  }
+}

@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-08T06:56:08.725773+00:00",
+  "sourceCommit": "a6e7ddb01af9449efd0420ca788e0a139b869f68",
+  "sourceTree": "f6366df2d1d4b68f42b568ec079b84186f9e0a50",
+  "backendTree": "ddb5bdeb0c6b4823df7e254704922c93c6acf7cd",
+  "backendTrackedFiles": 27,
+  "backendSourceSHA256": "5160d868e9f1969f91982a8ea527beb62d9c39efdeded5386357d425f0d5f8d1",
+  "environment": "development",
+  "service": {
+    "name": "pairnotes-api",
+    "id": "53774cc6-9364-4a0c-9e30-7ef697b84de2",
+    "projectName": "pairnotes-dev",
+    "projectId": "ae2e0081-67d5-4744-a795-145ea20e6177",
+    "url": "https://pairnotes-api-development.up.railway.app"
+  },
+  "deployment": {
+    "id": "86c838cc-7e96-44b1-b7b4-7b10113993cb",
+    "status": "SUCCESS",
+    "createdAt": "2026-10-08T06:54:16.515Z",
+    "imageDigest": "sha256:a97fcbb64e24ff3136dcaa9112332af96caeb581a6b884adbd02a6bf4797ce25",
+    "sourceMessage": "PairNotes main a6e7ddb01af9449efd0420ca788e0a139b869f68 backend-tree ddb5bdeb0c6b4823df7e254704922c93c6acf7cd"
+  },
+  "verification": {
+    "initialCheckedAt": "2026-10-08T06:55:46.625182+00:00",
+    "checks": [
+      {
+        "method": "GET",
+        "route": "/healthz",
+        "httpStatus": 200,
+        "cacheControl": "private, no-store"
+      },
+      {
+        "method": "GET",
+        "route": "/couplePhoto",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "PUT",
+        "route": "/couplePhoto",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/getPhoto",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/setPhotoReaction",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "GET",
+        "route": "/widgetPhoto",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/widgetPhotoReaction",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "GET",
+        "route": "/widgetSnapshot",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "GET",
+        "route": "/letterAudio",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "PUT",
+        "route": "/letterAudio",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/letters",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/getCoupleSpace",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/messages",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "GET",
+        "route": "/image",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "GET",
+        "route": "/profileAvatar",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "reason": "authentication_required"
+      }
+    ],
+    "privateRoutesVerified": 14,
+    "followupHealth": {
+      "checkedAt": "2026-10-08T06:56:08.725773+00:00",
+      "httpStatus": 200,
+      "status": "ok",
+      "cacheControl": "private, no-store"
+    },
+    "startupMessages": [
+      {
+        "timestamp": "2026-10-08T06:54:48.382249810Z",
+        "message": "PairNotes HTTP server started"
+      }
+    ]
+  },
+  "sourceProvenance": {
+    "method": "Railway CLI upload of Backend with --path-as-root from a clean detached Git worktree at the exact main commit; deployment metadata records the full source commit and Backend tree.",
+    "command": "railway up Backend --path-as-root --project ae2e0081-67d5-4744-a795-145ea20e6177 --service 53774cc6-9364-4a0c-9e30-7ef697b84de2 --environment development --detach --json --message <sourceMessage>",
+    "worktreeClean": true,
+    "backendSourceSHA256Definition": "SHA256 of each tracked Backend path (Git ls-tree order), NUL, file bytes, NUL; includes tracked files excluded from the Docker runtime image.",
+    "deploymentMetadataMatchesSource": true,
+    "runtimeSourceIndependentlyVerified": false,
+    "limitation": "The API health endpoint exposes availability only, without a version or source SHA. RAILWAY_GIT_COMMIT_SHA was not configured or changed; no SSH keys were registered and runtime files were not inspected."
+  },
+  "scope": {
+    "personalDataAccessed": false,
+    "manualMessagesOrNotificationsSent": false,
+    "serviceVariablesChanged": false,
+    "accountsOrSessionsCreated": false,
+    "checksWereUnauthenticated": true
+  },
+  "limitations": [
+    "Unauthenticated 401 checks confirm the routes exist and reject anonymous access; they do not validate authenticated product flows against real accounts.",
+    "Health and deployment success do not verify real OAuth login, APNs delivery, widgets installed on iPhones, camera or photo permissions, or two-device interaction.",
+    "Physical-device validation and the new iOS beta are separate steps."
+  ],
+  "sourceRecords": [
+    "pairnotes-railway-a6e7ddb-source.json",
+    "pairnotes-railway-a6e7ddb-deployment.json",
+    "pairnotes-railway-a6e7ddb-http-smoke.json",
+    "pairnotes-railway-a6e7ddb-startup.json"
+  ]
+}
