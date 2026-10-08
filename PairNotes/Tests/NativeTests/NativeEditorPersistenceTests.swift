@@ -343,6 +343,16 @@ final class NativeEditorPersistenceTests: XCTestCase {
 
     @MainActor
     func testRestoringLayersAfterMountPreservesVisibleNativeInkAndCanvasGeometry() async throws {
+        try await assertRestoringMountedLayers(disabledWhileRestoring: false)
+    }
+
+    @MainActor
+    func testRestoringLayersWhileDisabledThenEnablingPreservesVisibleNativeInkAndGeometry() async throws {
+        try await assertRestoringMountedLayers(disabledWhileRestoring: true)
+    }
+
+    @MainActor
+    private func assertRestoringMountedLayers(disabledWhileRestoring: Bool) async throws {
         let bounds = PaperProbeDocument.bounds
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
         let blue = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32), format: format).image { context in
@@ -406,17 +416,29 @@ final class NativeEditorPersistenceTests: XCTestCase {
         await Task.yield()
         reopened.view.layoutIfNeeded()
         XCTAssertTrue(reopened.canvas.view.superview === reopened.view)
+        if disabledWhileRestoring {
+            // SwiftUI disables input while NativePaperSession awaits its store.
+            reopened.setEditingEnabled(false)
+            await Task.yield()
+            reopened.view.layoutIfNeeded()
+        }
         // The production session loads persisted markup after SwiftUI has
         // already mounted the blank controller. This setter is the transition
         // that an offscreen composed render/model-only test cannot validate.
         reopened.restoreLayers(restoredLayers)
+        if disabledWhileRestoring {
+            // The load's busy=false update re-enables the same mounted canvas.
+            await Task.yield()
+            reopened.setEditingEnabled(true)
+        }
         for _ in 0..<3 {
             window.layoutIfNeeded()
             reopened.view.setNeedsLayout()
             reopened.view.layoutIfNeeded()
             await Task.yield()
         }
-        try await assertMountedLayerContent(reopened, label: "restored-after-mount")
+        try await assertMountedLayerContent(reopened,
+            label: disabledWhileRestoring ? "restored-disabled-then-enabled" : "restored-after-mount")
     }
 
     @MainActor
