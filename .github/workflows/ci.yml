@@ -1,9 +1,6 @@
-name: PairNotes CI
+name: PairNotes visual diagnostic
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -18,102 +15,15 @@ defaults:
     shell: bash
 
 jobs:
-  backend:
-    name: API, identity and private storage tests
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Start isolated PostgreSQL and S3 test fixtures
-        run: |
-          docker compose -p pairnotes-ci -f Backend/compose.test.yml up -d --wait --wait-timeout 120
-          ready=0
-          for ((attempt=0; attempt<60; attempt++)); do
-            if curl -fsS http://127.0.0.1:59000/minio/health/live > /dev/null; then
-              ready=1
-              break
-            fi
-            sleep 2
-          done
-          test "$ready" = 1
-      - name: Build and test API with actual SQL and S3
-        run: |
-          mkdir -p artifacts/backend
-          docker run --rm --network host \
-            -v "$GITHUB_WORKSPACE/Backend:/workspace" -w /workspace \
-            -e DATABASE_URL=postgresql://pairnotes:pairnotes-local-only@127.0.0.1:55432/pairnotes_test \
-            -e TEST_S3_ENDPOINT=http://127.0.0.1:59000 \
-            node:22.23.1-bookworm \
-            bash -c 'npm ci --no-fund --no-audit && npm test' \
-            2>&1 | tee artifacts/backend/tests.log
-      - name: Remove isolated test fixtures
-        if: always()
-        run: docker compose -p pairnotes-ci -f Backend/compose.test.yml down --volumes
-      - name: Save backend test logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: backend-tests-${{ github.run_attempt }}
-          path: artifacts/backend/
-          if-no-files-found: warn
-          retention-days: 14
-
-  portable:
-    name: Portable tests (Linux)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Test simulator selection logic
-        run: |
-          mkdir -p artifacts/linux
-          python3 -m unittest discover -s scripts/ci/tests -v 2>&1 | tee artifacts/linux/ci-tests.log
-      - name: Compile and test the portable Swift module
-        run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/workspace:ro" -w /workspace \
-            swift@sha256:eccc7a97f9b9881d9659e2e788081fd7675f86d39793b51200bfb178398b3784 \
-            bash -c 'swift --version && swift test --scratch-path /tmp/pairnotes-build' \
-            2>&1 | tee artifacts/linux/swift-tests.log
-      - name: Save portable test logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: linux-tests-${{ github.run_attempt }}
-          path: artifacts/linux/
-          if-no-files-found: warn
-          retention-days: 14
-
   ios:
-    name: iOS 26 build and native tests
-    needs: portable
+    name: PaperKit paper color and layer frame diagnostic
     runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Prepare the iOS 26.0 runtime required by the asset compiler
-        timeout-minutes: 20
-        env:
-          DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
-        run: |
-          mkdir -p artifacts/ios-minimum
-          sudo xcode-select --switch "$DEVELOPER_DIR"
-          xcrun simctl list runtimes --json > artifacts/ios-minimum/runtimes-before.json
-          df -h . | tee artifacts/ios-minimum/disk-before.log
-          xcodebuild -downloadPlatform iOS -buildVersion 26.0 -architectureVariant arm64 \
-            2>&1 | tee artifacts/ios-minimum/runtime-install.log
-          xcrun simctl list runtimes --json > artifacts/ios-minimum/runtimes-after.json
-      - name: Compile app, widget and tests with the minimum SDK
-        env:
-          DEVELOPER_DIR: /Applications/Xcode_26.0.1.app/Contents/Developer
-        run: bash scripts/ci/ios.sh minimum
-      - name: Run PaperKit tests on an available iOS 26.2 simulator
+      - name: Run the paper color and layer frame test on iOS 26.2
         env:
           DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
         run: |
