@@ -164,7 +164,8 @@ struct LetterComposer: View {
     private var audioEditor: some View {
         VStack(alignment: .leading, spacing: 22) {
             recipientSection
-            TextField("Título del audio", text: $draft.title)
+            TextField("Título del audio", text: $draft.title,
+                      prompt: Text("Título del audio").foregroundStyle(stationery.secondaryInk))
                 .font(.title3).focused($writing).accessibilityLabel("Título del audio").accessibilityIdentifier("voice.title")
             voiceContents
             Text("Hasta 1 minuto").font(.caption).foregroundStyle(stationery.secondaryInk)
@@ -221,10 +222,12 @@ struct LetterComposer: View {
 
     @ViewBuilder private var writingSection: some View {
         VStack(alignment: .leading, spacing: 22) {
-            TextField("Un título", text: $draft.title)
+            TextField("Un título", text: $draft.title,
+                      prompt: Text("Un título").foregroundStyle(stationery.secondaryInk))
                 .font(.system(.title2, design: .serif)).focused($writing)
                 .accessibilityLabel("Título de la carta").accessibilityIdentifier("letter.title")
-            TextField("Querido amor…", text: $draft.body, axis: .vertical)
+            TextField("Querido amor…", text: $draft.body,
+                      prompt: Text("Querido amor…").foregroundStyle(stationery.secondaryInk), axis: .vertical)
                 .lineLimit(8...30).font(.system(.body, design: .serif)).lineSpacing(8).focused($writing)
                 .accessibilityLabel("Contenido de la carta").accessibilityIdentifier("letter.body")
             if draft.body.utf16.count >= 5400 {
@@ -333,7 +336,7 @@ struct LetterComposer: View {
                 Label(busy ? "Enviando…" : draft.sealAttempted ? "Confirmar envío" : startsWithVoice ? "Enviar audio" : "Enviar carta",
                       systemImage: startsWithVoice ? "paperplane.fill" : "envelope.fill").frame(maxWidth: .infinity)
             }.buttonStyle(.borderedProminent).controlSize(.large).disabled(!canSend)
-                .foregroundStyle(colorScheme == .dark ? stationery.canvas : .white)
+                .foregroundStyle(canSend ? (colorScheme == .dark ? stationery.canvas : .white) : stationery.secondaryInk)
         }.padding().background(.regularMaterial)
     }
 
