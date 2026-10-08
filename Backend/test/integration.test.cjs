@@ -169,16 +169,18 @@ test('authorized timeline cursor is stable; third user and anonymous image acces
   const response = await request(`/image?path=${notes[0].paths.widget}`, b, undefined, 'GET');
   assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'private, no-store');
 });
-test('notifications occur after commit, contain generic copy only and concurrent workers lease once', async () => {
+test('notifications use the current sender name after commit and concurrent workers lease once', async () => {
   const {a, b, pair} = await paired();
   await call('registerDevice', b, {deviceId: 'phone', apnsToken: 'ab'.repeat(32), widgetPushToken: 'cd'.repeat(32), apnsEnvironment: 'development'});
   const fixture = await prepare(a, pair), sends = [];
   const transport = {app: async (token, payload) => {assert.equal((await db.doc(`pairs/${pair.id}/notes/${fixture.payload.noteId}`).get()).exists, true); sends.push({channel: 'app', payload});}, widget: async () => sends.push({channel: 'widget'})};
   await dispatchNotification(db, eventRef(pair, fixture.payload.noteId).id, transport); assert.equal(sends.length, 0);
   await upload(a, fixture); await finalize(a, pair, fixture);
+  assert.equal((await eventRef(pair, fixture.payload.noteId).get()).data().actorId, a.uid);
+  await call('upsertProfile', a, {displayName: 'Luna 🌙'});
   await Promise.all([dispatchNotification(db, eventRef(pair, fixture.payload.noteId).id, transport), dispatchNotification(db, eventRef(pair, fixture.payload.noteId).id, transport)]);
   assert.equal(sends.length, 2);
-  assert.deepEqual(sends[0].payload.aps.alert, {title: 'PairNotes', body: 'Tenés un dibujo nuevo'});
+  assert.deepEqual(sends[0].payload.aps.alert, {title: 'Luna 🌙', body: 'Te envió un dibujo'});
   assert.deepEqual(Object.keys(sends[0].payload).sort(), ['aps', 'noteId', 'pairEpoch', 'pairId']);
   await dispatchNotification(db, eventRef(pair, fixture.payload.noteId).id, transport); assert.equal(sends.length, 2);
 });
@@ -186,12 +188,54 @@ test('failed push channel retries independently; acknowledged widget channel is 
   const {a, b, pair} = await paired();
   await call('registerDevice', b, {deviceId: 'phone', apnsToken: 'ab'.repeat(32), widgetPushToken: 'cd'.repeat(32), apnsEnvironment: 'development'});
   const f = await prepare(a, pair); await upload(a, f); await finalize(a, pair, f);
-  let apps = 0, widgets = 0;
-  const transport = {app: async () => {apps++; if (apps === 1) throw Error('temporary');}, widget: async () => {widgets++;}};
+  let apps = 0, widgets = 0; const titles = [];
+  const transport = {app: async (_token, payload) => {apps++; titles.push(payload.aps.alert.title); if (apps === 1) throw Error('temporary');}, widget: async () => {widgets++;}};
   await assert.rejects(dispatchNotification(db, eventRef(pair, f.payload.noteId).id, transport), /notification_channel_failed/);
+  await call('upsertProfile', a, {displayName: 'Nombre actualizado'});
   await eventRef(pair, f.payload.noteId).update({nextAttemptAt: Timestamp.now()});
   await dispatchNotification(db, eventRef(pair, f.payload.noteId).id, transport);
   assert.equal(apps, 2); assert.equal(widgets, 1);
+  assert.deepEqual(titles, ['Persona ficticia', 'Nombre actualizado']);
+});
+test('legacy alert actors are inferred only from content in the authorized current pair', async () => {
+  const {a, b, pair} = await paired(), outsider = await user();
+  await call('registerDevice', b, {deviceId: 'phone', apnsToken: 'ab'.repeat(32), apnsEnvironment: 'development'});
+  const fixture = await prepare(a, pair); await upload(a, fixture); await finalize(a, pair, fixture);
+  const {actorId, ...legacy} = (await eventRef(pair, fixture.payload.noteId).get()).data();
+  assert.equal(actorId, a.uid);
+  const payloads = [], transport = {app: async (_token, payload) => payloads.push(payload), widget: async () => {}};
+  const legacyRef = db.doc(`notificationEvents/${randomUUID()}`); await legacyRef.create(legacy);
+  await call('upsertProfile', a, {displayName: 'Nombre de hoy'});
+  await dispatchNotification(db, legacyRef.id, transport);
+  assert.equal(payloads[0].aps.alert.title, 'Nombre de hoy');
+  assert.equal((await legacyRef.get()).data().actorId, a.uid);
+  for (const patch of [{actorId: b.uid}, {actorId: outsider.uid}, {pairEpoch: pair.pairEpoch + 1}]) {
+    const ref = db.doc(`notificationEvents/${randomUUID()}`); await ref.create({...legacy, ...patch});
+    await dispatchNotification(db, ref.id, transport);
+    assert.equal((await ref.get()).data().status, 'cancelled');
+  }
+  const noteRef = db.doc(`pairs/${pair.id}/notes/${fixture.payload.noteId}`);
+  for (const patch of [{pairEpoch: pair.pairEpoch + 1}, {pairEpoch: pair.pairEpoch, authorId: outsider.uid}]) {
+    await noteRef.update(patch);
+    const ref = db.doc(`notificationEvents/${randomUUID()}`); await ref.create(legacy);
+    await dispatchNotification(db, ref.id, transport);
+    assert.equal((await ref.get()).data().status, 'cancelled');
+  }
+  assert.equal(payloads.length, 1);
+});
+test('missing or unusable sender names use neutral app copy without exposing private content', async () => {
+  const {a, b, pair} = await paired();
+  await call('registerDevice', b, {deviceId: 'phone', apnsToken: 'ab'.repeat(32), apnsEnvironment: 'development'});
+  const fixture = await prepare(a, pair); await upload(a, fixture); await finalize(a, pair, fixture);
+  const original = (await eventRef(pair, fixture.payload.noteId).get()).data(), payloads = [];
+  for (const displayName of [null, '', ' \n\t ', 'bad\u0001name', 'x'.repeat(81)]) {
+    await db.doc(`users/${a.uid}`).update({displayName});
+    const ref = db.doc(`notificationEvents/${randomUUID()}`); await ref.create(original);
+    await dispatchNotification(db, ref.id, {app: async (_token, payload) => payloads.push(payload), widget: async () => {}});
+    assert.deepEqual(payloads.at(-1).aps.alert, {title: 'PairNotes', body: 'Te envió un dibujo'});
+    assert.deepEqual(Object.keys(payloads.at(-1)).sort(), ['aps', 'noteId', 'pairEpoch', 'pairId']);
+  }
+  assert.equal(payloads.length, 5); assert.equal(/tu pareja/i.test(JSON.stringify(payloads)), false);
 });
 test('widget credentials return last received only, rotate, expire, unregister, never expose paths or mark viewed', async () => {
   const {a, b, pair} = await paired();

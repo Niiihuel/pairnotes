@@ -78,7 +78,7 @@ export class PhotoFeatures {
         tx.update(this.db.doc(`pairs/${pairId}`), {lastPhotoMillis: sentAt.toMillis()});
         tx.set(this.db.doc(`pairs/${pairId}/views/${recipientId}`), {latestPhotoId: id}, {merge: true});
         tx.create(this.db.doc(`notificationEvents/${digest(`${pairId}:photo:${id}`)}`), {
-          pairId, pairEpoch, type: 'photo', photoId: id, recipientId, status: 'pending', attempts: 0, nextAttemptAt: sentAt
+          pairId, pairEpoch, type: 'photo', photoId: id, recipientId, actorId: caller.uid, status: 'pending', attempts: 0, nextAttemptAt: sentAt
         });
         attached = true;
         return {photo: publicPhoto(value)};
@@ -116,7 +116,7 @@ export class PhotoFeatures {
       const reaction = {authorId: caller.uid, photoId: id, kind: input.kind, updatedAt};
       tx.update(this.db.doc(`pairs/${pairId}/photos/${id}`), {reaction});
       tx.create(this.db.doc(`notificationEvents/${randomUUID()}`), {
-        pairId, pairEpoch, type: 'photo-reaction', photoId: id, recipientId: value.authorId,
+        pairId, pairEpoch, type: 'photo-reaction', photoId: id, recipientId: value.authorId, actorId: caller.uid,
         status: 'pending', attempts: 0, nextAttemptAt: updatedAt
       });
       // Refresh the reacting device's other widgets without an app alert.

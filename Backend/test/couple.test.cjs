@@ -195,10 +195,12 @@ test('short messages are idempotent, page correctly, deny outsiders and produce 
   assert.notEqual(page.messages[0].id, next.messages[0].id); assert.equal(next.nextCursor, null);
   await assert.rejects(call('messages', outsider, scope(pair)), /not_pair_member/);
   const eventId = digest(`${pair.id}:message:${messageId}`), sends = [];
+  assert.equal((await db.doc(`notificationEvents/${eventId}`).get()).data().actorId, a.uid);
+  await call('upsertProfile', a, {displayName: 'Remitente actual'});
   await db.doc(`notificationEvents/${eventId}`).update({nextAttemptAt: Timestamp.fromMillis(Date.now() - 1)});
   await dispatchNotification(db, eventId, {app: async (_token, payload) => {sends.push(payload);}, widget: async () => sends.push('widget')});
   assert.equal(sends.length, 2); assert.equal(sends[0].messageId, messageId); assert.equal(sends[0].type, 'message');
-  assert.equal(sends[0].aps.alert.body, 'Tenés un mensaje nuevo'); assert.equal(JSON.stringify(sends).includes(text), false);
+  assert.deepEqual(sends[0].aps.alert, {title: 'Remitente actual', body: 'Te envió un mensaje'}); assert.equal(JSON.stringify(sends).includes(text), false);
   const transport = new LivePushTransport(() => undefined), deliveries = [];
   transport.send = async (...args) => deliveries.push(args);
   await transport.app('fictional-token', {...sends[0], messageId: 'm'.repeat(128)}, 'development');
@@ -422,6 +424,13 @@ test('gestures are idempotent, private, replyable and appear in widgets', async 
   await assert.rejects(call('sendGesture', a, {...input, gestureId: randomUUID(), kind: 'bad'}), /invalid_gesture/);
   const events = await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'gesture').get();
   assert.equal(events.size, 2);
+  const event = events.docs.find(row => row.data().gestureId === input.gestureId);
+  assert.equal(event.data().actorId, a.uid);
+  await call('registerDevice', b, {deviceId: randomUUID(), apnsToken: 'a'.repeat(64), apnsEnvironment: 'development'});
+  await call('upsertProfile', a, {displayName: 'Luna'});
+  const payloads = [];
+  await dispatchNotification(db, event.id, {app: async (_token, payload) => payloads.push(payload), widget: async () => {}}, () => now);
+  assert.equal(payloads.length, 1); assert.deepEqual(payloads[0].aps.alert, {title: 'Luna', body: 'Está pensando en vos'});
 });
 
 test('drawing reactions authorize recipient, update without duplicate push and support removal', async () => {
@@ -434,7 +443,14 @@ test('drawing reactions authorize recipient, update without duplicate push and s
   await assert.rejects(call('setReaction', a, input), /not_note_recipient/);
   await assert.rejects(call('reactions', outsider, input), /not_pair_member/);
   await assert.rejects(call('setReaction', b, {...input, reply: 'x'.repeat(281)}), /invalid_text/);
-  assert.equal((await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'reaction').get()).size, 1);
+  const events = await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'reaction').get();
+  assert.equal(events.size, 1); assert.equal(events.docs[0].data().actorId, b.uid);
+  await call('registerDevice', a, {deviceId: randomUUID(), apnsToken: 'a'.repeat(64), apnsEnvironment: 'development'});
+  await call('upsertProfile', b, {displayName: 'Sol'});
+  const payloads = [];
+  await dispatchNotification(db, events.docs[0].id, {app: async (_token, payload) => payloads.push(payload), widget: async () => {}}, () => now);
+  assert.deepEqual(payloads[0].aps.alert, {title: 'Sol', body: 'Reaccionó a tu dibujo'});
+  assert.equal(JSON.stringify(payloads).includes(input.reply), false);
   await call('setReaction', b, {...input, kind: '', reply: ''});
   assert.deepEqual((await call('reactions', a, {...scope(pair), noteId})).reactions, []);
 });
@@ -500,13 +516,15 @@ test('letter opening notification waits for server time, is generic and is not d
   const input = {...scope(pair), letterId: letter.id};
   await call('sealLetter', a, input); await call('sealLetter', a, input);
   const rows = await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'letter').get();
-  assert.equal(rows.size, 1);
+  assert.equal(rows.size, 1); assert.equal(rows.docs[0].data().actorId, a.uid);
   const payloads = [], transport = {app: async (_token, payload) => {payloads.push(payload);}, widget: async () => {}};
   await dispatchNotification(db, rows.docs[0].id, transport, () => now);
   assert.equal(payloads.length, 0);
+  await call('upsertProfile', a, {displayName: 'Nombre al abrir'});
   now = letter.opensAt;
   await dispatchNotification(db, rows.docs[0].id, transport, () => now);
   assert.equal(payloads.length, 1); assert.equal(payloads[0].type, 'letter'); assert.equal(payloads[0].letterId, letter.id);
+  assert.deepEqual(payloads[0].aps.alert, {title: 'Nombre al abrir', body: 'Te dejó una carta lista para abrir'});
   assert.ok(!JSON.stringify(payloads).includes(letter.body)); assert.ok(!JSON.stringify(payloads).includes(letter.title));
   await dispatchNotification(db, rows.docs[0].id, transport, () => now);
   assert.equal(payloads.length, 1);

@@ -37,6 +37,12 @@ validación anterior en Linux incluyó `npm audit --omit=dev` (0 vulnerabilidade
 y `docker build -t pairnotes-backend:test .`; esos resultados no sustituyen una
 nueva auditoría o build de contenedor del corte actual.
 
+La validación local del 7 de octubre de 2026 confirmó 82/82 pruebas/subpruebas con
+PostgreSQL y MinIO aislados, incluida la compilación TypeScript. Cubre además el
+nombre de perfil actualizado en todos los avisos, reintentos, eventos antiguos sin
+actor y el rechazo de remitentes o épocas ajenos al vínculo. El transporte APNs
+sigue sustituido en estas pruebas; no implica un envío real en iPhone.
+
 ## Configuración de Railway
 
 El servicio se construye con `Backend` como raíz y `railway.json`. `Dockerfile`
@@ -372,8 +378,12 @@ intervalos de cinco minutos.
 El worker consulta la outbox cada cinco segundos. Un lease transaccional y
 confirmaciones por dispositivo/canal permiten varios workers; los fallos se
 reintentan con backoff y un canal fallido no impide el otro. APNs estándar usa
-`alert` con texto genérico (“Tenés un dibujo nuevo”, “Tenés un mensaje nuevo”,
-“Tenés una foto nueva” o “Tu pareja reaccionó a tu foto”) e identificadores.
+`alert` con el `displayName` público actual de quien envió como título y una
+acción genérica (“Te envió un dibujo”, “Te envió un mensaje”, “Te envió una foto”
+o “Reaccionó a tu foto”) e identificadores. El nombre se consulta al entregar,
+incluidos los reintentos y las cartas programadas; un perfil vacío o inválido usa
+el título neutral “PairNotes”. La outbox persiste `actorId`, comprueba su relación
+con el contenido y valida vínculo/época antes de inferir eventos antiguos sin actor.
 APNs WidgetKit usa `widgets`, topic `<bundleID>.push-type.widgets` y
 `aps.content-changed:true`. Nunca lleva imágenes, contenido del mensaje, texto de
 una nota ni fuente. Una caída después de que APNs acepte y antes del acuse SQL
