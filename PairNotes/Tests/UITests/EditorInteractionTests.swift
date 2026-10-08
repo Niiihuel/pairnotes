@@ -55,9 +55,11 @@ final class EditorInteractionTests: XCTestCase {
         let secondInk = try darkPixelCount(paper.screenshot().image)
 
         app.buttons["editor.photo"].tap()
-        let photoCancelButtons = app.buttons.matching(identifier: "Cancelar")
-        XCTAssertTrue(photoCancelButtons.firstMatch.waitForExistence(timeout: 10))
-        let cancelPhoto = photoCancelButtons.element(boundBy: photoCancelButtons.count - 1)
+        // PHPicker exposes a stable "Cancel" identifier even when its label is
+        // localized. Waiting for that button avoids selecting editor.cancel
+        // underneath the sheet before the picker has finished appearing.
+        let cancelPhoto = app.buttons["Cancel"]
+        XCTAssertTrue(cancelPhoto.waitForExistence(timeout: 10))
         waitUntilHittable(cancelPhoto)
         cancelPhoto.tap()
         draw(on: paper, from: CGVector(dx: 0.38, dy: 0.6), to: CGVector(dx: 0.62, dy: 0.62))
