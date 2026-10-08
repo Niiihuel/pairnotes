@@ -55,13 +55,22 @@ final class EditorInteractionTests: XCTestCase {
         let secondInk = try darkPixelCount(paper.screenshot().image)
 
         app.buttons["editor.photo"].tap()
-        // PHPicker exposes a stable "Cancel" identifier even when its label is
-        // localized. Waiting for that button avoids selecting editor.cancel
-        // underneath the sheet before the picker has finished appearing.
-        let cancelPhoto = app.buttons["Cancel"]
-        XCTAssertTrue(cancelPhoto.waitForExistence(timeout: 10))
-        waitUntilHittable(cancelPhoto)
-        cancelPhoto.tap()
+        // Match the identifier exactly: PHPicker also contains an unavailable
+        // offscreen button whose label is "Cancel" and whose frame is infinite.
+        // Its AX hittability lookup can fail even while the real button is visible.
+        let cancelPhoto = app.buttons.matching(NSPredicate(format: "identifier == %@", "Cancel")).firstMatch
+        let cancelVisible = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+            visibleFrame(of: cancelPhoto, in: app) != nil
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [cancelVisible], timeout: 10), .completed)
+        let cancelFrame = try XCTUnwrap(visibleFrame(of: cancelPhoto, in: app))
+        let appFrame = app.frame
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: cancelFrame.midX - appFrame.minX,
+                                 dy: cancelFrame.midY - appFrame.minY)).tap()
+        let pickerDismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                                       object: cancelPhoto)
+        XCTAssertEqual(XCTWaiter.wait(for: [pickerDismissed], timeout: 10), .completed)
         draw(on: paper, from: CGVector(dx: 0.38, dy: 0.6), to: CGVector(dx: 0.62, dy: 0.62))
         waitForInk(on: paper, above: secondInk + 100)
         attach(paper.screenshot(), name: "editor-touch-after-cancel-photo")
@@ -81,6 +90,15 @@ final class EditorInteractionTests: XCTestCase {
         waitUntilHittable(paper)
         paper.coordinate(withNormalizedOffset: start)
             .press(forDuration: 0.05, thenDragTo: paper.coordinate(withNormalizedOffset: end))
+    }
+
+    private func visibleFrame(of element: XCUIElement, in app: XCUIApplication) -> CGRect? {
+        guard element.exists else { return nil }
+        let frame = element.frame
+        guard frame.origin.x.isFinite, frame.origin.y.isFinite,
+              frame.width.isFinite, frame.height.isFinite,
+              !frame.isEmpty, app.frame.contains(frame) else { return nil }
+        return frame
     }
 
     private func waitUntilEnabled(_ element: XCUIElement) {
