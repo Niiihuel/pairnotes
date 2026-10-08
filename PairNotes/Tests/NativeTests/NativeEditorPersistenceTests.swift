@@ -342,6 +342,186 @@ final class NativeEditorPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoringLayersAfterMountPreservesVisibleNativeInkAndCanvasGeometry() async throws {
+        let bounds = PaperProbeDocument.bounds
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
+        let blue = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32), format: format).image { context in
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        }
+        var imageMarkup = PaperMarkup(bounds: bounds)
+        imageMarkup.insertNewImage(try XCTUnwrap(blue.cgImage), frame: CGRect(
+            x: bounds.width * 0.15, y: bounds.height * 0.15,
+            width: bounds.width * 0.2, height: bounds.height * 0.2))
+        let points = (0...10).map { index in
+            PKStrokePoint(location: CGPoint(x: bounds.width * (0.3 + CGFloat(index) * 0.04),
+                                           y: bounds.height * 0.55),
+                          timeOffset: Double(index) * 0.02, size: CGSize(width: 64, height: 64),
+                          opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
+        }
+        var inkMarkup = PaperMarkup(bounds: bounds)
+        let stroke = PKStroke(ink: PKInk(.pen, color: .black),
+                              path: PKStrokePath(controlPoints: points, creationDate: Date(timeIntervalSince1970: 0)))
+        inkMarkup.append(contentsOf: PKDrawing(strokes: [stroke]))
+        let source = PaperProbeController()
+        source.setPaletteVisible(false)
+        source.restoreLayers([PaperLayer(name: "Blue image", markup: imageMarkup),
+                              PaperLayer(name: "Native black ink", markup: inkMarkup)])
+
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        let container = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.screen.bounds
+        window.rootViewController = container
+        container.loadViewIfNeeded()
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        func mount(_ controller: PaperProbeController) {
+            container.addChild(controller)
+            container.view.addSubview(controller.view)
+            controller.view.frame = CGRect(x: 16, y: 180, width: window.bounds.width - 32,
+                                           height: window.bounds.width - 32)
+            controller.didMove(toParent: container)
+            window.layoutIfNeeded()
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+        }
+        mount(source)
+        await Task.yield()
+        source.view.layoutIfNeeded()
+        try await assertMountedLayerContent(source, label: "before-capture")
+        let data = try await PaperProbeDocument.encode(source.composedMarkup(), background: .white,
+                                                      layers: source.capturedLayers())
+        let decoded = try PaperProbeDocument.decode(data, editorVersion: PaperProbeDocument.editorVersion)
+        let restoredLayers = try XCTUnwrap(decoded.layers)
+        XCTAssertEqual(restoredLayers.map(\.id), source.capturedLayers().map(\.id))
+        source.willMove(toParent: nil)
+        source.view.removeFromSuperview()
+        source.removeFromParent()
+
+        let reopened = PaperProbeController()
+        reopened.setPaletteVisible(false)
+        mount(reopened)
+        await Task.yield()
+        reopened.view.layoutIfNeeded()
+        XCTAssertTrue(reopened.canvas.view.superview === reopened.view)
+        // The production session loads persisted markup after SwiftUI has
+        // already mounted the blank controller. This setter is the transition
+        // that an offscreen composed render/model-only test cannot validate.
+        reopened.restoreLayers(restoredLayers)
+        for _ in 0..<3 {
+            window.layoutIfNeeded()
+            reopened.view.setNeedsLayout()
+            reopened.view.layoutIfNeeded()
+            await Task.yield()
+        }
+        try await assertMountedLayerContent(reopened, label: "restored-after-mount")
+    }
+
+    @MainActor
+    private func assertMountedLayerContent(_ controller: PaperProbeController, label: String) async throws {
+        // Await real mounted geometry and pixels, allowing PaperKit's renderer
+        // and nonisolated delegate callbacks to finish on the main run loop.
+        // A persistent white canvas still fails after this bounded wait.
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+            mountedLayerContentIsReady(controller)
+        }, object: nil)
+        await fulfillment(of: [ready], timeout: 5)
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        var drawn = false
+        let image = UIGraphicsImageRenderer(bounds: controller.view.bounds, format: format).image { _ in
+            drawn = controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+        }
+        let screenshot = XCTAttachment(image: image)
+        screenshot.name = "mounted-layer-" + label
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let tree = XCTAttachment(string: "active root parent matches controller: \(controller.canvas.view.superview === controller.view)\n" +
+            "active viewport: \(controller.canvas.contentVisibleFrame)\n" + paperViewTree(controller.view))
+        tree.name = "mounted-layer-geometry-" + label
+        tree.lifetime = .keepAlways
+        add(tree)
+        XCTAssertTrue(drawn, label)
+        XCTAssertTrue(controller.canvas.view.superview === controller.view,
+                      "\(label): the current editable root must remain mounted in its controller")
+        XCTAssertEqual(controller.canvas.view.frame, controller.view.bounds,
+                       "\(label): the current editable root must fill the actual viewport")
+        XCTAssertEqual(controller.canvas.view.bounds.size, controller.view.bounds.size, label)
+        let content = try XCTUnwrap(controller.canvas.contentView)
+        let document = content.convert(content.bounds, to: controller.view)
+        XCTAssertGreaterThan(document.width, controller.view.bounds.width * 0.95, label)
+        XCTAssertLessThan(document.width, controller.view.bounds.width * 1.05, label)
+        XCTAssertTrue(controller.view.bounds.insetBy(dx: -1, dy: -1).contains(document),
+                      "\(label): the fitted document must be visible, not outside its viewport: \(document)")
+        let frames = controller.children.compactMap { $0 as? PaperMarkupViewController }.compactMap { child in
+            child.contentView.map { $0.convert($0.bounds, to: controller.view) }
+        }
+        XCTAssertEqual(frames.count, 3, label)
+        XCTAssertTrue(frames.allSatisfy { frame in
+            abs(frame.minX - document.minX) < 0.5 && abs(frame.minY - document.minY) < 0.5 &&
+            abs(frame.width - document.width) < 0.5 && abs(frame.height - document.height) < 0.5
+        }, "\(label): editable document \(document), all layer documents \(frames)")
+        for x: CGFloat in [0.4, 0.5, 0.6] {
+            let ink = try XCTUnwrap(mountedLayerColor(image, document: document, x: x, y: 0.55),
+                                   "\(label): native ink pixel missing")
+            XCTAssertTrue(ink.0 < 0.2 && ink.1 < 0.2 && ink.2 < 0.2 && ink.3 > 0.99,
+                          "\(label): actual mounted native stroke must be black at x=\(x); got \(ink)")
+        }
+        let photo = try XCTUnwrap(mountedLayerColor(image, document: document, x: 0.25, y: 0.25),
+                                 "\(label): lower layer image pixel missing")
+        XCTAssertTrue(photo.2 > photo.0 + 0.4 && photo.2 > photo.1 + 0.4 && photo.3 > 0.99,
+                      "\(label): actual mounted lower-layer image must remain blue; got \(photo)")
+        XCTAssertEqual(controller.canvas.directTouchMode, .drawing)
+        let center = CGPoint(x: controller.view.bounds.midX, y: controller.view.bounds.midY)
+        let hit = try XCTUnwrap(controller.view.hitTest(center, with: nil))
+        XCTAssertTrue(hit === controller.canvas.view || hit.isDescendant(of: controller.canvas.view),
+                      "\(label): restoration must preserve editable touch ownership")
+    }
+
+    @MainActor
+    private func mountedLayerContentIsReady(_ controller: PaperProbeController) -> Bool {
+        guard controller.canvas.view.superview === controller.view,
+              controller.canvas.view.frame == controller.view.bounds,
+              let content = controller.canvas.contentView else { return false }
+        let document = content.convert(content.bounds, to: controller.view)
+        guard document.width > controller.view.bounds.width * 0.95,
+              document.width < controller.view.bounds.width * 1.05,
+              controller.view.bounds.insetBy(dx: -1, dy: -1).contains(document) else { return false }
+        let frames = controller.children.compactMap { $0 as? PaperMarkupViewController }.compactMap { child in
+            child.contentView.map { $0.convert($0.bounds, to: controller.view) }
+        }
+        guard frames.count == 3, frames.allSatisfy({ frame in
+            abs(frame.minX - document.minX) < 0.5 && abs(frame.minY - document.minY) < 0.5 &&
+            abs(frame.width - document.width) < 0.5 && abs(frame.height - document.height) < 0.5
+        }) else { return false }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        var drawn = false
+        let image = UIGraphicsImageRenderer(bounds: controller.view.bounds, format: format).image { _ in
+            drawn = controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+        }
+        guard drawn else { return false }
+        for x: CGFloat in [0.4, 0.5, 0.6] {
+            guard let ink = mountedLayerColor(image, document: document, x: x, y: 0.55),
+                  ink.0 < 0.2, ink.1 < 0.2, ink.2 < 0.2, ink.3 > 0.99 else { return false }
+        }
+        guard let photo = mountedLayerColor(image, document: document, x: 0.25, y: 0.25) else { return false }
+        return photo.2 > photo.0 + 0.4 && photo.2 > photo.1 + 0.4 && photo.3 > 0.99
+    }
+
+    @MainActor
+    private func mountedLayerColor(_ image: UIImage, document: CGRect, x: CGFloat, y: CGFloat)
+        -> (CGFloat, CGFloat, CGFloat, CGFloat)? {
+        guard let cg = image.cgImage else { return nil }
+        let point = CGPoint(x: (document.minX + document.width * x) / image.size.width,
+                            y: (document.minY + document.height * y) / image.size.height)
+        guard let sampled = PaperPixelSampler.color(cg, at: point) else { return nil }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard sampled.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        return (r, g, b, a)
+    }
+
+    @MainActor
     func testPickerAndCanvasUseLiteralColorsForEverySheetInDarkAppearance() {
         let controller = PaperProbeController()
         controller.overrideUserInterfaceStyle = .dark
