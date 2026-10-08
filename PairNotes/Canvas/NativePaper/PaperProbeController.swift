@@ -127,7 +127,9 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         // The parent receives its layout callback before UIKit finishes laying
         // out its child controllers. Resolve those layouts before using the
         // active controller's viewport to position the paper and other layers.
-        for child in [canvas, lowerCanvas, upperCanvas] { child.view.layoutIfNeeded() }
+        canvas.view.layoutIfNeeded()
+        lowerPreviewHost.layoutManagedView()
+        upperPreviewHost.layoutManagedView()
         let frame = canvas.contentVisibleFrame
         guard frame.width.isFinite, frame.height.isFinite, frame.width > 0, frame.height > 0,
               canvas.view.bounds.width > 0, canvas.view.bounds.height > 0 else { return }
@@ -139,8 +141,13 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
         // viewport so all three layers keep the same scale and position.
         lowerCanvas.contentVisibleFrame = frame
         upperCanvas.contentVisibleFrame = frame
-        lowerCanvas.view.layoutIfNeeded()
-        upperCanvas.view.layoutIfNeeded()
+        // PaperKit may reset or replace a read-only controller's root view
+        // while assigning markup/viewport. Its app-owned host is the boundary
+        // that sizes that current view, rather than constraints on an old root.
+        if lowerPreviewHost.layoutManagedView() { lowerCanvas.contentVisibleFrame = frame }
+        if upperPreviewHost.layoutManagedView() { upperCanvas.contentVisibleFrame = frame }
+        lowerPreviewHost.layoutManagedView()
+        upperPreviewHost.layoutManagedView()
         // Cache the actual readback after PaperKit's layout/normalization. Its
         // nonisolated delegate callbacks arrive later; observing the same state
         // must not repeat a setter and create a feedback loop.
@@ -396,17 +403,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
                 host.leadingAnchor.constraint(equalTo: view.leadingAnchor),
                 host.trailingAnchor.constraint(equalTo: view.trailingAnchor)
             ])
-            backdrop.view.backgroundColor = .clear
-            backdrop.view.isOpaque = false
-            backdrop.view.isUserInteractionEnabled = false
-            backdrop.view.translatesAutoresizingMaskIntoConstraints = false
-            host.addSubview(backdrop.view)
-            NSLayoutConstraint.activate([
-                backdrop.view.topAnchor.constraint(equalTo: host.topAnchor),
-                backdrop.view.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-                backdrop.view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-                backdrop.view.trailingAnchor.constraint(equalTo: host.trailingAnchor)
-            ])
+            host.install(backdrop)
             backdrop.didMove(toParent: self)
             backdrop.delegate = self
         }
@@ -554,6 +551,10 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
 /// This app-owned ancestor makes the entire layer visual-only regardless of
 /// those internal updates, including hit tests inside images or native text.
 private final class PaperLayerPreviewHost: UIView {
+    private weak var controller: UIViewController?
+    private weak var installedView: UIView?
+    private var layingOutManagedView = false
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -563,6 +564,53 @@ private final class PaperLayerPreviewHost: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
+
+    func install(_ controller: UIViewController) {
+        self.controller = controller
+        layoutManagedView()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutManagedView()
+    }
+
+    @discardableResult
+    func layoutManagedView() -> Bool {
+        guard !layingOutManagedView, let controller else { return false }
+        layingOutManagedView = true
+        defer { layingOutManagedView = false }
+        let managed = controller.view!
+        var changed = false
+        if installedView !== managed || managed.superview !== self {
+            installedView?.removeFromSuperview()
+            managed.removeFromSuperview()
+            addSubview(managed)
+            installedView = managed
+            changed = true
+        }
+        managed.translatesAutoresizingMaskIntoConstraints = true
+        managed.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        managed.backgroundColor = .clear
+        managed.isOpaque = false
+        managed.isUserInteractionEnabled = false
+        if managed.frame != bounds {
+            managed.frame = bounds
+            changed = true
+        }
+        managed.layoutIfNeeded()
+        // Containment/layout can resize a newly installed PaperKit root again.
+        // Reassert only its public frame; PaperKit lays out its own subviews.
+        if managed.frame != bounds {
+            managed.frame = bounds
+            managed.layoutIfNeeded()
+            changed = true
+        }
+        managed.backgroundColor = .clear
+        managed.isOpaque = false
+        managed.isUserInteractionEnabled = false
+        return changed
+    }
 }
 
 struct PaperProbeCanvas: UIViewControllerRepresentable {
