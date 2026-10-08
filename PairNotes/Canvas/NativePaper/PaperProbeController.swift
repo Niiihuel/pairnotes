@@ -271,9 +271,24 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     /// assigning it so a deferred main-actor change callback cannot autosave a
     /// legacy draft merely because the user opened it.
     func restoreMarkup(_ markup: PaperMarkup) {
+        // Assigning markup resets PaperKit's zoom even when its mounted view
+        // keeps the same size. Retain the whole viewport, including a person's
+        // pan/zoom, rather than relying on a later size change to fit it again.
+        var previousVisibleFrame: CGRect?
+        if let parent = viewIfLoaded, let mounted = canvas.viewIfLoaded,
+           mounted.superview === parent,
+           mounted.bounds.width.isFinite, mounted.bounds.height.isFinite,
+           mounted.bounds.width > 0, mounted.bounds.height > 0 {
+            let frame = canvas.contentVisibleFrame
+            if frame.minX.isFinite, frame.minY.isFinite, frame.width.isFinite, frame.height.isFinite,
+               frame.width > 0, frame.height > 0 {
+                previousVisibleFrame = frame
+            }
+        }
         let previousDelegate = canvas.delegate
         canvas.delegate = nil
         canvas.markup = markup
+        if let previousVisibleFrame { canvas.contentVisibleFrame = previousVisibleFrame }
         canvas.delegate = previousDelegate
         synchronizeTouchMode()
     }
