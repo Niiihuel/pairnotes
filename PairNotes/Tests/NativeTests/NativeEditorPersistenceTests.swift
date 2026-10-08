@@ -478,6 +478,14 @@ final class NativeEditorPersistenceTests: XCTestCase {
                 controller.view.frame = CGRect(x: 16, y: 180, width: side, height: side + (palette ? 20 : 0))
                 for background in [PaperBackground.white, .cream, .charcoal] {
                     controller.paperBackground = background
+                    if background == .white {
+                        // Reproduce a managed root resize independently of
+                        // whether a particular PaperKit release still does it.
+                        for child in controller.children.compactMap({ $0 as? PaperMarkupViewController }) where child !== controller.canvas {
+                            child.view.frame = CGRect(x: 0, y: 0, width: 748, height: 1202)
+                            child.view.isOpaque = true
+                        }
+                    }
                     window.layoutIfNeeded()
                     controller.view.setNeedsLayout()
                     controller.view.layoutIfNeeded()
@@ -501,6 +509,11 @@ final class NativeEditorPersistenceTests: XCTestCase {
     private func assertVisiblePaper(_ controller: PaperProbeController, background: PaperBackground, label: String) throws {
         let content = try XCTUnwrap(controller.canvas.contentView)
         let editableFrame = content.convert(content.bounds, to: controller.view)
+        for child in controller.children.compactMap({ $0 as? PaperMarkupViewController }) where child !== controller.canvas {
+            let host = try XCTUnwrap(child.view.superview)
+            XCTAssertEqual(child.view.frame, host.bounds, "\(label): the current preview root must fill its app-owned host")
+            XCTAssertFalse(child.view.isOpaque, "A preview root must remain transparent above the paper and lower layers")
+        }
         let frames = controller.children.compactMap { $0 as? PaperMarkupViewController }.compactMap { child in
             child.contentView.map { $0.convert($0.bounds, to: controller.view) }
         }
