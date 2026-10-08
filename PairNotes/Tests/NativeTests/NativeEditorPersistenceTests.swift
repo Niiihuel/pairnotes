@@ -516,14 +516,23 @@ final class NativeEditorPersistenceTests: XCTestCase {
         XCTAssertTrue(drawn)
         let cg = try XCTUnwrap(image.cgImage)
         let interior = editableFrame.intersection(controller.view.bounds).insetBy(dx: 8, dy: 8)
-        XCTAssertGreaterThan(interior.width, 20)
-        XCTAssertGreaterThan(interior.height, 20)
+        guard !interior.isNull, interior.width > 20, interior.height > 20 else {
+            XCTFail("\(label): the document must have a visible interior; document=\(editableFrame), viewport=\(controller.view.bounds)")
+            let diagnostic = XCTAttachment(string: paperViewTree(controller.view))
+            diagnostic.name = "paper-missing-document-" + label
+            diagnostic.lifetime = .keepAlways
+            add(diagnostic)
+            return
+        }
         var mismatches: [String] = []
         for x: CGFloat in [0.1, 0.5, 0.9] {
             for y: CGFloat in [0.1, 0.5, 0.9] {
                 let point = CGPoint(x: (interior.minX + interior.width * x) / image.size.width,
                                     y: (interior.minY + interior.height * y) / image.size.height)
-                let sampled = try XCTUnwrap(PaperPixelSampler.color(cg, at: point))
+                guard let sampled = PaperPixelSampler.color(cg, at: point) else {
+                    mismatches.append("\(point): missing opaque paper pixel")
+                    continue
+                }
                 var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
                 sampled.getRed(&r, green: &g, blue: &b, alpha: &a)
                 if abs(r * 255 - CGFloat(background.red)) > 2 || abs(g * 255 - CGFloat(background.green)) > 2 ||
