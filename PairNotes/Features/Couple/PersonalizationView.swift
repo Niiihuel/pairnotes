@@ -22,8 +22,7 @@ struct PersonalizationView: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("SU PEQUEÑO MUNDO").font(.caption2.bold()).tracking(2)
-                    Text(value.phrase.isEmpty ? "Hecho de momentos nuestros" : value.phrase)
+                    Text(value.phrase.isEmpty ? "Vista previa" : value.phrase)
                         .font(.system(.title2, design: .serif).weight(.medium))
                     HStack {
                         ForEach(services.coupleSpace?.profiles ?? []) { profile in
@@ -34,15 +33,13 @@ struct PersonalizationView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                     .foregroundStyle(value.theme.ink)
             }.listRowBackground(value.theme.paper)
-            Section("Colores para los dos") {
-                Picker("Tema compartido", selection: $value.theme) {
+            Section("Tema") {
+                Picker("Color", selection: $value.theme) {
                     ForEach(CoupleTheme.allCases, id: \.self) { theme in Text(theme.title).tag(theme) }
                 }
-                Text("Se aplica al espacio, los widgets y el papel de los dibujos nuevos.")
-                    .font(.footnote).foregroundStyle(.secondary)
             }
-            Section("Sus palabras") {
-                TextField("Una frase de ustedes", text: $value.phrase, axis: .vertical).lineLimit(2...4)
+            Section("Frase y apodos") {
+                TextField("Frase opcional", text: $value.phrase, axis: .vertical).lineLimit(2...4)
                 ForEach(services.coupleSpace?.profiles ?? []) { profile in
                     TextField("Apodo de \(profile.displayName)", text: Binding(
                         get: { value.nicknames[profile.uid] ?? "" },
@@ -65,9 +62,7 @@ struct PersonalizationView: View {
                     MemoryPhotoView(services: services, memory: memory).frame(height: 180)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                 }
-            } header: { Text("Su portada") } footer: {
-                Text("Elegí una foto del álbum. Podés subir una nueva al crear un recuerdo.")
-            }
+            } header: { Text("Portada del álbum") }
             Section {
                 ForEach(value.homeOrder, id: \.self) { section in
                     Label(section.title, systemImage: "line.3.horizontal")
@@ -85,7 +80,7 @@ struct PersonalizationView: View {
         }
         .tint(value.theme.accent)
         .disabled(saving)
-        .navigationTitle("A su manera").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Apariencia").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Guardar") { save() }

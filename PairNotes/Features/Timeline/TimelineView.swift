@@ -12,19 +12,13 @@ struct TimelineView: View {
 
     var body: some View {
         List {
-            if model.membership != nil {
-                NavigationLink { LettersView(services: model.services, notes: model.notes, catalog: model.catalog) } label: { Label("Cartitas para después", systemImage: "envelope") }
-            }
             SharedMemoriesSection(services: model.services, notes: model.notes, catalog: model.catalog, openNote: openNote)
             if model.notes.isEmpty {
                 Section {
                     if model.isLoading {
                         ProgressView("Cargando recuerdos…")
                     } else {
-                        ContentUnavailableView("Sus recuerdos, día por día", systemImage: "calendar",
-                            description: Text(model.membership == nil
-                                ? "Vinculá las dos cuentas en Nosotros para compartir dibujos."
-                                : "Las notas enviadas aparecen acá. Los borradores quedan privados en Crear."))
+                        ContentUnavailableView("Sin dibujos compartidos", systemImage: "calendar")
                     }
                 }
             }

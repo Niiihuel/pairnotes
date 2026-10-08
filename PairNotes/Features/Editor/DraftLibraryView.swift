@@ -43,8 +43,8 @@ struct DraftLibraryView: View {
                 .disabled(model.catalog == nil)
             } footer: {
                 Text(model.identity == nil
-                     ? "Los dibujos de invitado quedan privados en este iPhone. No se transfieren automáticamente al iniciar sesión."
-                     : "Tus borradores son privados. Enviar conserva una copia de esa revisión.")
+                     ? "Privados en este iPhone. Podés copiarlos a tu cuenta después."
+                     : "Borradores privados en este iPhone.")
             }
 
             if !model.guestDrafts.isEmpty {
@@ -65,13 +65,13 @@ struct DraftLibraryView: View {
                 } header: {
                     Text("Dibujos creados como invitado")
                 } footer: {
-                    Text("Elegí cuáles copiar a esta cuenta para editarlos y enviarlos. Los originales se conservan en este iPhone.")
+                    Text("Copiar conserva los originales.")
                 }
             }
 
             Section("Mis borradores") {
                 if visibleDrafts.isEmpty {
-                    Text("No tenés borradores pendientes. Creá un dibujo para empezar.").foregroundStyle(.secondary)
+                    Text("Sin borradores").foregroundStyle(.secondary)
                 }
                 ForEach(visibleDrafts) { draft in
                     Button { openDraft(draft) } label: {
@@ -85,7 +85,6 @@ struct DraftLibraryView: View {
                                 Text(draft.title).font(.headline)
                                 Text(draft.updatedAt, format: .dateTime.day().month().hour().minute())
                                     .font(.caption).foregroundStyle(.secondary)
-                                Text("Guardado en este iPhone").font(.caption).foregroundStyle(.secondary)
                             }
                         }
                         .padding(.vertical, 4)
@@ -113,8 +112,7 @@ struct DraftLibraryView: View {
 
             } else {
             if visibleOperations.isEmpty && otherSentNotes.isEmpty {
-                ContentUnavailableView("Tus dibujos enviados", systemImage: "paperplane",
-                    description: Text("Cuando envíes un dibujo, aparecerá acá. Los borradores quedan en su propia pestaña."))
+                ContentUnavailableView("Sin dibujos enviados", systemImage: "paperplane")
             }
             if !visibleOperations.isEmpty {
                 Section {
@@ -171,7 +169,7 @@ struct DraftLibraryView: View {
                 } header: {
                     Text("Tus envíos")
                 } footer: {
-                    Text("Mantené presionado un dibujo para ver sus opciones. Quitar de esta lista no elimina el recuerdo compartido ni la copia de tu pareja.")
+                    Text("Quitar de la lista conserva la copia compartida.")
                 }
             }
             if !otherSentNotes.isEmpty {
@@ -214,7 +212,7 @@ struct DraftLibraryView: View {
                 }.padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding()
             }
         }
-        .navigationTitle("Crear")
+        .navigationTitle("Dibujos")
         .onChange(of: model.identity?.uid) { _, _ in copiedGuest = []; copyingGuest = nil }
         .refreshable {
             await model.reloadDrafts()

@@ -36,6 +36,7 @@
 		38EF6E89BFA2F535DAD2B00B /* PairNotesCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B25DE4C1C0C616CF87F162ED /* PairNotesCore.framework */; };
 		3A0C2A7E5825D39496493233 /* CoupleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58CBEEFDE6F4C6C9F6F7C598 /* CoupleView.swift */; };
 		3C714597CD2C508B80AF6EDF /* NoteWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D0037017CA46317C7DE86B8 /* NoteWidget.swift */; };
+		3E03C66DFD0DB5E7E626758A /* LetterStationery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C819CA5396C105519331CA24 /* LetterStationery.swift */; };
 		3E8A96562BD6BBFCC7DF8950 /* AppleSignInRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D121EEBCF3007D4F9EF373 /* AppleSignInRequest.swift */; };
 		40743ED38405792ED5FE3BB6 /* FileDraftStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68BACBE62DC8C7E676F8B77D /* FileDraftStore.swift */; };
 		47E38CF330814F694AEFE54A /* LocationSharingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13C4562AA80463903AAA2C49 /* LocationSharingController.swift */; };
@@ -230,6 +231,7 @@
 		C49FCD3ED919F063C71DE7AF /* Affection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Affection.swift; path = PairNotes/Core/Domain/Affection.swift; sourceTree = "<group>"; };
 		C5F37D725A6BCF6564D33E8D /* ContentDigest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ContentDigest.swift; path = PairNotes/Core/Persistence/ContentDigest.swift; sourceTree = "<group>"; };
 		C68B19DEE060E1AB6B62F737 /* PaperCreativeTools.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PaperCreativeTools.swift; path = PairNotes/Canvas/NativePaper/PaperCreativeTools.swift; sourceTree = "<group>"; };
+		C819CA5396C105519331CA24 /* LetterStationery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LetterStationery.swift; path = PairNotes/Features/Couple/LetterStationery.swift; sourceTree = "<group>"; };
 		C9FB2741ED063F800FE66070 /* PaperRoundTripTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PaperRoundTripTests.swift; path = PairNotes/Tests/NativeTests/PaperRoundTripTests.swift; sourceTree = "<group>"; };
 		CE06981EDF620B0EEAAA7043 /* PairNotesApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PairNotesApp.swift; path = PairNotes/App/PairNotesApp.swift; sourceTree = "<group>"; };
 		D1A7FA0B5B24123BED2F88E9 /* PairNotesUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PairNotesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -392,6 +394,7 @@
 				3403EC467A49980D54C898A4 /* PhotoWidget.swift */,
 				AB9D1AD005BACC480E0C0FAE /* CouplePhoto.swift */,
 				8688BACE480A357CB33EB690 /* EditorInteractionTests.swift */,
+				C819CA5396C105519331CA24 /* LetterStationery.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -648,6 +651,7 @@
 				4C0B5A720595E835B3D7573F /* CoupleDistancePresentation.swift in Sources */,
 				7A00278330197B1C3E30924B /* PairPhotoActivityAttributes.swift in Sources */,
 				33D49B32794362B2B9D4950C /* PhotoReactionIntents.swift in Sources */,
+				3E03C66DFD0DB5E7E626758A /* LetterStationery.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

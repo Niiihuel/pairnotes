@@ -5,12 +5,39 @@ import UIKit
 /// Native model/render tests cannot establish that UIKit receives these touches.
 final class EditorInteractionTests: XCTestCase {
     @MainActor
+    func testGuestNavigationSeparatesCollectionsFromDrawingAndAccountSettings() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_AR"]
+        app.launch()
+        let tabs = app.tabBars
+        for title in ["Inicio", "Dibujos", "Recuerdos", "Para vos", "Nosotros"] {
+            XCTAssertTrue(tabs.buttons[title].waitForExistence(timeout: 15), "Missing destination: \(title)")
+        }
+        tabs.buttons["Para vos"].tap()
+        XCTAssertTrue(app.navigationBars["Para vos"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Vincular"].exists)
+        XCTAssertFalse(app.buttons["Nuevo dibujo"].exists)
+        tabs.buttons["Dibujos"].tap()
+        XCTAssertTrue(app.buttons["Nuevo dibujo"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["affection.cartas"].exists)
+        tabs.buttons["Recuerdos"].tap()
+        XCTAssertTrue(app.navigationBars["Recuerdos"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["affection.cartas"].exists)
+        XCTAssertTrue(tabs.buttons["Para vos"].exists, "The tab bar stays visible in each collection")
+        tabs.buttons["Nosotros"].tap()
+        XCTAssertTrue(app.navigationBars["Nosotros"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Mensajes"].exists)
+        attach(app.screenshot(), name: "separated-guest-navigation")
+    }
+
+    @MainActor
     func testFingerDrawingSurvivesModesPhotoCancellationAndSaveReopen() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_AR"]
         app.launch()
-        let create = app.tabBars.buttons["Crear"]
+        let create = app.tabBars.buttons["Dibujos"]
         XCTAssertTrue(create.waitForExistence(timeout: 15))
         create.tap()
         let newDrawing = app.buttons["Nuevo dibujo"]
@@ -87,8 +114,13 @@ final class EditorInteractionTests: XCTestCase {
         attach(paper.screenshot(), name: "editor-touch-after-cancel-photo")
 
         app.buttons["editor.done"].tap()
-        let saved = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+        waitForLibraryAfterClosingEditor(in: app)
+        // The editor's title button also contains the draft title. Resolve a
+        // library row only after that presentation has actually disappeared.
+        let saved = app.buttons.matching(NSPredicate(
+            format: "label CONTAINS %@ AND identifier != %@", title, "editor.rename")).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 20), "A drawn draft must be saved and shown in the library")
+        waitUntilHittable(saved)
         saved.tap()
         // Resolve the newly presented editor instead of reusing the first
         // presentation's AX element, which can survive with an empty frame.
@@ -144,6 +176,19 @@ final class EditorInteractionTests: XCTestCase {
     private func waitUntilHittable(_ element: XCUIElement) {
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: element)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+    }
+
+    @MainActor
+    private func waitForLibraryAfterClosingEditor(in app: XCUIApplication) {
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { [self] _, _ in
+            !app.buttons["editor.done"].exists && paperCandidates(in: app).isEmpty
+        }, object: nil)
+        let result = XCTWaiter.wait(for: [dismissed], timeout: 20)
+        if result != .completed { attachPaperDiagnostic(in: app, name: "editor-save-dismissal-timeout") }
+        XCTAssertEqual(result, .completed, "The editor must close before the saved draft is reopened")
+        let library = app.segmentedControls["library.tabs"]
+        XCTAssertTrue(library.waitForExistence(timeout: 10), "The draft library must be visible after saving")
+        waitUntilHittable(library)
     }
 
     @MainActor

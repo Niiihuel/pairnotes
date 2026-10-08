@@ -10,42 +10,45 @@ struct SharedMemoriesSection: View {
     let openNote: (RemoteNote) -> Void
     @State private var adding = false
     @State private var selected: SharedMemory?
+    @Environment(\.coupleModalControl) private var modalControl
+    @State private var modalOwner = UUID()
 
     var body: some View {
         if services.membership != nil {
             Section {
                 if services.coupleSpace?.memories.isEmpty != false {
-                    ContentUnavailableView("Las páginas de ustedes", systemImage: "book.closed",
-                        description: Text("Una salida, un viaje, un día cualquiera. Guardalo con una foto y unas palabras."))
+                    ContentUnavailableView("Sin recuerdos", systemImage: "book.closed")
                 }
                 ForEach((services.coupleSpace?.memories ?? []).sorted { $0.date.rawValue > $1.date.rawValue }) { memory in
-                    Button { selected = memory } label: {
+                    Button { openMemory(memory) } label: {
                         ScrapbookPage(services: services, memory: memory, compact: true)
                     }.buttonStyle(.plain).listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .contextMenu {
-                            Button("Abrir página", systemImage: "book") { selected = memory }
+                            Button("Abrir página", systemImage: "book") { openMemory(memory) }
                         } preview: { ScrapbookPage(services: services, memory: memory).frame(width: 320) }
                 }
-                Button("Crear una página", systemImage: "calendar.badge.plus") { adding = true }
-            } header: { Text("Nuestro álbum") } footer: {
-                Text("Guardá aniversarios, fotos y días especiales. Los dos pueden verlos y editarlos.")
+                Button("Nuevo recuerdo", systemImage: "plus") {
+                    modalControl.onPresented(modalOwner); adding = true
+                }
+            } header: { Text("Álbum") }
+            .sheet(isPresented: $adding, onDismiss: { modalControl.onDismissed(modalOwner) }) {
+                SharedMemoryEditor(services: services, notes: notes, catalog: catalog)
             }
-            .sheet(isPresented: $adding) { SharedMemoryEditor(services: services, notes: notes, catalog: catalog) }
-            .sheet(item: $selected) { memory in
+            .sheet(item: $selected, onDismiss: { modalControl.onDismissed(modalOwner) }) { memory in
                 MemoryDetailView(services: services, original: memory, notes: notes, catalog: catalog, openNote: { note in
-                    selected = nil
-                    // Avoid presenting the note while the memory sheet dismisses.
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(350))
-                        guard services.membership?.id == note.pairID else { return }
-                        openNote(note)
-                    }
+                    // Root queues the drawing until this sheet finishes closing.
+                    openNote(note)
                 })
             }
+            .onChange(of: modalControl.dismissalVersion) { _, _ in adding = false; selected = nil }
             .onChange(of: services.identity?.uid) { _, _ in adding = false; selected = nil }
-            .onChange(of: services.membership?.id) { _, _ in adding = false; selected = nil }
+            .onChange(of: services.privateImageKey("memories")) { _, _ in adding = false; selected = nil }
         }
+    }
+
+    private func openMemory(_ memory: SharedMemory) {
+        modalControl.onPresented(modalOwner); selected = memory
     }
 }
 
@@ -57,6 +60,8 @@ struct MemoryPhotoView: View {
     @State private var loadedKey: String?
     @State private var failed = false
     @State private var expanded = false
+    @Environment(\.coupleModalControl) private var modalControl
+    @State private var modalOwner = UUID()
     private var key: String { "\(services.identity?.uid ?? "")|\(services.membership?.id ?? "")|\(services.membership?.pairEpoch ?? 0)|\(memory.id)|\(memory.photo?.id ?? "")|\(memory.photo?.sha256 ?? "")" }
     var body: some View {
         ZStack {
@@ -65,9 +70,14 @@ struct MemoryPhotoView: View {
             else if failed { Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary) }
             else { ProgressView() }
         }.clipped()
-            .gesture(TapGesture().onEnded { if loadedKey == key, image != nil { expanded = true } },
+            .gesture(TapGesture().onEnded {
+                if loadedKey == key, image != nil { modalControl.onPresented(modalOwner); expanded = true }
+            },
                 including: allowsExpansion ? .all : .none)
-            .sheet(isPresented: $expanded) { if loadedKey == key, let image { PhotoViewer(image: image) } }
+            .sheet(isPresented: $expanded, onDismiss: { modalControl.onDismissed(modalOwner) }) {
+                if loadedKey == key, let image { PhotoViewer(image: image) }
+            }
+            .onChange(of: modalControl.dismissalVersion) { _, _ in expanded = false }
             .onChange(of: key) { _, _ in expanded = false }
             .task(id: key) {
             let captured = key; image = nil; loadedKey = nil; failed = false
@@ -237,7 +247,7 @@ struct SharedMemoryEditor: View {
                     Label("Retomaste tu borrador privado", systemImage: "arrow.counterclockwise")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                Section("Estilo de página") {
+                Section("Estilo") {
                     Picker("Formato", selection: $decoration.layout) {
                         ForEach(MemoryDecoration.Layout.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
@@ -253,19 +263,17 @@ struct SharedMemoryEditor: View {
                     }
                 }
                 Section {
-                    TextField("Por ejemplo, nuestro aniversario", text: $title).textInputAutocapitalization(.sentences)
+                    TextField("Título", text: $title).textInputAutocapitalization(.sentences)
                     DatePicker("Fecha", selection: $date, displayedComponents: .date)
                     Toggle("Se celebra cada año", isOn: $recursYearly)
-                    TextField("Unas palabras sobre este día", text: $bodyText, axis: .vertical).lineLimit(3...7)
+                    TextField("Texto opcional", text: $bodyText, axis: .vertical).lineLimit(3...7)
                 }
                 Section {
                     if catalog != nil {
-                        Button("Diseñar página por capas", systemImage: "square.3.layers.3d") { openCanvas() }
+                        Button("Diseñar página", systemImage: "square.3.layers.3d") { openCanvas() }
                     }
-                } header: { Text("Una página hecha por vos") } footer: {
-                    Text("Combiná fotos, textos y stickers. La página se comparte con tu pareja; las capas quedan editables en este iPhone.")
                 }
-                Section("Foto o composición") {
+                Section("Foto") {
                     if let photoData, let image = UIImage(data: photoData) {
                         Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 220).clipShape(RoundedRectangle(cornerRadius: 12))
                     } else if let original, original.photo != nil, !removePhoto {
@@ -285,7 +293,7 @@ struct SharedMemoryEditor: View {
                             Text("\(note.authorID == services.identity?.uid ? "Tu dibujo" : "De tu pareja") · \(note.serverPublishedAt.formatted(date: .abbreviated, time: .shortened))").tag(note.id)
                         }
                     }
-                } footer: { Text("La fecha se guarda en PairNotes. Después podés agregarla al Calendario de Apple con su formulario nativo.") }
+                }
                 if let error { Text(error).foregroundStyle(.red) }
                 if busy { ProgressView("Guardando recuerdo…") }
             }
