@@ -12,6 +12,8 @@ struct LetterComposition: Codable, Equatable {
     var removeDrawing: Bool?
     var removeAudio = false
     var sealAttempted = false
+    // Missing in older local drafts: preserve their scheduled opening.
+    var scheduled: Bool?
 }
 
 struct LetterComposer: View {
@@ -25,7 +27,6 @@ struct LetterComposer: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @StateObject private var voice = VoiceNoteController()
     @State private var draft: LetterComposition
     @State private var photoDirty = false
@@ -55,16 +56,18 @@ struct LetterComposer: View {
         let storage = MemoryCompositionStorage(key: services.privateImageKey("letter-composition:" + draftKey))
         self.storage = storage
         _draft = State(initialValue: storage.loadValue() ?? LetterComposition(id: original?.id ?? UUID().uuidString.lowercased(),
-            title: original?.title ?? (startsWithVoice ? "Mi voz para vos" : ""), body: original?.body ?? "", opensAt: original?.opensAt ?? Date().addingTimeInterval(86400), noteID: original?.noteId ?? ""))
+            title: original?.title ?? (startsWithVoice ? "Mi voz para vos" : ""), body: original?.body ?? "", opensAt: original?.opensAt ?? Date(),
+            noteID: original?.noteId ?? "", scheduled: original != nil))
         _drawing = State(initialValue: storage.drawing())
         _photo = State(initialValue: storage.photo()); _audio = State(initialValue: storage.audio())
     }
     private var canSend: Bool {
         !busy && !voice.recording && !voice.requestingPermission && !loadingPhoto &&
         (draft.sealAttempted || (!draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.title.utf16.count <= 120 &&
-            draft.body.utf16.count <= 6000 && draft.opensAt > Date() &&
+            draft.body.utf16.count <= 6000 && (!isScheduled || draft.opensAt > Date()) &&
             hasContent))
     }
+    private var isScheduled: Bool { draft.scheduled != false }
     private var hasAudio: Bool { audio != nil || (original?.audio != nil && !draft.removeAudio) }
     private var hasContent: Bool {
         if startsWithVoice { return hasAudio }
@@ -76,7 +79,7 @@ struct LetterComposer: View {
         if draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Agregá un título." }
         if draft.title.utf16.count > 120 { return "El título puede tener hasta 120 caracteres." }
         if draft.body.utf16.count > 6000 { return "Tu carta puede tener hasta 6000 caracteres." }
-        if draft.opensAt <= Date() { return "Elegí una fecha futura para abrir el sobre." }
+        if isScheduled && draft.opensAt <= Date() { return "Elegí una fecha futura o enviá ahora." }
         if loadingPhoto { return "Estamos preparando la foto." }
         return startsWithVoice ? "Grabá tu audio para enviarlo." : "Sumá unas palabras o un adjunto."
     }
@@ -152,7 +155,10 @@ struct LetterComposer: View {
             .interactiveDismissDisabled(busy || voice.recording || draft.sealAttempted)
             .onChange(of: draft) { _, _ in if !finished { _ = persist() } }
             .onAppear {
-                voice.didRecord = { data in audio = data; draft.removeAudio = false; persistAudio() }
+                voice.didRecord = { data in
+                    guard services.privateImageKey("letters") == scope else { return }
+                    audio = data; draft.removeAudio = false; persistAudio()
+                }
             }
             .onChange(of: scenePhase) { _, phase in if phase == .background || (phase == .inactive && !voice.requestingPermission) { voice.suspend(); _ = persist() } }
             .onDisappear { voice.stopAll(); if !finished { _ = persist() }; voice.didRecord = nil }
@@ -236,21 +242,13 @@ struct LetterComposer: View {
         }.disabled(busy || draft.sealAttempted)
     }
 
-    @ViewBuilder private var scheduleSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if dynamicTypeSize.isAccessibilitySize {
-                Text("Se abre").font(.subheadline)
-                openingDatePicker.labelsHidden().accessibilityLabel("Fecha y hora de apertura")
-            } else { openingDatePicker }
-            Text(TimeZone.current.localizedName(for: .generic, locale: .current) ?? TimeZone.current.identifier)
-                .font(.caption).foregroundStyle(stationery.secondaryInk)
-        }.padding(16).background(stationery.paper, in: RoundedRectangle(cornerRadius: 12))
+    private var scheduleSection: some View {
+        MessageOpeningControl(opensAt: Binding(get: { isScheduled ? draft.opensAt : nil }, set: { date in
+            draft.scheduled = date != nil
+            if let date { draft.opensAt = date }
+        }))
+            .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(busy || draft.sealAttempted)
-    }
-
-    private var openingDatePicker: some View {
-        DatePicker("Se abre", selection: $draft.opensAt, in: Date()...Date().addingTimeInterval(5 * 365 * 86400))
-            .datePickerStyle(.compact).accessibilityIdentifier("letter.opensAt")
     }
 
     @ViewBuilder private var attachmentsSection: some View {
@@ -331,7 +329,7 @@ struct LetterComposer: View {
             }
             Button {
                 writing = false
-                if draft.sealAttempted { send() } else { confirm = true }
+                if draft.sealAttempted || !isScheduled { send() } else { confirm = true }
             } label: {
                 Label(busy ? "Enviando…" : draft.sealAttempted ? "Confirmar envío" : startsWithVoice ? "Enviar audio" : "Enviar carta",
                       systemImage: startsWithVoice ? "paperplane.fill" : "envelope.fill")
@@ -347,6 +345,7 @@ struct LetterComposer: View {
 
     @discardableResult private func persist() -> Bool {
         guard !finished else { return true }
+        guard services.privateImageKey("letters") == scope else { return false }
         do {
             if photoDirty { try storage.savePhoto(photo); photoDirty = false }
             if audioDirty { try storage.saveAudio(audio); audioDirty = false }
@@ -366,39 +365,55 @@ struct LetterComposer: View {
         drawing = bytes; draft.removeDrawing = false
         drawingDirty = true; _ = persist()
     }
-    private func completed() { finished = true; storage.clear(); dismiss() }
+    private func completed() {
+        guard services.privateImageKey("letters") == scope else { return }
+        finished = true; storage.clear(); dismiss()
+    }
     private func send() {
         guard canSend, services.privateImageKey("letters") == scope else { return }
         voice.stopAll(); guard persist() else { return }; busy = true; error = nil
         Task { @MainActor in
             defer { busy = false }
             do {
+                try ensureCurrentScope()
                 if draft.sealAttempted {
                     let existing = try await services.openLetter(id: draft.id)
+                    try ensureCurrentScope()
                     if existing.status == "sealed" { completed(); return }
                     draft.sealAttempted = false
                 }
                 _ = try await services.saveLetterDraft(id: draft.id, title: draft.title, body: draft.body,
-                    opensAt: draft.opensAt, noteID: draft.noteID.isEmpty ? nil : draft.noteID)
+                    opensAt: isScheduled ? draft.opensAt : Date(), noteID: draft.noteID.isEmpty ? nil : draft.noteID)
+                try ensureCurrentScope()
                 draft.serverSaved = true; guard persist() else { return }
                 if let photo { try await services.uploadLetterAsset(id: draft.id, role: "photo", data: photo) }
                 else if draft.removePhoto { try await services.removeLetterAsset(id: draft.id, role: "photo") }
+                try ensureCurrentScope()
                 if let drawing { try await services.uploadLetterAsset(id: draft.id, role: "drawing", data: drawing) }
                 else if draft.removeDrawing == true { try await services.removeLetterAsset(id: draft.id, role: "drawing") }
+                try ensureCurrentScope()
                 if let audio { try await services.uploadLetterAsset(id: draft.id, role: "audio", data: audio) }
                 else if draft.removeAudio { try await services.removeLetterAsset(id: draft.id, role: "audio") }
+                try ensureCurrentScope()
                 draft.sealAttempted = true
                 guard persist() else { return }
-                _ = try await services.sealLetter(id: draft.id)
+                _ = try await services.sealLetter(id: draft.id, immediate: !isScheduled)
+                try ensureCurrentScope()
                 completed()
             } catch {
+                guard !Task.isCancelled, services.privateImageKey("letters") == scope else { return }
                 if draft.sealAttempted, let known = try? await services.openLetter(id: draft.id), known.status == "draft" {
+                    guard !Task.isCancelled, services.privateImageKey("letters") == scope else { return }
                     draft.sealAttempted = false; _ = persist()
                 }
-                self.error = startsWithVoice ? "No se pudo confirmar el audio. Revisá la fecha de apertura; tu grabación se conserva." :
-                    "No se pudo confirmar la carta. Revisá que la fecha siga siendo futura; tu borrador y adjuntos se conservan."
+                self.error = isScheduled ? "No se pudo confirmar el envío. Revisá la fecha; tu borrador se conserva." :
+                    "No se pudo confirmar el envío. Tu borrador se conserva para reintentar."
             }
         }
+    }
+    private func ensureCurrentScope() throws {
+        try Task.checkCancellation()
+        guard services.privateImageKey("letters") == scope else { throw CancellationError() }
     }
     private func deleteDraft() {
         guard !busy, services.privateImageKey("letters") == scope else { return }
@@ -407,8 +422,15 @@ struct LetterComposer: View {
         busy = true
         Task { @MainActor in
             defer { busy = false }
-            do { try await services.deleteLetterDraft(id: draft.id); completed() }
-            catch { self.error = "No se pudo eliminar el borrador." }
+            do {
+                try ensureCurrentScope()
+                try await services.deleteLetterDraft(id: draft.id)
+                try ensureCurrentScope()
+                completed()
+            } catch {
+                guard !Task.isCancelled, services.privateImageKey("letters") == scope else { return }
+                self.error = "No se pudo eliminar el borrador."
+            }
         }
     }
 }

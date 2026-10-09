@@ -19,8 +19,11 @@ struct WidgetProfileAvatar: View {
         redactionReasons.contains(.privacy) || redactionReasons.contains(.placeholder)
     }
     private var fullColor: Bool { renderingMode == .fullColor }
+    // In vibrant mode these are input luminance values for the system's
+    // adaptive material, not a request to force a fixed Lock Screen color.
+    private var monochromeInk: Color { renderingMode == .vibrant ? .white : .primary }
     private var placeholderInk: Color {
-        if !fullColor { return .primary }
+        if !fullColor { return monochromeInk }
         return colorScheme == .dark || theme == .night ? Color(rgb: 0x382D35) : .white
     }
 
@@ -31,17 +34,11 @@ struct WidgetProfileAvatar: View {
                 // names continue to respect the person's Lock Screen settings.
                 Image(systemName: "person.fill")
                     .font(.system(size: size * 0.48, weight: .medium))
-                    .foregroundStyle(Color.primary)
+                    .foregroundStyle(monochromeInk)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .unredacted()
             } else if let image = Self.image(from: data) {
-                Image(uiImage: image)
-                    .renderingMode(.original)
-                    .resizable()
-                    .widgetAccentedRenderingMode(.fullColor)
-                    .scaledToFill()
-                // In vibrant mode WidgetKit still applies its monochrome
-                // Lock Screen treatment; fullColor only controls accented mode.
+                portrait(image)
             } else {
                 ZStack {
                     if fullColor { Circle().fill(theme.accent) }
@@ -55,11 +52,29 @@ struct WidgetProfileAvatar: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .overlay {
-            Circle().strokeBorder(fullColor ? theme.ink.opacity(0.45) : Color.primary,
+            Circle().strokeBorder(fullColor ? theme.ink.opacity(0.45) : monochromeInk,
                                   lineWidth: fullColor ? 1 : 1.5)
         }
         .widgetAccentable(false)
         .accessibilityLabel(hidesIdentity ? "Perfil privado" : name)
+    }
+
+    @ViewBuilder
+    private func portrait(_ image: UIImage) -> some View {
+        let portrait = Image(uiImage: image)
+            .renderingMode(.original)
+            .resizable()
+            .widgetAccentedRenderingMode(.fullColor)
+            .scaledToFill()
+        if renderingMode == .vibrant {
+            // Dark pixels become weak material on the Lock Screen. Preserve
+            // the portrait's tonal detail while lifting its darkest tones.
+            // Keep alpha intact: luminanceToAlpha would make dark hair and
+            // facial features transparent instead. No opaque matte is added.
+            portrait.saturation(0).contrast(0.85).brightness(0.075)
+        } else {
+            portrait
+        }
     }
 
     static func image(from data: Data?) -> UIImage? {

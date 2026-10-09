@@ -174,7 +174,7 @@ private struct CoupleWidgetView: View {
     }
 
     private func distanceContent(_ snapshot: CoupleWidgetSnapshot) -> some View {
-        WidgetDistanceContent(date: entry.date, avatars: entry.avatars, snapshot: snapshot)
+        WidgetDistanceContent(family: family, date: entry.date, avatars: entry.avatars, snapshot: snapshot)
     }
 
     private func avatar(_ profile: CoupleProfile, size: CGFloat) -> some View {

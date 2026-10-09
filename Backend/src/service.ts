@@ -49,8 +49,10 @@ export class PairNotesService {
   async reactions(caller: Caller, input: Input) {return this.affection.reactions(caller, input);}
   async setReaction(caller: Caller, input: Input) {return this.affection.setReaction(caller, input);}
   async getPhoto(caller: Caller, input: Input) {return this.photos.getPhoto(caller, input);}
+  async photoHistory(caller: Caller, input: Input) {return this.photos.history(caller, input);}
   async setPhotoReaction(caller: Caller, input: Input) {return this.photos.setReaction(caller, input);}
   async letters(caller: Caller, input: Input) {return this.affection.letters(caller, input);}
+  async letterHistory(caller: Caller, input: Input) {return this.affection.letterHistory(caller, input);}
   async saveLetterDraft(caller: Caller, input: Input) {return this.affection.saveLetterDraft(caller, input);}
   async sealLetter(caller: Caller, input: Input) {return this.affection.sealLetter(caller, input);}
   async openLetter(caller: Caller, input: Input) {return this.affection.openLetter(caller, input);}

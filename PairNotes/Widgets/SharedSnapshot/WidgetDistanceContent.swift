@@ -5,9 +5,9 @@ import WidgetKit
 // Read privacy redaction inside the privacySensitive content boundary so the
 // spacing and connector cannot disclose a hidden distance on the Lock Screen.
 struct WidgetDistanceContent: View {
-    @Environment(\.widgetFamily) private var family
     @Environment(\.widgetRenderingMode) private var renderingMode
     @Environment(\.redactionReasons) private var redactionReasons
+    let family: WidgetFamily
     let date: Date
     let avatars: [String: Data]
     let snapshot: CoupleWidgetSnapshot

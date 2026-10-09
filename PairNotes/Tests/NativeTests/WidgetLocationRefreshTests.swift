@@ -341,7 +341,7 @@ private final class DistanceRefreshState: @unchecked Sendable {
                          ["uid": "partner", "displayName": "Perfil ficticio B"]],
             "distance": ["status": consent ? (uploaded ? "available" : "stale") : "disabled",
                          "meters": consent ? (uploaded ? 500 : 2_000) : NSNull(),
-                         "updatedAt": consent ? date.timeIntervalSince1970 * 1_000 : NSNull(),
+                         "updatedAt": consent ? (date.timeIntervalSince1970 * 1_000) as Any : NSNull(),
                          "accuracyMeters": consent ? 200 : NSNull()]
         ]
         if consent { result["locationAccess"] = ["consentVersion": 3] }

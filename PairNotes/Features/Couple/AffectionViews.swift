@@ -2,6 +2,7 @@ import PairNotesCore
 import SwiftUI
 
 enum AffectionDestination: Hashable {
+    case drawings
     case letters(String?)
     case voices
     case messages
@@ -203,9 +204,11 @@ struct NoteReactionsView: View {
                     ProfileAvatarView(services: services, uid: reaction.authorId,
                         name: reaction.authorId == services.identity?.uid ? "Vos" : services.partnerNickname,
                         reference: services.coupleSpace?.profiles.first(where: { $0.uid == reaction.authorId })?.avatar, size: 32)
-                    VStack(alignment: .leading, spacing: 5) {
-                        if !reaction.symbol.isEmpty { Text(reaction.symbol).font(.title2) }
-                        if !reaction.reply.isEmpty { Text(reaction.reply).privacySensitive() }
+                    ReactionBubble(tail: .topLeading, surface: .solid(services.personalization.theme.card)) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            if !reaction.symbol.isEmpty { Text(reaction.symbol).font(.title2) }
+                            if !reaction.reply.isEmpty { Text(reaction.reply).privacySensitive() }
+                        }.padding(6)
                     }
                 }
             }

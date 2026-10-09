@@ -689,6 +689,197 @@ test('letter opening notification waits for server time, is generic and is not d
   assert.equal(payloads.length, 1);
 });
 
+test('immediate letters use server seal time, expose content and assets now and remain stable on retry', async () => {
+  const {a, b, outsider, pair} = await paired();
+  await call('registerDevice', b, {deviceId: randomUUID(), apnsToken: 'a'.repeat(64), apnsEnvironment: 'development'});
+  const draft = await letterDraft(a, pair, {opensAt: now + 60_000});
+  assert.equal(draft.sentAt, null);
+  const input = {...scope(pair), letterId: draft.id, immediate: true};
+  await request(letterPath(pair, draft, 'photo'), a, await picture(), 'PUT', 'image/jpeg');
+  await request(letterPath(pair, draft, 'audio'), a, voiceFixture(), 'PUT', 'audio/wav');
+  now += 2_000;
+  const sealed = (await call('sealLetter', a, {...input, opensAt: now + 99_000})).letter;
+  assert.equal(sealed.opensAt, now); assert.equal(sealed.sentAt, now);
+  assert.equal(sealed.createdAt, draft.createdAt); assert.ok(sealed.sentAt > sealed.createdAt);
+  assert.equal(sealed.canOpen, true);
+  const received = (await call('letters', b, scope(pair))).letters[0];
+  assert.equal(received.body, draft.body); assert.equal(received.title, draft.title);
+  assert.equal(received.canOpen, true); assert.equal(received.sentAt, sealed.sentAt);
+  assert.equal((await request(letterPath(pair, draft, 'photo', sealed.photo.id), b, undefined, 'GET')).status, 200);
+  assert.equal((await request(letterPath(pair, draft, 'audio', sealed.audio.id), b, undefined, 'GET')).status, 200);
+  await assert.rejects(call('sealLetter', b, input), /not_letter_author/);
+  await assert.rejects(call('sealLetter', outsider, input), /not_pair_member/);
+  await assert.rejects(call('sealLetter', a, {...input, pairEpoch: pair.pairEpoch + 1}), /stale_pair_epoch/);
+  now += 1_000;
+  const retried = (await call('sealLetter', a, {...input, immediate: false})).letter;
+  assert.equal(retried.sentAt, sealed.sentAt); assert.equal(retried.opensAt, sealed.opensAt);
+  const rows = await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'letter').get();
+  assert.equal(rows.size, 1); assert.equal(rows.docs[0].data().nextAttemptAt.toMillis(), sealed.opensAt);
+  const payloads = [], transport = {app: async (_token, payload) => payloads.push(payload), widget: async () => {}};
+  await dispatchNotification(db, rows.docs[0].id, transport, () => now);
+  await dispatchNotification(db, rows.docs[0].id, transport, () => now);
+  assert.equal(payloads.length, 1); assert.equal(payloads[0].letterId, draft.id);
+  assert.ok(!JSON.stringify(payloads).includes(draft.body)); assertNoPrivateKeys(received);
+  assert.equal((await call('openLetter', b, input)).letter.openedAt, now);
+});
+
+test('immediate mode is explicit and cannot bypass empty content or change a sealed scheduled letter', async () => {
+  const {a, pair} = await paired(), expired = await letterDraft(a, pair, {opensAt: now - 1});
+  const expiredInput = {...scope(pair), letterId: expired.id};
+  await assert.rejects(call('sealLetter', a, expiredInput), /opening_date_passed/);
+  await assert.rejects(call('sealLetter', a, {...expiredInput, immediate: false}), /opening_date_passed/);
+  for (const immediate of ['true', 'false', 1, 0, null, {}, []]) {
+    await assert.rejects(call('sealLetter', a, {...expiredInput, immediate}), /invalid_immediate/);
+  }
+  const empty = await letterDraft(a, pair, {body: ''});
+  await assert.rejects(call('sealLetter', a, {...scope(pair), letterId: empty.id, immediate: true}), /empty_letter/);
+  const future = await letterDraft(a, pair, {opensAt: now + 60_000});
+  now += 2_000;
+  const input = {...scope(pair), letterId: future.id};
+  const scheduled = (await call('sealLetter', a, {...input, immediate: false})).letter;
+  assert.equal(scheduled.opensAt, future.opensAt); assert.equal(scheduled.sentAt, now);
+  assert.equal(scheduled.canOpen, false);
+  now += 1_000;
+  const retry = (await call('sealLetter', a, {...input, immediate: true})).letter;
+  assert.equal(retry.opensAt, scheduled.opensAt); assert.equal(retry.sentAt, scheduled.sentAt);
+  assert.equal(retry.canOpen, false);
+});
+
+test('legacy sealed letters use their creation date as the public sent timestamp', async () => {
+  const {a, b, pair} = await paired(), draft = await letterDraft(a, pair);
+  const ref = db.doc(`pairs/${pair.id}/letters/${draft.id}`), value = (await ref.get()).data();
+  await ref.set({...value, status: 'sealed'});
+  assert.equal((await call('letters', b, scope(pair))).letters[0].sentAt, draft.createdAt);
+});
+
+test('letter history pages both directions by stable sent time and ID, including legacy letters', async () => {
+  const {a, b, pair} = await paired(), draft = await letterDraft(a, pair), sentAt = now;
+  const source = (await db.doc(`pairs/${pair.id}/letters/${draft.id}`).get()).data(), ids = [];
+  await db.doc(`pairs/${pair.id}/letters/${draft.id}`).delete();
+  await db.runTransaction(async tx => {
+    for (let n = 1; n <= 6; n++) {
+      const id = n === 6 ? 'zz-legacy-letter' : `20000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+      ids.push(id);
+      tx.create(db.doc(`pairs/${pair.id}/letters/${id}`), {...source, id, status: 'sealed',
+        authorId: n % 2 ? a.uid : b.uid, recipientId: n % 2 ? b.uid : a.uid,
+        createdAt: Timestamp.fromMillis(n === 6 ? sentAt : sentAt - n * 1000),
+        ...(n === 6 ? {} : {sealedAt: Timestamp.fromMillis(sentAt)})});
+    }
+    tx.create(db.doc(`pairs/${pair.id}/letters/${randomUUID()}`), {...source, createdAt: Timestamp.fromMillis(sentAt + 10_000)});
+    tx.create(db.doc(`pairs/${pair.id}/letters/${ids[0]}/private/${randomUUID()}`), {...source, status: 'sealed',
+      sealedAt: Timestamp.fromMillis(sentAt + 20_000)});
+    tx.create(db.doc(`pairs/${randomUUID()}/letters/${randomUUID()}`), {...source, status: 'sealed',
+      sealedAt: Timestamp.fromMillis(sentAt + 20_000)});
+  });
+  const legacyPage = await call('letterHistory', a, {...scope(pair), limit: 1});
+  assert.deepEqual(legacyPage.nextCursor, {sentAt, letterId: ids[5]});
+  assert.equal((await call('letterHistory', a, {...scope(pair), limit: 1, cursor: legacyPage.nextCursor})).letters[0].id, ids[4]);
+  const first = await call('letterHistory', a, {...scope(pair), limit: 2});
+  assert.deepEqual(first.letters.map(letter => letter.id), [ids[5], ids[4]]);
+  assert.deepEqual(first.nextCursor, {sentAt, letterId: ids[4]});
+  assert.ok(first.letters.every(letter => letter.sentAt === sentAt && letter.status === 'sealed'));
+  assert.deepEqual((await call('letterHistory', b, {...scope(pair), limit: 2})).letters.map(letter => letter.id), [ids[5], ids[4]]);
+  now += 1;
+  const newestDraft = await letterDraft(b, pair);
+  const newest = (await call('sealLetter', b, {...scope(pair), letterId: newestDraft.id, immediate: true})).letter;
+  assert.equal((await call('letterHistory', a, {...scope(pair), limit: 2})).letters[0].id, newest.id);
+  const second = await call('letterHistory', a, {...scope(pair), limit: 2, cursor: first.nextCursor});
+  assert.deepEqual(second.letters.map(letter => letter.id), [ids[3], ids[2]]);
+  assert.deepEqual(await call('letterHistory', a, {...scope(pair), limit: 2, cursor: first.nextCursor}), second);
+  const last = await call('letterHistory', a, {...scope(pair), limit: 2, cursor: second.nextCursor});
+  assert.deepEqual(last.letters.map(letter => letter.id), [ids[1], ids[0]]); assert.equal(last.nextCursor, null);
+  assert.equal(new Set([...first.letters, ...second.letters, ...last.letters].map(letter => letter.id)).size, 6);
+  const response = await request('/letterHistory', a, {data: scope(pair)});
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assert.equal((await response.json()).result.letters.length, 7);
+});
+
+test('letter history preserves scheduled content and attachment locks without marking a letter opened', async () => {
+  const {a, b, pair} = await paired(), draft = await letterDraft(a, pair), input = {...scope(pair), letterId: draft.id};
+  for (const role of ['photo', 'drawing']) {
+    assert.equal((await request(letterPath(pair, draft, role), a, await picture(), 'PUT', 'image/jpeg')).status, 200);
+  }
+  assert.equal((await request(letterPath(pair, draft, 'audio'), a, voiceFixture(), 'PUT', 'audio/wav')).status, 200);
+  const sealed = (await call('sealLetter', a, input)).letter;
+  const author = (await call('letterHistory', a, scope(pair))).letters[0];
+  assert.equal(author.body, draft.body); assert.equal(author.audio.id, sealed.audio.id);
+  const lockedPage = await call('letterHistory', b, {...scope(pair), now: draft.opensAt + 10_000});
+  const locked = lockedPage.letters[0];
+  assert.equal(locked.canOpen, false); assert.equal(lockedPage.serverNow, now);
+  for (const field of ['title', 'body', 'photo', 'drawing', 'audio', 'noteId']) assert.ok(!(field in locked));
+  assertNoPrivateKeys(lockedPage);
+  now = draft.opensAt;
+  const availablePage = await call('letterHistory', b, scope(pair)), available = availablePage.letters[0];
+  assert.equal(available.canOpen, true); assert.equal(available.body, draft.body);
+  for (const role of ['photo', 'drawing', 'audio']) assert.equal(available[role].id, sealed[role].id);
+  assert.equal(available.openedAt, null);
+  assert.equal((await db.doc(`pairs/${pair.id}/letters/${draft.id}`).get()).data().openedAt, null);
+  assertNoPrivateKeys(availablePage);
+});
+
+test('letter history validates cursors and rechecks membership and epoch after its page query', async () => {
+  const {a, b, outsider, pair} = await paired(), draft = await letterDraft(a, pair);
+  await call('sealLetter', a, {...scope(pair), letterId: draft.id, immediate: true});
+  for (const limit of [0, -1, 51, 1.5, '2', null]) {
+    await assert.rejects(call('letterHistory', a, {...scope(pair), limit}), /invalid_limit/);
+  }
+  for (const cursor of [[], 2, 'cursor', {}, {sentAt: 0, letterId: draft.id}, {sentAt: Number.MAX_SAFE_INTEGER + 1, letterId: draft.id},
+    {sentAt: 1.5, letterId: draft.id}, {sentAt: now, letterId: '../private'}]) {
+    await assert.rejects(call('letterHistory', a, {...scope(pair), cursor}), /invalid_cursor|invalid_id/);
+  }
+  await assert.rejects(call('letterHistory', outsider, scope(pair)), /not_pair_member/);
+  await assert.rejects(call('letterHistory', a, {...scope(pair), pairEpoch: pair.pairEpoch + 1}), /stale_pair_epoch/);
+  await assert.rejects(call('letterHistory', undefined, scope(pair)), /authentication_required/);
+  await assert.rejects(call('letterHistory', await widget(b), scope(pair)), /authentication_required/);
+  const original = db.lettersPage.bind(db);
+  db.lettersPage = async (...args) => {
+    const rows = await original(...args);
+    await db.doc(`pairs/${pair.id}`).update({pairEpoch: pair.pairEpoch + 1});
+    return rows;
+  };
+  try {await assert.rejects(call('letterHistory', b, scope(pair)), /stale_pair_epoch/);}
+  finally {db.lettersPage = original;}
+  await db.doc(`pairs/${pair.id}`).update({pairEpoch: pair.pairEpoch});
+  db.lettersPage = async (...args) => {
+    const rows = await original(...args);
+    await call('closePair', a, scope(pair));
+    return rows;
+  };
+  try {await assert.rejects(call('letterHistory', b, scope(pair)), /not_pair_member/);}
+  finally {db.lettersPage = original;}
+  await assert.rejects(call('letterHistory', b, scope(pair)), /not_pair_member/);
+});
+
+test('existing 200-letter history does not block new immediate audio or scheduled letters and remains fully pageable', async () => {
+  const {a, b, pair} = await paired(), seed = await letterDraft(a, pair);
+  const source = (await db.doc(`pairs/${pair.id}/letters/${seed.id}`).get()).data();
+  await db.runTransaction(async tx => {
+    for (let n = 0; n < 200; n++) {
+      const id = n === 0 ? seed.id : randomUUID();
+      tx.set(db.doc(`pairs/${pair.id}/letters/${id}`), {...source, id, status: 'sealed',
+        createdAt: Timestamp.fromMillis(now - n - 1000), sealedAt: Timestamp.fromMillis(now - n - 500)});
+    }
+  });
+  const immediateDraft = await letterDraft(a, pair, {body: ''});
+  assert.equal((await request(letterPath(pair, immediateDraft, 'audio'), a, voiceFixture(), 'PUT', 'audio/wav')).status, 200);
+  const immediate = (await call('sealLetter', a, {...scope(pair), letterId: immediateDraft.id, immediate: true})).letter;
+  const scheduledDraft = await letterDraft(b, pair), scheduled = (await call('sealLetter', b, {...scope(pair), letterId: scheduledDraft.id})).letter;
+  assert.equal(immediate.canOpen, true); assert.equal(scheduled.canOpen, false);
+  const ids = [], pages = [];
+  let cursor = null;
+  do {
+    const page = await call('letterHistory', a, {...scope(pair), limit: 50, cursor});
+    ids.push(...page.letters.map(letter => letter.id)); pages.push(page); cursor = page.nextCursor;
+  } while (cursor);
+  assert.equal(ids.length, 202); assert.equal(new Set(ids).size, 202); assert.equal(pages.length, 5);
+  assert.ok(ids.includes(immediate.id)); assert.ok(ids.includes(scheduled.id));
+  assert.equal((await call('letters', a, scope(pair))).letters.length, 200);
+  // Removing the lifetime cap does not remove the existing per-minute draft rate limit.
+  const editable = await letterDraft(a, pair);
+  for (let n = 0; n < 27; n++) await letterDraft(a, pair, {letterId: editable.id, body: `Edición ${n}`});
+  await assert.rejects(letterDraft(a, pair), /rate_limited/);
+});
+
 test('letter draft ownership, validation and asset cleanup are enforced', async () => {
   const {a, b, outsider, pair} = await paired();
   await assert.rejects(letterDraft(a, pair, {title: ' '}), /invalid_text/);

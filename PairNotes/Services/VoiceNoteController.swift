@@ -1,6 +1,36 @@
 import AVFoundation
 import Combine
 import Foundation
+import QuartzCore
+import UIKit
+
+/// Keep the recorded history at ten samples per second on both 60 and 120 Hz displays.
+struct VoiceMeterCadence {
+    static let interval: TimeInterval = 0.1
+    private var lastSample: TimeInterval?
+    mutating func shouldSample(at timestamp: TimeInterval) -> Bool {
+        guard timestamp.isFinite, timestamp >= 0 else { return false }
+        if let lastSample, timestamp >= lastSample, timestamp - lastSample + 0.000_001 < Self.interval { return false }
+        lastSample = timestamp
+        return true
+    }
+}
+
+@MainActor
+private final class VoiceDisplayLinkTarget: NSObject {
+    weak var controller: VoiceNoteController?
+    init(_ controller: VoiceNoteController) { self.controller = controller }
+    @objc func update(_ link: CADisplayLink) {
+        guard let controller else { link.invalidate(); return }
+        controller.updateDisplay(link)
+    }
+}
+
+/// Owns cleanup without accessing an actor-isolated controller from its deinitializer.
+private final class VoiceDisplayLinkLifetime {
+    var link: CADisplayLink?
+    deinit { link?.invalidate() }
+}
 
 @MainActor
 final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDelegate, AVAudioPlayerDelegate {
@@ -17,7 +47,9 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
     var didRecord: ((Data) -> Void)?
     private var recorder: AVAudioRecorder?
     private var player: AVAudioPlayer?
-    private var clockTask: Task<Void, Never>?
+    private let display = VoiceDisplayLinkLifetime()
+    private var meterCadence = VoiceMeterCadence()
+    var isUpdatingDisplay: Bool { display.link != nil }
     private var generation = 0
     private var observers = Set<AnyCancellable>()
     private static weak var sessionOwner: VoiceNoteController?
@@ -49,11 +81,21 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
                     if active { self.error = "El audio se interrumpió. Volvé a intentarlo." }
                 }
             }.store(in: &observers)
+        NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in self?.handleInterruption() }
+            }.store(in: &observers)
+        NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in self?.suspend() }
+            }.store(in: &observers)
     }
 
     func record() async {
         guard !recording, !requestingPermission else { return }
-        stopAll(); let request = generation
+        // Keep the previous reviewed take ready if permission or the new recording fails.
+        pause(); generation += 1
+        let request = generation
         requestingPermission = true; needsMicrophoneSettings = false; error = nil
         let granted = await AVAudioApplication.requestRecordPermission()
         guard request == generation else { return }
@@ -71,15 +113,15 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
             levels = Array(repeating: 0.05, count: 32)
             recorder = value
             guard value.record(forDuration: 60) else { throw CocoaError(.fileWriteUnknown) }
-            elapsed = 0; recording = true
+            elapsed = 0; duration = 0; recording = true
             startClock()
-        } catch { self.error = "No se pudo iniciar la grabación."; stopAll() }
+        } catch { cancelRecording(); self.error = "No se pudo iniciar la grabación." }
     }
     func finishRecording() {
         guard let recorder else { return }
         recorder.delegate = nil; recorder.stop()
         let url = recorder.url
-        self.recorder = nil; recording = false; clockTask?.cancel(); clockTask = nil
+        self.recorder = nil; recording = false; stopClock()
         defer { try? FileManager.default.removeItem(at: url); deactivate() }
         do {
             let data = try Data(contentsOf: url)
@@ -89,7 +131,10 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
             duration = recordedDuration
             elapsed = 0
             recordedData = data; didRecord?(data)
-        } catch { self.error = "No se pudo conservar la grabación. Volvé a intentar." }
+        } catch {
+            elapsed = player?.currentTime ?? 0; duration = player?.duration ?? 0
+            self.error = "No se pudo conservar la grabación. Volvé a intentar."
+        }
     }
     /// Cancelling a new take keeps the previous reviewed recording intact.
     func cancelRecording() {
@@ -99,8 +144,8 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
             try? FileManager.default.removeItem(at: recorder.url)
         }
         recorder = nil; recording = false
-        clockTask?.cancel(); clockTask = nil
-        elapsed = 0; duration = 0
+        stopClock()
+        elapsed = player?.currentTime ?? 0; duration = player?.duration ?? 0
         levels = Array(repeating: 0.05, count: 32)
         deactivate()
     }
@@ -127,7 +172,7 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
     }
     func pause() {
         player?.pause(); elapsed = player?.currentTime ?? elapsed; playing = false
-        clockTask?.cancel(); clockTask = nil; deactivate()
+        stopClock(); deactivate()
     }
     func seek(to fraction: Double) {
         guard fraction.isFinite, let player else { return }
@@ -144,7 +189,7 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
         if recorder != nil { finishRecording() }
         player?.stop(); player?.delegate = nil; player = nil; playbackData = nil; playing = false
         elapsed = 0; duration = 0
-        clockTask?.cancel(); clockTask = nil; deactivate()
+        stopClock(); deactivate()
     }
     private func activate(category: AVAudioSession.Category, mode: AVAudioSession.Mode,
                           options: AVAudioSession.CategoryOptions = []) throws {
@@ -168,18 +213,29 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
         // Playback stays paused until another explicit tap, including unplugging headphones.
     }
     private func startClock() {
-        clockTask?.cancel()
-        clockTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                if let recorder = self.recorder {
-                    recorder.updateMeters()
-                    let level = min(1, max(0.05, pow(10, Double(recorder.averagePower(forChannel: 0)) / 40)))
-                    self.levels = Array(self.levels.dropFirst()) + [level]
-                }
-                self.elapsed = self.recorder?.currentTime ?? self.player?.currentTime ?? 0
-                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            }
+        stopClock()
+        guard recording || playing else { return }
+        let target = VoiceDisplayLinkTarget(self)
+        let link = CADisplayLink(target: target, selector: #selector(VoiceDisplayLinkTarget.update(_:)))
+        let maximum = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })?.screen.maximumFramesPerSecond ?? 60
+        let preferred = Float(min(120, max(1, maximum)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, preferred), maximum: preferred, preferred: preferred)
+        display.link = link
+        link.add(to: .main, forMode: .common)
+    }
+    private func stopClock() {
+        display.link?.invalidate(); display.link = nil
+        meterCadence = VoiceMeterCadence()
+    }
+    fileprivate func updateDisplay(_ link: CADisplayLink) {
+        guard recording || playing else { stopClock(); return }
+        // Audio time remains authoritative; missed frames never change duration or playback speed.
+        elapsed = recorder?.currentTime ?? player?.currentTime ?? 0
+        if let recorder, meterCadence.shouldSample(at: link.targetTimestamp) {
+            recorder.updateMeters()
+            let level = min(1, max(0.05, pow(10, Double(recorder.averagePower(forChannel: 0)) / 40)))
+            levels = Array(levels.dropFirst()) + [level]
         }
     }
     nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {

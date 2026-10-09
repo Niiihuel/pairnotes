@@ -126,18 +126,29 @@ struct VoiceWaveformView: View {
     var progress: Double = 0
     @State private var levels: [Double] = []
     var body: some View {
-        HStack(alignment: .center, spacing: 3) {
-            ForEach(Array(levels.enumerated()), id: \.offset) { index, value in
-                Capsule().fill(Color.accentColor.opacity(Double(index) / Double(max(1, levels.count)) < progress ? 1 : 0.35))
-                    .frame(maxWidth: .infinity).frame(height: max(3, 32 * value))
+        waveform.opacity(0.35)
+            .overlay(alignment: .leading) {
+                GeometryReader { geometry in
+                    waveform.mask(alignment: .leading) {
+                        Rectangle().frame(width: geometry.size.width * min(1, max(0, progress.isFinite ? progress : 0)))
+                    }
+                }
             }
-        }.frame(height: 36).accessibilityHidden(true)
+            .frame(height: 36).accessibilityHidden(true)
             .task(id: data) {
                 let bytes = data
                 let computed = await Task.detached(priority: .utility) { VoiceWaveform.levels(bytes) }.value
                 guard !Task.isCancelled else { return }
                 levels = computed
             }
+    }
+    private var waveform: some View {
+        HStack(alignment: .center, spacing: 3) {
+            ForEach(Array(levels.enumerated()), id: \.offset) { _, value in
+                Capsule().fill(Color.accentColor)
+                    .frame(maxWidth: .infinity).frame(height: max(3, 32 * value))
+            }
+        }.frame(height: 36)
     }
 }
 
@@ -182,6 +193,8 @@ struct VoicePlaybackControls: View {
 
 struct VoiceRecordingMeter: View {
     @ObservedObject var controller: VoiceNoteController
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         VStack(spacing: 14) {
             HStack {
@@ -197,7 +210,9 @@ struct VoiceRecordingMeter: View {
                         .frame(height: max(3, 42 * controller.levels[index]))
                 }
             }.frame(height: 46).accessibilityHidden(true)
-            HStack(spacing: 12) {
+                .animation(reduceMotion ? nil : .linear(duration: VoiceMeterCadence.interval), value: controller.levels)
+            let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+            layout {
                 Button("Cancelar", role: .cancel) { controller.cancelRecording() }
                     .buttonStyle(.bordered).controlSize(.large)
                 Button("Detener", systemImage: "stop.fill") { controller.finishRecording() }

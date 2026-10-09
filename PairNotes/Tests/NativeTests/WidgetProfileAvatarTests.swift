@@ -53,6 +53,45 @@ final class WidgetProfileAvatarTests: XCTestCase {
     }
 
     @MainActor
+    func testVibrantPortraitKeepsOpaqueGrayscaleDetailAndLiftsDarkFeatures() throws {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1; format.opaque = true
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64), format: format).image { _ in
+            for (x, color) in [(CGFloat(0), UIColor.black), (22, .gray), (43, .white)] {
+                color.setFill(); UIBezierPath(rect: CGRect(x: x, y: 0, width: 22, height: 64)).fill()
+            }
+        }
+        let data = try XCTUnwrap(source.pngData())
+        let vibrant = try render(data: data, mode: .vibrant)
+        let dark = try pixel(vibrant, x: 12, y: 32)
+        let middle = try pixel(vibrant, x: 32, y: 32)
+        let light = try pixel(vibrant, x: 52, y: 32)
+        XCTAssertGreaterThan(dark[0], 20, "Dark facial features need visible luminance for vibrant material")
+        XCTAssertLessThan(dark[0], 140, "Lifting shadows must not turn a portrait into a white disk")
+        XCTAssertGreaterThan(Int(light[0]) - Int(dark[0]), 100, "The portrait must retain tonal detail")
+        XCTAssertGreaterThan(middle[0], dark[0])
+        XCTAssertGreaterThan(light[0], middle[0])
+        for value in [dark, middle, light] {
+            XCTAssertLessThanOrEqual(abs(Int(value[0]) - Int(value[1])), 2)
+            XCTAssertLessThanOrEqual(abs(Int(value[1]) - Int(value[2])), 2)
+            XCTAssertEqual(value[3], 255, "Vibrant treatment must not turn image luminance into transparency")
+        }
+        let attachment = XCTAttachment(image: vibrant)
+        attachment.name = "avatar-vibrant-tones-before-system-compositor"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        // This validates the grayscale input. WidgetKit's adaptive material
+        // and its contrast against the actual wallpaper need a device preview.
+    }
+
+    @MainActor
+    func testVibrantPortraitPreservesRealTransparentCutouts() throws {
+        let image = try render(data: portrait(transparent: true), mode: .vibrant)
+        XCTAssertEqual(try pixel(image, x: 32, y: 8)[3], 0, "A real PNG cutout must stay transparent")
+        XCTAssertEqual(try pixel(image, x: 32, y: 32)[3], 255, "Opaque image content must remain opaque")
+    }
+
+    @MainActor
     private func render(data: Data?, mode: WidgetRenderingMode, initials: String = "A",
                         reasons: RedactionReasons = []) throws -> UIImage {
         let content = WidgetProfileAvatar(data: data, name: "Perfil ficticio", initials: initials, theme: .rose, size: 64)

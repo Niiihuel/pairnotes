@@ -8,6 +8,8 @@ import UIKit
 struct QuickPhotoComposer: View {
     @ObservedObject var services: AppServices
     var opensCamera = false
+    var opensPhotoLibrary = false
+    let onSent: (CouplePhoto) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var imageData: Data?
@@ -21,14 +23,17 @@ struct QuickPhotoComposer: View {
     @State private var needsSettings = false
     @State private var finished = false
     @State private var attemptedCamera = false
+    @State private var attemptedLibrary = false
     @State private var confirmDiscard = false
     private let storage: MemoryCompositionStorage
     private let scope: String
 
     private struct Draft: Codable { let id: UUID; let caption: String }
 
-    init(services: AppServices, opensCamera: Bool = false) {
+    init(services: AppServices, opensCamera: Bool = false, opensPhotoLibrary: Bool = false,
+         onSent: @escaping (CouplePhoto) -> Void = { _ in }) {
         self.services = services; self.opensCamera = opensCamera
+        self.opensPhotoLibrary = opensPhotoLibrary; self.onSent = onSent
         let key = services.privateImageKey("quick-photo")
         let storage = MemoryCompositionStorage(key: key)
         self.storage = storage; scope = key
@@ -58,7 +63,7 @@ struct QuickPhotoComposer: View {
                     }.disabled(preparing || sending)
                     if preparing { ProgressView("Preparando foto…") }
                     TextField("Mensaje opcional", text: $caption, axis: .vertical)
-                        .lineLimit(2...4).padding(16)
+                        .lineLimit(1...4).padding(16)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 16))
                         .disabled(sending)
                         .onChange(of: caption) { _, _ in photoID = UUID(); persist() }
@@ -111,9 +116,14 @@ struct QuickPhotoComposer: View {
                 setPhoto(bytes)
             }, onFailure: { error = $0 })
             .task(id: scenePhase) {
-                guard scenePhase == .active, opensCamera, !attemptedCamera else { return }
-                attemptedCamera = true
-                await openCamera()
+                guard scenePhase == .active, current else { return }
+                if opensCamera, !attemptedCamera {
+                    attemptedCamera = true
+                    await openCamera()
+                } else if opensPhotoLibrary, !opensCamera, !attemptedLibrary {
+                    attemptedLibrary = true
+                    if imageData == nil { choosingPhoto = true }
+                }
             }
             .onDisappear { if !finished { persist() } }
             .confirmationDialog("¿Descartar esta foto y su mensaje?", isPresented: $confirmDiscard, titleVisibility: .visible) {
@@ -163,9 +173,11 @@ struct QuickPhotoComposer: View {
         sending = true; error = nil; persist()
         Task { @MainActor in
             defer { sending = false }
+            guard current else { return }
             do {
-                _ = try await services.sendPhoto(id: id, data: bytes, caption: text)
+                let photo = try await services.sendPhoto(id: id, data: bytes, caption: text)
                 guard current else { return }
+                onSent(photo)
                 finished = true; storage.clear(); UINotificationFeedbackGenerator().notificationOccurred(.success); dismiss()
             } catch { if current { self.error = "No se pudo enviar. Tu foto sigue acá; tocá Enviar para reintentar." } }
         }

@@ -5,29 +5,30 @@ import UIKit
 /// Native model/render tests cannot establish that UIKit receives these touches.
 final class EditorInteractionTests: XCTestCase {
     @MainActor
-    func testGuestNavigationSeparatesCollectionsFromDrawingAndAccountSettings() {
+    func testGuestChatOpensDrawingLibraryAndKeepsAccountSettingsSeparate() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_AR"]
         app.launch()
         let tabs = app.tabBars
-        for title in ["Inicio", "Dibujos", "Recuerdos", "Para vos", "Nosotros"] {
+        for title in ["Inicio", "Chat", "Recuerdos", "Nosotros"] {
             XCTAssertTrue(tabs.buttons[title].waitForExistence(timeout: 15), "Missing destination: \(title)")
         }
+        tabs.buttons["Inicio"].tap()
         attach(app.screenshot(), name: "app-background-inicio")
-        tabs.buttons["Para vos"].tap()
-        XCTAssertTrue(app.navigationBars["Para vos"].waitForExistence(timeout: 5))
+        tabs.buttons["Chat"].tap()
+        XCTAssertTrue(app.navigationBars["Chat"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Vincular"].exists)
         XCTAssertFalse(app.buttons["Nuevo dibujo"].exists)
-        attach(app.screenshot(), name: "app-background-para-vos")
-        tabs.buttons["Dibujos"].tap()
+        attach(app.screenshot(), name: "app-background-chat")
+        app.buttons["chat.drawings"].tap()
         XCTAssertTrue(app.buttons["Nuevo dibujo"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["affection.cartas"].exists)
         attach(app.screenshot(), name: "app-background-dibujos")
         tabs.buttons["Recuerdos"].tap()
         XCTAssertTrue(app.navigationBars["Recuerdos"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["affection.cartas"].exists)
-        XCTAssertTrue(tabs.buttons["Para vos"].exists, "The tab bar stays visible in each collection")
+        XCTAssertTrue(tabs.buttons["Chat"].exists, "The chat stays reachable from each destination")
         attach(app.screenshot(), name: "app-background-recuerdos")
         tabs.buttons["Nosotros"].tap()
         XCTAssertTrue(app.navigationBars["Nosotros"].waitForExistence(timeout: 5))
@@ -41,9 +42,12 @@ final class EditorInteractionTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_AR"]
         app.launch()
-        let create = app.tabBars.buttons["Dibujos"]
+        let create = app.tabBars.buttons["Chat"]
         XCTAssertTrue(create.waitForExistence(timeout: 15))
         create.tap()
+        let library = app.buttons["chat.drawings"]
+        XCTAssertTrue(library.waitForExistence(timeout: 10))
+        library.tap()
         let newDrawing = app.buttons["Nuevo dibujo"]
         XCTAssertTrue(newDrawing.waitForExistence(timeout: 10))
         waitUntilEnabled(newDrawing)

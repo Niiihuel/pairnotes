@@ -145,6 +145,34 @@ export class Database {
       ORDER BY (value->'sentAt'->>'$time')::bigint DESC, value->>'id' DESC LIMIT $${values.length}`, values);
     return rows.rows.map(row => decode(row.value));
   }
+  async photosPage(pairId: string, pairEpoch: number, maximum: number, cursor?: {sentAt: number; photoId: string}): Promise<DocumentData[]> {
+    const prefix = `pairs/${pairId}/photos/`, values: unknown[] = [prefix, pairEpoch];
+    let condition = '';
+    if (cursor) {
+      values.push(cursor.sentAt, cursor.photoId);
+      condition = " AND ((value->'sentAt'->>'$time')::bigint < $3 OR ((value->'sentAt'->>'$time')::bigint = $3 AND value->>'id' < $4))";
+    }
+    values.push(maximum);
+    const rows = await this.pool.query(`SELECT value FROM documents WHERE left(path,length($1))=$1 AND strpos(substring(path from length($1)+1),'/')=0
+      AND (value->>'pairEpoch')::bigint=$2${condition}
+      ORDER BY (value->'sentAt'->>'$time')::bigint DESC, value->>'id' DESC LIMIT $${values.length}`, values);
+    return rows.rows.map(row => decode(row.value));
+  }
+  async lettersPage(pairId: string, maximum: number, cursor?: {sentAt: number; letterId: string}): Promise<DocumentData[]> {
+    const prefix = `pairs/${pairId}/letters/`, values: unknown[] = [prefix];
+    // Older sealed letters predate sealedAt; their public sentAt is createdAt.
+    const sentAt = "coalesce((value->'sealedAt'->>'$time')::bigint, (value->'createdAt'->>'$time')::bigint)";
+    let condition = '';
+    if (cursor) {
+      values.push(cursor.sentAt, cursor.letterId);
+      condition = ` AND (${sentAt} < $2 OR (${sentAt} = $2 AND value->>'id' < $3))`;
+    }
+    values.push(maximum);
+    const rows = await this.pool.query(`SELECT value FROM documents WHERE left(path,length($1))=$1 AND strpos(substring(path from length($1)+1),'/')=0
+      AND value->>'status'='sealed'${condition}
+      ORDER BY ${sentAt} DESC, value->>'id' DESC LIMIT $${values.length}`, values);
+    return rows.rows.map(row => decode(row.value));
+  }
   async runTransaction<T>(operation: (tx: Transaction) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {

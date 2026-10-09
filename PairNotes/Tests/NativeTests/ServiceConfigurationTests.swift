@@ -55,11 +55,16 @@ final class ServiceConfigurationTests: XCTestCase {
         controller.prepare(data)
         XCTAssertNil(controller.error)
         XCTAssertFalse(controller.playing)
+        XCTAssertFalse(controller.isUpdatingDisplay, "An idle player must not keep a display link running")
         XCTAssertEqual(controller.duration, 1, accuracy: 0.02)
         controller.seek(to: 0.5)
         controller.pause()
         controller.prepare(data)
         XCTAssertEqual(controller.elapsed, 0.5, accuracy: 0.02)
+        controller.cancelRecording()
+        XCTAssertEqual(controller.elapsed, 0.5, accuracy: 0.02, "Cancelling a new take must preserve the reviewed audio position")
+        XCTAssertEqual(controller.duration, 1, accuracy: 0.02)
+        XCTAssertFalse(controller.isUpdatingDisplay)
         controller.seek(to: .nan)
         XCTAssertEqual(controller.elapsed, 0.5, accuracy: 0.02)
         controller.seek(to: -1)
@@ -67,6 +72,7 @@ final class ServiceConfigurationTests: XCTestCase {
         controller.stopAll()
         XCTAssertEqual(controller.duration, 0)
         XCTAssertFalse(controller.playing)
+        XCTAssertFalse(controller.isUpdatingDisplay)
 
         // Preparing an offscreen row and releasing its controller must leave
         // the chosen audio playing. Choosing another row switches playback.
@@ -82,6 +88,7 @@ final class ServiceConfigurationTests: XCTestCase {
         controller.play(sessionData)
         XCTAssertNil(controller.error)
         XCTAssertTrue(controller.playing)
+        XCTAssertTrue(controller.isUpdatingDisplay)
         try await Task.sleep(for: .milliseconds(150))
         let beforeIdlePreparation = controller.elapsed
         idleRow.prepare(sessionData)
@@ -94,7 +101,28 @@ final class ServiceConfigurationTests: XCTestCase {
         XCTAssertNil(idleRow.error)
         XCTAssertTrue(idleRow.playing)
         XCTAssertFalse(controller.playing, "Only the selected row should play")
+        XCTAssertFalse(controller.isUpdatingDisplay, "Switching rows must invalidate the previous display link")
+        XCTAssertTrue(idleRow.isUpdatingDisplay)
         idleRow.stopAll()
+        XCTAssertFalse(idleRow.isUpdatingDisplay)
+
+        for interruption in [AVAudioSession.interruptionNotification, AVAudioSession.routeChangeNotification,
+                             UIApplication.didEnterBackgroundNotification] {
+            controller.play(sessionData)
+            XCTAssertTrue(controller.playing)
+            XCTAssertTrue(controller.isUpdatingDisplay)
+            NotificationCenter.default.post(name: interruption, object: nil, userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue,
+                AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
+            ])
+            let deadline = Date().addingTimeInterval(1)
+            while controller.isUpdatingDisplay && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertFalse(controller.playing, interruption.rawValue)
+            XCTAssertFalse(controller.isUpdatingDisplay, interruption.rawValue)
+            let paused = controller.elapsed
+            try await Task.sleep(for: .milliseconds(120))
+            XCTAssertEqual(controller.elapsed, paused, accuracy: 0.001, "Suspended audio must remain paused")
+        }
         controller.stopAll()
 
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

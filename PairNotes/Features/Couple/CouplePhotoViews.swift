@@ -16,7 +16,7 @@ struct CouplePhotoCard: View {
                 else { Image(systemName: "photo.fill").font(.title).frame(maxWidth: .infinity, maxHeight: .infinity).background(.quaternary) }
             }.frame(width: 80, height: 100).clipShape(RoundedRectangle(cornerRadius: 16))
             VStack(alignment: .leading, spacing: 6) {
-                Text("De \(services.partnerNickname)").font(.headline)
+                Text(photo.authorId == services.identity?.uid ? "Tu foto" : "De \(services.partnerNickname)").font(.headline)
                 if !photo.caption.isEmpty { Text(photo.caption).font(.subheadline).lineLimit(3) }
                 Text(photo.sentAt, format: .dateTime.day().month().hour().minute()).font(.caption).foregroundStyle(.secondary)
                 if let reaction = photo.reaction { Text(reaction.kind.symbol).font(.title3) }
@@ -66,23 +66,31 @@ struct CouplePhotoDetailView: View {
                     }
                     if !photo.caption.isEmpty { Text(photo.caption).font(.title3).privacySensitive() }
                     if photo.recipientId == services.identity?.uid {
-                        HStack(spacing: 12) {
-                            ForEach(PhotoReactionKind.allCases, id: \.self) { kind in
-                                Button { react(kind, photo: photo) } label: {
-                                    Text(kind.symbol).font(.title).frame(maxWidth: .infinity, minHeight: 48)
-                                        .background(photo.reaction?.kind == kind ? Color.pink.opacity(0.18) : Color(uiColor: .secondarySystemBackground), in: Circle())
-                                }.buttonStyle(.plain).disabled(reacting)
-                                    .accessibilityLabel(kind.title)
-                                    .accessibilityValue(photo.reaction?.kind == kind ? "Seleccionada" : "")
+                        ReactionBubble(tail: .topLeading) {
+                            HStack(spacing: 4) {
+                                ForEach(PhotoReactionKind.allCases, id: \.self) { kind in
+                                    Button { react(kind, photo: photo) } label: {
+                                        ReactionEmojiLabel(symbol: kind.symbol, selected: photo.reaction?.kind == kind,
+                                                           tint: services.personalization.theme.accent)
+                                    }.disabled(reacting)
+                                        .accessibilityLabel(kind.title)
+                                        .accessibilityValue(photo.reaction?.kind == kind ? "Reacción enviada" : "")
+                                        .accessibilityAddTraits(photo.reaction?.kind == kind ? .isSelected : [])
+                                }
+                                Button(action: replyWithPhoto) {
+                                    ReactionCameraLabel(tint: services.personalization.theme.accent)
+                                }.accessibilityLabel("Responder con una foto")
                             }
-                        }
+                            .buttonStyle(ReactionBubbleButtonStyle())
+                        }.accessibilityLabel("Reaccionar a la foto")
                         if reacting { ProgressView("Enviando reacción…") }
-                        Button("Responder con una foto", systemImage: "camera.fill", action: replyWithPhoto)
-                            .buttonStyle(.borderedProminent).frame(minHeight: 44)
                         Button("Mostrar en pantalla bloqueada", systemImage: "lock.rectangle") { startActivity(photo) }
                             .buttonStyle(.bordered).disabled(showingActivity)
                     } else if let reaction = photo.reaction {
-                        Text("\(services.partnerNickname) reaccionó \(reaction.kind.symbol)").font(.headline)
+                        ReactionBubble(tail: .topLeading) {
+                            Label("\(services.partnerNickname) reaccionó \(reaction.kind.symbol)", systemImage: "checkmark")
+                                .font(.subheadline).padding(8)
+                        }
                     }
                 }
                 if let activityMessage { Label(activityMessage, systemImage: "info.circle").font(.footnote).foregroundStyle(.secondary) }

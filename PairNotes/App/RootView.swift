@@ -24,7 +24,7 @@ struct RootView: View {
     @StateObject private var services = AppServices.shared
     @StateObject private var model = AppModel()
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedTab: AppTab = .home
+    @State private var selectedTab: AppTab = .affection
     @State private var editor: EditorRoute?
     @State private var noteRoute: NoteRoute?
     @State private var photoRoute: PhotoRoute?
@@ -38,6 +38,9 @@ struct RootView: View {
     @State private var nextWidgetSync = Date.distantPast
     @State private var widgetGeneration: UInt64 = 0
     @State private var affectionPath: [AffectionDestination] = []
+    @State private var chatRequest: AffectionDestination?
+    @State private var chatPhoto: CouplePhoto?
+    @State private var chatRefreshVersion: UInt64 = 0
     @State private var pendingAffection: AffectionDestination?
     @State private var pendingTab: AppTab?
     @State private var homeSheet: HomeSheet?
@@ -60,22 +63,16 @@ struct RootView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            NavigationStack {
-                HomeView(model: model, createNote: { openDraft(nil) }, openNote: openNote,
-                         createPhoto: { openCamera(capture: false) }, openPhoto: routePhoto,
-                         openMessages: { routeAffection(.messages) }, editDate: { homeSheet = .date },
-                         openDistance: { homeSheet = .distance })
-            }.tabItem { Label("Inicio", systemImage: "house") }.tag(AppTab.home)
-            NavigationStack {
-                DraftLibraryView(model: model, openDraft: openDraft, openNote: openNote)
-            }.tabItem { Label("Dibujos", systemImage: "pencil.tip.crop.circle") }.tag(AppTab.create)
-            NavigationStack {
-                TimelineView(model: model, openNote: openNote)
-            }.tabItem { Label("Recuerdos", systemImage: "rectangle.stack") }.tag(AppTab.memories)
             NavigationStack(path: $affectionPath) {
-                AffectionHubView(services: services, connect: { selectedTab = .couple })
+                CoupleChatView(services: services, model: model, request: $chatRequest, incomingPhoto: $chatPhoto,
+                    refreshVersion: chatRefreshVersion,
+                    connect: { selectedTab = .couple }, createPhoto: { openCamera(capture: false) },
+                    takePhoto: { openCamera(capture: true) }, createDrawing: { openDraft(nil) },
+                    openNote: openNote, openPhoto: routePhoto, showDrafts: { affectionPath = [.drawings] })
                     .navigationDestination(for: AffectionDestination.self) { destination in
                         switch destination {
+                        case .drawings:
+                            DraftLibraryView(model: model, openDraft: openDraft, openNote: openNote)
                         case .letters(let id):
                             LettersView(services: services, notes: model.notes, catalog: model.catalog, focusID: id)
                                 .id(id ?? "letters")
@@ -87,7 +84,16 @@ struct RootView: View {
                             CouplePhotosView(services: services, createPhoto: { openCamera(capture: false) }, openPhoto: routePhoto)
                         }
                     }
-            }.tabItem { Label("Para vos", systemImage: "heart.text.clipboard") }.tag(AppTab.affection)
+            }.tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }.tag(AppTab.affection)
+            NavigationStack {
+                HomeView(model: model, createNote: { openDraft(nil) }, openNote: openNote,
+                         createPhoto: { openCamera(capture: false) }, openPhoto: routePhoto,
+                         openMessages: { routeAffection(.messages) }, editDate: { homeSheet = .date },
+                         openDistance: { homeSheet = .distance })
+            }.tabItem { Label("Inicio", systemImage: "house") }.tag(AppTab.home)
+            NavigationStack {
+                TimelineView(model: model, openNote: openNote)
+            }.tabItem { Label("Recuerdos", systemImage: "rectangle.stack") }.tag(AppTab.memories)
             NavigationStack {
                 CoupleView(services: services)
             }.tabItem { Label("Nosotros", systemImage: "person.2") }.tag(AppTab.couple)
@@ -112,7 +118,7 @@ struct RootView: View {
                       services.membership?.id == route.pairID,
                       services.membership?.pairEpoch == route.pairEpoch else { return false }
                 let queued = await model.queue(archive: archive)
-                if queued { selectedTab = .create }
+                if queued { selectedTab = .affection; affectionPath = [] }
                 return queued
             })
         }
@@ -124,7 +130,8 @@ struct RootView: View {
                 replyWithPhoto: { pendingCamera = true; cameraRequested = true; closePresentedSheets() }) }
         }
         .sheet(isPresented: $cameraShowing, onDismiss: globalSheetDismissed) {
-            QuickPhotoComposer(services: services, opensCamera: cameraRequested)
+            QuickPhotoComposer(services: services, opensCamera: cameraRequested,
+                               opensPhotoLibrary: !cameraRequested, onSent: { chatPhoto = $0 })
         }
         .sheet(item: $homeSheet, onDismiss: globalSheetDismissed) { destination in
             switch destination {
@@ -140,6 +147,7 @@ struct RootView: View {
             services.onOpenLetters = { id in routeAffection(.letters(id)) }
             services.onOpenMessages = { routeAffection(.messages) }
             services.onSessionInvalidated = {
+                chatPhoto = nil
                 widgetGeneration &+= 1
                 WidgetAccessStore.clear()
                 closePresentedSheets()
@@ -163,6 +171,7 @@ struct RootView: View {
                 }
             }
             services.onReceivedNote = {
+                chatRefreshVersion &+= 1
                 Task {
                     await model.foreground()
                     _ = await WidgetRemoteClient.shared.refresh()
@@ -286,7 +295,8 @@ struct RootView: View {
         } else {
             pendingAffection = nil
             selectedTab = .affection
-            affectionPath = [destination]
+            affectionPath = []
+            chatRequest = destination
         }
     }
 
@@ -331,7 +341,9 @@ struct RootView: View {
         if hasPresentedSheet {
             pendingTab = tab; closePresentedSheets()
         } else {
-            pendingTab = nil; selectedTab = tab
+            pendingTab = nil
+            if tab == .create { selectedTab = .affection; affectionPath = [.drawings] }
+            else { selectedTab = tab }
         }
     }
 
@@ -341,6 +353,7 @@ struct RootView: View {
     }
 
     private func resetAffectionNavigation() {
+        chatRequest = nil
         if collectionModalOwners.isEmpty {
             affectionPath = []; resettingAffectionPath = false
         } else {

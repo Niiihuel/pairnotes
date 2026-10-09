@@ -150,16 +150,24 @@ extension AppServices {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    func sendMessage(id: UUID, text: String) async throws {
+    @discardableResult
+    func sendMessage(id: UUID, text: String) async throws -> CoupleMessage {
         let uid = try requireUID(), pair = try requirePair()
         var payload = pairPayload(pair)
         payload["messageId"] = id.uuidString.lowercased()
         payload["text"] = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = try await call("sendMessage", payload)
+        let response = try await call("sendMessage", payload)
         try checkSpaceContext(uid: uid, pair: pair)
+        struct Response: Decodable { let message: CoupleMessage }
+        let value: Response = try decodeSpace(response)
+        guard value.message.id == id.uuidString.lowercased(), value.message.authorID == uid,
+              value.message.recipientID == pair.partner.uid,
+              value.message.text == text.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.message.sentAt.timeIntervalSince1970.isFinite else { throw ServiceError.invalidResponse }
         // Delivery has already been confirmed. A later refresh failure must not
         // turn the Send button into another publication.
         try? await refreshCoupleSpace()
+        return value.message
     }
 
     func saveMemory(id: String, title: String, date: CoupleDate, body: String, recursYearly: Bool,

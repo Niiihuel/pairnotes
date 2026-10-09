@@ -251,7 +251,7 @@ foto recibida. Las fotos directas no consumen el límite de recuerdos del álbum
 El envío confirma foto, puntero del receptor y aviso genérico en una transacción.
 La reacción notifica al autor y solicita actualización de widgets del receptor.
 
-### Gestos, reacciones y cartas programadas
+### Gestos, reacciones y chat con cartas y audio
 
 - `sendGesture {pairId,pairEpoch,gestureId,kind,replyTo?}` → `{gesture}`.
   `kind`: `heart`, `hug`, `kiss`. El ID hace idempotentes los reintentos; `replyTo`
@@ -262,8 +262,13 @@ La reacción notifica al autor y solicita actualización de widgets del receptor
   puede reaccionar; ambos miembros pueden leer. `kind`: vacío, `heart`, `hug`,
   `sparkles`; respuesta hasta 280 unidades UTF-16. Ambos vacíos eliminan la reacción.
   Repetir el mismo contenido no genera otra notificación.
-- `letters {pairId,pairEpoch}` → `{letters,serverNow}`. Hasta 200 cartas por pareja,
-  incluidos borradores. Los borradores sólo aparecen al autor. Un sobre cerrado
+- `letters {pairId,pairEpoch}` → `{letters,serverNow}` conserva la colección legacy:
+  lista hasta 200 documentos recientes, incluidos borradores propios. El chat usa
+  `letterHistory {pairId,pairEpoch,limit?,cursor?}` → `{letters,nextCursor,serverNow}`,
+  sólo sobres enviados, con límite 30 (máximo 50) y cursor `{sentAt,letterId}`.
+  Ordena por fecha de cierre del servidor e ID; los sobres antiguos conservan su
+  fecha de creación. No hay un límite acumulativo de 200 audios/cartas; permanecen
+  los límites por minuto y por archivo. Los borradores sólo aparecen al autor. Un sobre cerrado
   expone ID, remitente/receptor, estado y fechas, **no** título, cuerpo, vínculo,
   foto, dibujo ni audio. `canOpen` procede exclusivamente del reloj del servidor.
 - `saveLetterDraft {pairId,pairEpoch,letterId,title,body,opensAt,noteId?}` → `{letter}`.
@@ -279,13 +284,19 @@ La reacción notifica al autor y solicita actualización de widgets del receptor
 - `removeLetterAsset {pairId,pairEpoch,letterId,role}` retira `photo`, `drawing` o
   `audio` de un borrador. `deleteLetterDraft` elimina un borrador propio y retira
   sus adjuntos para el worker de limpieza.
-- `sealLetter {pairId,pairEpoch,letterId}` cierra el sobre, exige fecha futura y
-  contenido, y crea en la misma transacción un evento APNs con `nextAttemptAt`
-  igual a `opensAt`. Reintentar el cierre devuelve la misma carta. Después no
+- `sealLetter {pairId,pairEpoch,letterId,immediate?}` cierra el sobre con contenido.
+  `immediate:true` fija `opensAt` a la hora del servidor; falso o ausente exige
+  fecha futura. Sólo acepta booleanos. Registra `sealedAt` y expone `sentAt` para
+  ordenar el chat; crea en la misma transacción un evento APNs con `nextAttemptAt`
+  igual a `opensAt`. Reintentar el cierre devuelve la misma carta y fecha. Después no
   se permite modificar contenido, fecha ni adjuntos.
 - `openLetter {pairId,pairEpoch,letterId}` permite vista previa al autor y lectura
   al receptor sólo después de `opensAt`; registra su primera apertura. Cambiar
   la hora del teléfono o enviar un parámetro `now` no adelanta esa autorización.
+- `photos {pairId,pairEpoch,limit?,cursor?}` → `{photos,nextCursor}` reúne fotos
+  enviadas y recibidas, con límite 30 (máximo 50), cursor `{sentAt,photoId}` y orden
+  descendente estable por fecha e ID. Tanto fotos como cartas revalidan el vínculo
+  antes y después de consultar la página; los bytes siguen en rutas privadas.
 
 El worker reutiliza leases y confirmaciones por canal para `gesture`, `reaction`
 y `letter`. Los avisos contienen identificadores y texto genérico, nunca el texto

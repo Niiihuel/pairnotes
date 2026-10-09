@@ -165,7 +165,7 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
   const operations = ['upsertProfile', 'getPairState', 'createInvite', 'acceptInvite', 'revokeInvite', 'closePair',
     'createUploadSession', 'finalizeNote', 'timeline', 'note', 'latestReceivedNote', 'markNoteViewed', 'registerDevice', 'unregisterDevice', 'issueWidgetSession',
     'getCoupleSpace', 'updatePersonalization', 'restoreMemory', 'updatePairDetails', 'upsertMemory', 'memories', 'deleteMemory', 'deleteMemoryPhoto', 'deleteProfileAvatar',
-    'getPhoto', 'setPhotoReaction', 'sendGesture', 'reactions', 'setReaction', 'letters', 'saveLetterDraft', 'sealLetter', 'openLetter', 'deleteLetterDraft', 'removeLetterAsset',
+    'getPhoto', 'photos', 'setPhotoReaction', 'sendGesture', 'reactions', 'setReaction', 'letters', 'letterHistory', 'saveLetterDraft', 'sealLetter', 'openLetter', 'deleteLetterDraft', 'removeLetterAsset',
     'sendMessage', 'messages', 'setLocationConsent', 'updateLocation'] as const;
   for (const name of operations) {
     app.post(`/${name}`, async (request, response) => {
@@ -173,7 +173,7 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
         const identity = await options.auth.authenticate(bearer(request));
         const data = decodeCallable(request.body?.data) as Record<string, unknown>;
         if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(request.body).some(key => key !== 'data')) fail('invalid_request', 'invalid-argument');
-        const result = await options.service[name](identity, data);
+        const result = name === 'photos' ? await options.service.photoHistory(identity, data) : await options.service[name](identity, data);
         response.json({result});
       } catch (error) {sendError(response, error, true);}
     });

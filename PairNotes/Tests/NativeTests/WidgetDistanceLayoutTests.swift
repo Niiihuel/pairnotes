@@ -66,12 +66,11 @@ final class WidgetDistanceLayoutTests: XCTestCase {
                                      updatedAt: date.addingTimeInterval(-age), accuracyMeters: 20))
         let avatars = ["first": try avatar(swapProfiles ? .blue : .red),
                        "second": try avatar(swapProfiles ? .red : .blue)]
-        let view = WidgetDistanceContent(date: date, avatars: avatars, snapshot: snapshot)
+        let view = WidgetDistanceContent(family: family, date: date, avatars: avatars, snapshot: snapshot)
             .privacySensitive()
             .frame(width: size.width, height: size.height)
             .foregroundStyle(Color.primary)
             .background(scheme == .light ? Color.white : Color.black)
-            .environment(\.widgetFamily, family)
             .environment(\.widgetRenderingMode, .fullColor)
             .environment(\.redactionReasons, reasons)
             .environment(\.colorScheme, scheme)

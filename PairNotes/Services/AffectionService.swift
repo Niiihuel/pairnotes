@@ -72,8 +72,8 @@ extension AppServices {
         try letterResponse(await affectionCall("saveLetterDraft", ["letterId": id, "title": title, "body": body,
             "opensAt": try RailwayClient.milliseconds(opensAt), "noteId": noteID ?? (NSNull() as Any)]))
     }
-    func sealLetter(id: String) async throws -> TimeCapsuleLetter {
-        try letterResponse(await affectionCall("sealLetter", ["letterId": id]))
+    func sealLetter(id: String, immediate: Bool = false) async throws -> TimeCapsuleLetter {
+        try letterResponse(await affectionCall("sealLetter", ["letterId": id, "immediate": immediate]))
     }
     func deleteLetterDraft(id: String) async throws { _ = try await affectionCall("deleteLetterDraft", ["letterId": id]) }
     func removeLetterAsset(id: String, role: String) async throws {

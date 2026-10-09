@@ -48,6 +48,26 @@ export class PhotoFeatures {
     return this.db.runTransaction(async tx => ({photo: publicPhoto(await this.authorized(tx, caller, input))}));
   }
 
+  async history(caller: Caller, input: Input): Promise<Input> {
+    const {pairId, pairEpoch} = scope(input), maximum = input.limit === undefined ? 30 : input.limit;
+    if (typeof maximum !== 'number' || !Number.isSafeInteger(maximum) || maximum < 1 || maximum > 50) fail('invalid_limit', 'invalid-argument');
+    let cursor: {sentAt: number; photoId: string} | undefined;
+    if (input.cursor !== undefined && input.cursor !== null) {
+      const value = input.cursor;
+      if (typeof value !== 'object' || Array.isArray(value)) fail('invalid_cursor', 'invalid-argument');
+      const {sentAt, photoId} = value as Input;
+      if (typeof sentAt !== 'number' || !Number.isSafeInteger(sentAt) || sentAt < 1) fail('invalid_cursor_time', 'invalid-argument');
+      cursor = {sentAt, photoId: photoID(photoId)};
+    }
+    await this.db.runTransaction(tx => this.service.pair(tx, caller.uid, pairId, pairEpoch));
+    const rows = await this.db.photosPage(pairId, pairEpoch, maximum + 1, cursor);
+    // Revocation while the query is in flight must not return old pair content.
+    await this.db.runTransaction(tx => this.service.pair(tx, caller.uid, pairId, pairEpoch));
+    const visible = rows.slice(0, maximum), last = visible.at(-1);
+    return {photos: visible.map(publicPhoto), nextCursor: rows.length > maximum && last
+      ? {sentAt: last.sentAt.toMillis(), photoId: last.id} : null};
+  }
+
   async send(caller: Caller, input: Input, bytes: Buffer, contentType: string): Promise<Input> {
     const {pairId, pairEpoch} = scope(input), id = photoID(input.photoId);
     if (typeof input.caption !== 'string' || input.caption.length > 500) fail('invalid_caption', 'invalid-argument');

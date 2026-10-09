@@ -42,6 +42,8 @@ public struct TimeCapsuleLetter: Codable, Equatable, Identifiable, Sendable {
     public let status: String
     public let opensAt: Date
     public let createdAt: Date
+    /// Server sealing time. Older letters fall back to their creation time.
+    public let sentAt: Date?
     public let openedAt: Date?
     /// Authoritative server permission, never inferred from the device clock.
     public let canOpen: Bool
@@ -57,6 +59,7 @@ public struct TimeCapsuleLetter: Codable, Equatable, Identifiable, Sendable {
               memberIDs.contains(uid), !id.isEmpty, id.utf8.count <= 128,
               ["draft", "sealed"].contains(status), status != "draft" || authorId == uid,
               opensAt.timeIntervalSince1970.isFinite, createdAt.timeIntervalSince1970.isFinite,
+              sentAt.map({ $0.timeIntervalSince1970.isFinite }) ?? true,
               title.map({ !$0.isEmpty && $0.utf16.count <= 120 }) ?? true,
               body.map({ $0.utf16.count <= 6000 }) ?? true else { throw LocalStoreError.corruptData }
         if uid != authorId && !canOpen {

@@ -166,3 +166,67 @@ test('widget credential rotation between snapshot authorization and reaction can
     assert.equal((await db.collection('notificationEvents').where('pairId', '==', pair.id).where('type', '==', 'photo-reaction').get()).size, 0);
   } finally {service.photos.setReaction = original;}
 });
+
+test('photo history includes both directions with stable tied cursors and no skipped older items after a new send', async () => {
+  const {a, b, pair} = await paired(), bytes = await picture(), ids = [];
+  for (let n = 1; n <= 6; n++) {
+    const id = `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    ids.push(id); await send(n % 2 ? a : b, pair, id, bytes, `Foto ${n}`);
+    await db.doc(`pairs/${pair.id}/photos/${id}`).update({sentAt: Timestamp.fromMillis(now)});
+  }
+  const staleId = randomUUID(), source = (await db.doc(`pairs/${pair.id}/photos/${ids[0]}`).get()).data();
+  await db.doc(`pairs/${pair.id}/photos/${staleId}`).create({...source, id: staleId, pairEpoch: pair.pairEpoch + 1,
+    sentAt: Timestamp.fromMillis(now + 10_000)});
+  const first = await call('photos', a, {...scope(pair), limit: 2});
+  assert.deepEqual(first.photos.map(photo => photo.id), [ids[5], ids[4]]);
+  assert.deepEqual(first.nextCursor, {sentAt: now, photoId: ids[4]});
+  assert.deepEqual(await call('photos', b, {...scope(pair), limit: 2}), first);
+  now += 1;
+  const newest = await send(b, pair, randomUUID(), bytes);
+  const fresh = await call('photos', a, {...scope(pair), limit: 2});
+  assert.equal(fresh.photos[0].id, newest.id);
+  const second = await call('photos', a, {...scope(pair), limit: 2, cursor: first.nextCursor});
+  assert.deepEqual(second.photos.map(photo => photo.id), [ids[3], ids[2]]);
+  assert.deepEqual(await call('photos', a, {...scope(pair), limit: 2, cursor: first.nextCursor}), second);
+  const last = await call('photos', a, {...scope(pair), limit: 2, cursor: second.nextCursor});
+  assert.deepEqual(last.photos.map(photo => photo.id), [ids[1], ids[0]]);
+  assert.equal(last.nextCursor, null);
+  const all = [...first.photos, ...second.photos, ...last.photos];
+  assert.equal(new Set(all.map(photo => photo.id)).size, 6);
+  assert.deepEqual(new Set(all.map(photo => photo.authorId)), new Set([a.uid, b.uid]));
+  assert.ok(all.every(photo => photo.id !== staleId));
+  for (const page of [first, second, last, fresh]) assertPublic(page);
+  const response = await request('/photos', a, {data: scope(pair)});
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assert.equal((await response.json()).result.photos.length, 7);
+});
+
+test('photo history validates pagination and requires the current full app relationship session', async () => {
+  const {a, b, outsider, pair} = await paired(), photo = await send(a, pair, randomUUID(), await picture());
+  for (const limit of [0, -1, 51, 1.5, '2', null]) {
+    await assert.rejects(call('photos', a, {...scope(pair), limit}), /invalid_limit/);
+  }
+  for (const cursor of [[], 2, 'cursor', {}, {sentAt: 0, photoId: photo.id},
+    {sentAt: 1.5, photoId: photo.id}, {sentAt: now, photoId: 'invalid'}]) {
+    await assert.rejects(call('photos', a, {...scope(pair), cursor}), /invalid_cursor|invalid_photo_id/);
+  }
+  await assert.rejects(call('photos', outsider, scope(pair)), /not_pair_member/);
+  await assert.rejects(call('photos', a, {...scope(pair), pairEpoch: pair.pairEpoch + 1}), /stale_pair_epoch/);
+  await assert.rejects(call('photos', undefined, scope(pair)), /authentication_required/);
+  await assert.rejects(call('photos', await widget(b), scope(pair)), /authentication_required/);
+  await call('closePair', a, scope(pair));
+  await assert.rejects(call('photos', b, scope(pair)), /not_pair_member/);
+});
+
+test('photo history rechecks relationship authorization after its page query', async () => {
+  const {a, b, pair} = await paired();
+  await send(a, pair, randomUUID(), await picture());
+  const original = db.photosPage.bind(db);
+  db.photosPage = async (...args) => {
+    const rows = await original(...args);
+    await call('closePair', a, scope(pair));
+    return rows;
+  };
+  try {await assert.rejects(call('photos', b, scope(pair)), /not_pair_member/);}
+  finally {db.photosPage = original;}
+});

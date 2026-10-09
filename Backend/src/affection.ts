@@ -114,7 +114,9 @@ export class AffectionFeatures {
     const canOpen = value.status === 'sealed' && value.opensAt <= this.service.now();
     const visible = uid === value.authorId || canOpen;
     return {id: value.id, authorId: value.authorId, recipientId: value.recipientId, status: value.status,
-      opensAt: value.opensAt, createdAt: value.createdAt.toMillis(), openedAt: value.openedAt?.toMillis() ?? null, canOpen,
+      opensAt: value.opensAt, createdAt: value.createdAt.toMillis(),
+      sentAt: value.status === 'sealed' ? (value.sealedAt ?? value.createdAt).toMillis() : null,
+      openedAt: value.openedAt?.toMillis() ?? null, canOpen,
       // Deliberately omit every content field before opening time, including attachment IDs.
       ...(visible ? {title: value.title, body: value.body, noteId: value.noteId, photo: asset(value.photo), drawing: asset(value.drawing), audio: asset(value.audio)} : {})};
   }
@@ -134,6 +136,25 @@ export class AffectionFeatures {
         .map(value => this.publicLetter(value, caller.uid)), serverNow: this.service.now()};
     });
   }
+  async letterHistory(caller: Caller, input: Input): Promise<Input> {
+    const {pairId, pairEpoch} = scope(input), maximum = input.limit === undefined ? 30 : input.limit;
+    if (typeof maximum !== 'number' || !Number.isSafeInteger(maximum) || maximum < 1 || maximum > 50) fail('invalid_limit', 'invalid-argument');
+    let cursor: {sentAt: number; letterId: string} | undefined;
+    if (input.cursor !== undefined && input.cursor !== null) {
+      const value = input.cursor;
+      if (typeof value !== 'object' || Array.isArray(value)) fail('invalid_cursor', 'invalid-argument');
+      const {sentAt, letterId} = value as Input;
+      if (typeof sentAt !== 'number' || !Number.isSafeInteger(sentAt) || sentAt < 1) fail('invalid_cursor_time', 'invalid-argument');
+      cursor = {sentAt, letterId: identifier(letterId)};
+    }
+    await this.db.runTransaction(tx => this.service.pair(tx, caller.uid, pairId, pairEpoch));
+    const rows = await this.db.lettersPage(pairId, maximum + 1, cursor);
+    // Legacy letters have no epoch field. Both checks authorize the containing pair's current generation.
+    await this.db.runTransaction(tx => this.service.pair(tx, caller.uid, pairId, pairEpoch));
+    const visible = rows.slice(0, maximum), last = visible.at(-1);
+    return {letters: visible.map(value => this.publicLetter(value, caller.uid)), serverNow: this.service.now(),
+      nextCursor: rows.length > maximum && last ? {sentAt: (last.sealedAt ?? last.createdAt).toMillis(), letterId: last.id} : null};
+  }
   async saveLetterDraft(caller: Caller, input: Input): Promise<Input> {
     const {pairId, pairEpoch} = scope(input), id = identifier(input.letterId);
     const title = text(input.title, 120), body = text(input.body, 6000, true), opensAt = integer(input.opensAt);
@@ -145,7 +166,6 @@ export class AffectionFeatures {
       const ref = this.db.doc(`pairs/${pairId}/letters/${id}`), old = (await tx.get(ref)).data();
       if (old && old.authorId !== caller.uid) fail('not_letter_author', 'permission-denied');
       if (old?.status === 'sealed') fail('letter_sealed', 'already-exists');
-      if (!old && (await tx.get(this.db.collection(`pairs/${pairId}/letters`).limit(200))).size >= 200) fail('letter_limit', 'resource-exhausted');
       if (noteId && !(await tx.get(this.db.doc(`pairs/${pairId}/notes/${noteId}`))).exists) fail('note_unavailable', 'not-found');
       const value = {id, authorId: caller.uid, recipientId: pair.members.find((uid: string) => uid !== caller.uid),
         status: 'draft', title, body, opensAt, noteId, photo: old?.photo ?? null, drawing: old?.drawing ?? null, audio: old?.audio ?? null,
@@ -155,16 +175,19 @@ export class AffectionFeatures {
   }
   async sealLetter(caller: Caller, input: Input): Promise<Input> {
     const {pairId, pairEpoch} = scope(input);
+    if (input.immediate !== undefined && typeof input.immediate !== 'boolean') fail('invalid_immediate', 'invalid-argument');
     return this.db.runTransaction(async tx => {
       const value = await this.authorizedLetter(tx, caller, input);
       if (value.authorId !== caller.uid) fail('not_letter_author', 'permission-denied');
       if (value.status === 'sealed') return {letter: this.publicLetter(value, caller.uid)};
-      if (value.opensAt <= this.service.now()) fail('opening_date_passed', 'invalid-argument');
+      const sealedAt = Timestamp.fromMillis(this.service.now());
+      const opensAt = input.immediate === true ? sealedAt.toMillis() : value.opensAt;
+      if (input.immediate !== true && opensAt <= sealedAt.toMillis()) fail('opening_date_passed', 'invalid-argument');
       if (!value.body && !value.photo && !value.drawing && !value.audio && !value.noteId) fail('empty_letter', 'invalid-argument');
       const pair = await this.service.pair(tx, caller.uid, pairId, pairEpoch);
-      const sealed = {...value, status: 'sealed'};
+      const sealed = {...value, status: 'sealed', opensAt, sealedAt};
       tx.set(this.db.doc(`pairs/${pairId}/letters/${value.id}`), sealed);
-      this.event(tx, pair, value.recipientId, caller.uid, 'letter', value.id, value.opensAt);
+      this.event(tx, pair, value.recipientId, caller.uid, 'letter', value.id, opensAt);
       return {letter: this.publicLetter(sealed, caller.uid)};
     });
   }

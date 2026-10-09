@@ -5,7 +5,8 @@
     <string>Sacá una foto para revisarla y enviársela en privado a tu pareja.</string>
     <key>NSSupportsLiveActivities</key><true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Grabá una nota de voz para adjuntarla a una carta privada para tu pareja.</string>
+    <string>Grabá audios para enviarlos en privado a tu pareja.</string>
+    <key>CADisableMinimumFrameDurationOnPhone</key><true/>
     <key>CFBundleDisplayName</key><string>PairNotes</string>
     <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>

@@ -100,19 +100,21 @@ struct PartnerPhotoWidgetView: View {
                         controls(photo)
                     }
                 } else {
-                    HStack(alignment: .center, spacing: 12) {
-                        Link(destination: photoURL(photo.id)) {
-                            PhotoWidgetImageView(image: entry.image)
-                                .frame(width: 86, height: 120)
-                                .clipShape(RoundedRectangle(cornerRadius: 18))
-                        }.buttonStyle(.plain)
-                        VStack(alignment: .leading, spacing: 6) {
-                            metadata(photo)
-                            Text(entry.interactionMessage ?? (photo.caption.isEmpty ? "Una foto para vos" : photo.caption))
-                                .font(.headline).lineLimit(2).minimumScaleFactor(0.85)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                            controls(photo)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .center, spacing: 12) {
+                            Link(destination: photoURL(photo.id)) {
+                                PhotoWidgetImageView(image: entry.image)
+                                    .frame(width: 64, height: 60)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                            }.buttonStyle(.plain)
+                            VStack(alignment: .leading, spacing: 4) {
+                                metadata(photo)
+                                Text(entry.interactionMessage ?? (photo.caption.isEmpty ? "Una foto para vos" : photo.caption))
+                                    .font(.headline).lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
                         }
+                        controls(photo)
                     }
                 }
             } else {
@@ -144,43 +146,23 @@ struct PartnerPhotoWidgetView: View {
     }
 
     private func controls(_ photo: CouplePhoto) -> some View {
-        ViewThatFits(in: .horizontal) {
-            controlRow(photo, size: 34, spacing: 5)
-            controlRow(photo, size: 29, spacing: 3)
-        }
-    }
-
-    private func controlRow(_ photo: CouplePhoto, size: CGFloat, spacing: CGFloat) -> some View {
-        HStack(spacing: spacing) {
-            ForEach(PhotoReactionKind.allCases, id: \.rawValue) { kind in
-                Button(intent: PhotoWidgetReactionIntent(photoID: photo.id, assetID: photo.photo.id, kind: kind)) {
-                    PhotoReactionLabel(kind: kind, selected: photo.reaction?.kind == kind, size: size)
+        ReactionBubble(tail: .topLeading, surface: .solid(entry.theme.card)) {
+            HStack(spacing: 4) {
+                ForEach(PhotoReactionKind.allCases, id: \.rawValue) { kind in
+                    Button(intent: PhotoWidgetReactionIntent(photoID: photo.id, assetID: photo.photo.id, kind: kind)) {
+                        ReactionEmojiLabel(symbol: kind.symbol, selected: photo.reaction?.kind == kind, tint: entry.theme.accent)
+                    }
+                    .accessibilityLabel(kind.title)
+                    .accessibilityValue(photo.reaction?.kind == kind ? "Reacción enviada" : "")
+                    .accessibilityAddTraits(photo.reaction?.kind == kind ? .isSelected : [])
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(kind.title)
-                .accessibilityValue(photo.reaction?.kind == kind ? "Reacción enviada" : "")
+                Link(destination: URL(string: "pairnotes://camera")!) {
+                    ReactionCameraLabel(tint: entry.theme.accent)
+                }
+                .accessibilityLabel("Sacar una foto y enviársela a tu pareja")
             }
-            Link(destination: URL(string: "pairnotes://camera")!) {
-                Image(systemName: "camera.fill").font(.system(size: size / 2, weight: .semibold))
-                    .frame(width: size, height: size)
-                    .background(entry.theme.accent.opacity(0.14), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Sacar una foto y enviársela a tu pareja")
-        }
-    }
-}
-
-private struct PhotoReactionLabel: View {
-    let kind: PhotoReactionKind
-    let selected: Bool
-    let size: CGFloat
-
-    var body: some View {
-        Text(kind.symbol).font(.system(size: size * 0.59))
-            .frame(width: size, height: size)
-            .background(.primary.opacity(selected ? 0.20 : 0.06), in: Circle())
-            .overlay { Circle().strokeBorder(.primary.opacity(selected ? 0.7 : 0.12), lineWidth: selected ? 2 : 1) }
+            .buttonStyle(ReactionBubbleButtonStyle())
+        }.accessibilityLabel("Reaccionar a la foto")
     }
 }
 
@@ -266,35 +248,71 @@ private struct PhotoActivityCard: View {
     let context: ActivityViewContext<PairPhotoActivityAttributes>
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Link(destination: photoURL(context.attributes.photoID)) {
-                PhotoActivityImageView(context: context, maximumPointSize: 126)
-                    .frame(width: 86, height: 126).clipShape(RoundedRectangle(cornerRadius: 18))
-            }.buttonStyle(.plain)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 4) {
-                    Text(context.isStale ? "Foto finalizada" : context.state.authorName).fontWeight(.semibold).lineLimit(1)
-                    if !context.isStale {
-                        Text("·")
-                        Text(context.state.sentAt, style: .time).lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                    Button(intent: DismissPhotoActivityIntent(activityID: context.activityID)) {
-                        Image(systemName: "xmark").font(.caption2.bold()).frame(width: 26, height: 26)
-                            .background(.white.opacity(0.12), in: Circle())
-                    }.buttonStyle(.plain).accessibilityLabel("Cerrar la foto en vivo")
-                }.font(.caption).foregroundStyle(.white.opacity(0.75))
-                Text(context.isStale ? "Abrí PairNotes para volver a verla." :
-                        context.state.interactionMessage ?? (context.state.caption.isEmpty ? "Una foto para vos" : context.state.caption))
-                    .font(.headline).lineLimit(2)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                PhotoActivityControls(context: context)
-            }
+        ViewThatFits(in: [.horizontal, .vertical]) {
+            horizontalCard
+            stackedCard
         }
-        .padding(12).frame(height: 150)
+        .padding(12).frame(height: 160)
         .foregroundStyle(.white)
         .privacySensitive()
         .widgetURL(photoURL(context.attributes.photoID))
+    }
+
+    private var horizontalCard: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Link(destination: photoURL(context.attributes.photoID)) {
+                PhotoActivityImageView(context: context, maximumPointSize: 126)
+                    .frame(width: 86, height: 126).clipShape(RoundedRectangle(cornerRadius: 14))
+            }.buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 4) {
+                message.padding(.trailing, 32)
+                PhotoActivityControls(context: context)
+            }
+            // Five 44-point actions, four gaps and the bubble's horizontal padding.
+            .frame(minWidth: 248, idealWidth: 248, maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .overlay(alignment: .topTrailing) {
+            dismissButton.offset(x: 6, y: -6)
+        }
+    }
+
+    private var stackedCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 10) {
+                Link(destination: photoURL(context.attributes.photoID)) {
+                    PhotoActivityImageView(context: context, maximumPointSize: 66)
+                        .frame(width: 64, height: 66).clipShape(RoundedRectangle(cornerRadius: 14))
+                }.buttonStyle(.plain)
+                message
+                dismissButton
+            }
+            PhotoActivityControls(context: context)
+        }
+    }
+
+    private var message: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Text(context.isStale ? "Foto finalizada" : context.state.authorName).fontWeight(.semibold).lineLimit(1)
+                if !context.isStale {
+                    Text("·")
+                    Text(context.state.sentAt, style: .time).lineLimit(1)
+                }
+            }.font(.caption).foregroundStyle(.white.opacity(0.75))
+            Text(context.isStale ? "Abrí PairNotes para volver a verla." :
+                    context.state.interactionMessage ?? (context.state.caption.isEmpty ? "Una foto para vos" : context.state.caption))
+                .font(.headline).lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var dismissButton: some View {
+        Button(intent: DismissPhotoActivityIntent(activityID: context.activityID)) {
+            Image(systemName: "xmark").font(.caption.bold())
+                .frame(width: 28, height: 28).background(.white.opacity(0.12), in: Circle())
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }.buttonStyle(ReactionBubbleButtonStyle()).accessibilityLabel("Cerrar la foto en vivo")
     }
 }
 
@@ -319,21 +337,27 @@ private struct PhotoActivityControls: View {
     let context: ActivityViewContext<PairPhotoActivityAttributes>
 
     var body: some View {
-        HStack(spacing: 5) {
-            ForEach(PhotoReactionKind.allCases, id: \.rawValue) { kind in
-                Button(intent: PhotoActivityReactionIntent(photoID: context.attributes.photoID,
-                                                         assetID: context.attributes.assetID, kind: kind)) {
-                    PhotoReactionLabel(kind: kind, selected: context.state.reactionKind == kind.rawValue, size: 34)
+        ReactionBubble(tail: .topLeading) {
+            HStack(spacing: 4) {
+                ForEach(PhotoReactionKind.allCases, id: \.rawValue) { kind in
+                    Button(intent: PhotoActivityReactionIntent(photoID: context.attributes.photoID,
+                                                             assetID: context.attributes.assetID, kind: kind)) {
+                        ReactionEmojiLabel(symbol: kind.symbol, selected: context.state.reactionKind == kind.rawValue,
+                                           tint: .white)
+                    }
+                    .disabled(context.isStale)
+                    .accessibilityLabel(kind.title)
+                    .accessibilityValue(context.state.reactionKind == kind.rawValue ? "Reacción enviada" : "")
+                    .accessibilityAddTraits(context.state.reactionKind == kind.rawValue ? .isSelected : [])
                 }
-                .buttonStyle(.plain).disabled(context.isStale)
-                .accessibilityLabel(kind.title)
-                .accessibilityValue(context.state.reactionKind == kind.rawValue ? "Reacción enviada" : "")
+                Link(destination: URL(string: "pairnotes://camera")!) {
+                    ReactionCameraLabel(tint: .white)
+                }.accessibilityLabel("Sacar una foto para tu pareja")
             }
-            Link(destination: URL(string: "pairnotes://camera")!) {
-                Image(systemName: "camera.fill").font(.system(size: 17, weight: .semibold))
-                    .frame(width: 34, height: 34).background(.white.opacity(0.12), in: Circle())
-            }.buttonStyle(.plain).accessibilityLabel("Sacar una foto para tu pareja")
+            .buttonStyle(ReactionBubbleButtonStyle())
         }
+        .environment(\.colorScheme, .dark)
+        .accessibilityLabel("Reaccionar a la foto")
     }
 }
 
