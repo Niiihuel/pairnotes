@@ -65,6 +65,8 @@ final class ChatInteractionTests: XCTestCase {
         attachDiagnostics(in: app, name: "chat-latest-button-size")
         XCTAssertGreaterThanOrEqual(latest.frame.width, 44)
         XCTAssertGreaterThanOrEqual(latest.frame.height, 44)
+        XCTAssertLessThanOrEqual(latest.frame.width, 56)
+        XCTAssertLessThanOrEqual(latest.frame.height, 56)
         XCTAssertFalse(last.isHittable)
 
         app.buttons["fixture.incoming"].tap()

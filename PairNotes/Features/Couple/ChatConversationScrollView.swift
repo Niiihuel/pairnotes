@@ -11,6 +11,7 @@ struct ChatConversationScrollView<Content: View>: View {
     @ViewBuilder let content: () -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.coupleAppTheme) private var theme
     @State private var userScrolling = false
 
     private enum Target: Hashable { case latest }
@@ -54,10 +55,12 @@ struct ChatConversationScrollView<Content: View>: View {
                     } label: {
                         Label("Ir al último mensaje", systemImage: "chevron.down")
                             .labelStyle(.iconOnly).font(.body.weight(.semibold))
-                            .frame(minWidth: 44, minHeight: 44)
+                            .frame(minWidth: 48, minHeight: 48)
+                            .background(theme.accent, in: Circle())
+                            .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                            .contentShape(Circle())
                     }
-                    .buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.large)
-                    .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("chat.latest")
                     .padding(14)
                 }
