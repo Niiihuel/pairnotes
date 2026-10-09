@@ -62,6 +62,7 @@ final class ChatInteractionTests: XCTestCase {
         let latest = app.buttons["chat.latest"]
         XCTAssertTrue(latest.waitForExistence(timeout: 5))
         waitUntilHittable(latest)
+        attachDiagnostics(in: app, name: "chat-latest-button-size")
         XCTAssertGreaterThanOrEqual(latest.frame.width, 44)
         XCTAssertGreaterThanOrEqual(latest.frame.height, 44)
         XCTAssertFalse(last.isHittable)

@@ -48,14 +48,16 @@ struct ChatConversationScrollView<Content: View>: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if hasMessages, !atBottom {
-                    Button("Ir al último mensaje", systemImage: "chevron.down") {
+                    Button {
                         dismissKeyboard()
                         scroll(proxy, animated: true)
+                    } label: {
+                        Label("Ir al último mensaje", systemImage: "chevron.down")
+                            .labelStyle(.iconOnly).font(.body.weight(.semibold))
+                            .frame(minWidth: 44, minHeight: 44)
                     }
-                    .labelStyle(.iconOnly).font(.body.weight(.semibold))
                     .buttonStyle(.borderedProminent).buttonBorderShape(.circle).controlSize(.large)
                     .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
-                    .frame(minWidth: 44, minHeight: 44)
                     .accessibilityIdentifier("chat.latest")
                     .padding(14)
                 }
