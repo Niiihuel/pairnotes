@@ -53,6 +53,7 @@ struct TogetherSettingsView: View {
             }
             if let error = reminders.errorMessage { Text(error).foregroundStyle(.red) }
         }
+        .coupleScreenBackground()
         .navigationTitle("Nuestra fecha").navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $editing) { TogetherDateEditor(services: services) }
         .sheet(isPresented: $calendarSheet) {
@@ -148,9 +149,6 @@ struct DistanceSettingsView: View {
             Section {
                 if location.isEnabledHere(services: services) {
                     Label("Compartís desde este iPhone", systemImage: "location.fill").foregroundStyle(.green)
-                    Button("Actualizar ahora", systemImage: "arrow.clockwise") {
-                        Task { await location.refreshIfNeeded(services: services, force: true) }
-                    }.disabled(location.working)
                 } else {
                     Button(services.coupleSpace?.location.sharingEnabled == true ? "Compartir desde este iPhone" : "Activar mi distancia",
                            systemImage: "location") { Task { await location.activate(services: services) } }.disabled(location.working)
@@ -161,11 +159,12 @@ struct DistanceSettingsView: View {
                     }
                 }
             } footer: {
-                Text("Compartís una distancia aproximada al usar la app. Vence a los 30 minutos; tu pareja no recibe tus coordenadas.")
+                Text("Se actualiza al usar la app o los widgets. Mostramos la última distancia y su antigüedad; las coordenadas privadas se borran a los 30 minutos.")
             }
             if location.working { ProgressView("Actualizando…") }
             if let message = location.message { Text(message).font(.footnote) }
         }
+        .coupleScreenBackground()
         .navigationTitle("Nuestra distancia").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if isPresentedModally {
@@ -212,6 +211,7 @@ struct TogetherDateEditor: View {
                 if let text = error ?? reminders.errorMessage { Text(text).foregroundStyle(.red) }
             }
             .disabled(saving)
+            .coupleScreenBackground()
             .navigationTitle("Nuestra fecha").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -278,6 +278,7 @@ struct MessageComposer: View {
                 if sending { ProgressView("Enviando…") }
             }
             .disabled(sending)
+            .coupleScreenBackground()
             .navigationTitle("Mensaje").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

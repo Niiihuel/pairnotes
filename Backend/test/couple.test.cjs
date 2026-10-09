@@ -41,8 +41,7 @@ async function memory(a, pair, values = {}) {
     kind: 'memory', recursYearly: false, ...values})).memory;
 }
 const photoPath = (pair, item) => `/memoryPhoto?pairId=${pair.id}&pairEpoch=${pair.pairEpoch}&memoryId=${item.id}`;
-async function widget(user) {
-  const deviceId = randomUUID();
+async function widget(user, deviceId = randomUUID()) {
   await call('registerDevice', user, {deviceId});
   return {...await call('issueWidgetSession', user, {deviceId}), deviceId};
 }
@@ -53,6 +52,17 @@ async function consent(user, pair, deviceId = randomUUID()) {
 async function sample(user, pair, location, overrides = {}) {
   return call('updateLocation', user, {...scope(pair), deviceId: location.deviceId, consentVersion: location.consentVersion,
     sequence: 1, latitude: -31.4167, longitude: -64.1833, horizontalAccuracy: 50, capturedAt: now, ...overrides});
+}
+async function widgetSample(credential, location, overrides = {}) {
+  const response = await request('/widgetLocation', credential, {
+    consentVersion: location.consentVersion, latitude: -31.4167, longitude: -64.1833,
+    horizontalAccuracy: 50, capturedAt: now, ...overrides
+  });
+  const body = await response.json();
+  if (!response.ok) throw Error(`${response.status}:${body.reason}`);
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assertNoPrivateKeys(body);
+  return body;
 }
 function assertNoPrivateKeys(value) {
   if (!value || typeof value !== 'object') return;
@@ -258,7 +268,7 @@ test('location validates coordinate bounds, precision, chronology, future time a
   await sample(a, pair, location, {sequence: 2, capturedAt: now + 1});
   assert.equal((await db.collection('locationPrivate').where('pairId', '==', pair.id).get()).size, 1);
 });
-test('distance is derived, rounded and fresh by the older sample; stale samples expire even before cleanup', async () => {
+test('distance keeps its dated derived value after freshness and coordinate retention expire', async () => {
   const {a, b, pair} = await paired(), la = await consent(a, pair), lb = await consent(b, pair), credential = await widget(b);
   assert.equal((await call('getCoupleSpace', a, scope(pair))).location.distance.status, 'waiting');
   await sample(a, pair, la, {latitude: 0, longitude: 0, horizontalAccuracy: 50});
@@ -266,7 +276,9 @@ test('distance is derived, rounded and fresh by the older sample; stale samples 
   const firstTime = now, current = await call('getCoupleSpace', a, scope(pair));
   assert.equal(current.location.distance.status, 'available'); assert.equal(current.location.distance.meters, 111200);
   assert.equal(current.location.distance.accuracyMeters, 200); assertNoPrivateKeys(current);
-  now += 16 * 60_000;
+  now += 15 * 60_000;
+  assert.equal((await call('getCoupleSpace', a, scope(pair))).location.distance.status, 'stale');
+  now += 60_000;
   await sample(a, pair, la, {sequence: 2, latitude: 0, longitude: 0});
   const stale = await call('getCoupleSpace', a, scope(pair));
   assert.equal(stale.location.distance.status, 'stale'); assert.equal(stale.location.distance.updatedAt, firstTime);
@@ -275,11 +287,18 @@ test('distance is derived, rounded and fresh by the older sample; stale samples 
   assert.equal(widgetSnapshot.distance.updatedAt, firstTime); assertNoPrivateKeys(widgetSnapshot);
   now = firstTime + 30 * 60_000 + 1;
   const expired = await call('getCoupleSpace', b, scope(pair));
-  assert.equal(expired.location.distance.meters, null); assert.equal(expired.location.distance.updatedAt, firstTime);
+  assert.equal(expired.location.distance.meters, 111200); assert.equal(expired.location.distance.updatedAt, firstTime);
+  assert.equal(expired.location.distance.accuracyMeters, 200);
   assert.equal(expired.location.distance.status, 'stale');
   assert.equal((await db.doc(`locationPrivate/${b.uid}`).get()).exists, true);
   await service.couple.cleanup();
   assert.equal((await db.doc(`locationPrivate/${b.uid}`).get()).exists, false);
+  assert.equal((await db.doc(`locationPrivate/${a.uid}`).get()).exists, true);
+  now = firstTime + 46 * 60_000 + 1;
+  await service.couple.cleanup();
+  for (const uid of [a.uid, b.uid]) assert.equal((await db.doc(`locationPrivate/${uid}`).get()).exists, false);
+  const previous = await (await request('/widgetSnapshot', credential, undefined, 'GET')).json();
+  assert.deepEqual(previous.distance, expired.location.distance); assertNoPrivateKeys(previous);
 });
 test('pausing erases samples and distance, keeps separate partner consent and fences a delayed update after re-enable', async () => {
   const {a, b, pair} = await paired(), la = await consent(a, pair), lb = await consent(b, pair);
@@ -320,6 +339,146 @@ test('closing a pair erases location consents/coordinates and denies old message
   await assert.rejects(call('memories', b, scope(pair)), /not_pair_member/);
   assert.equal((await request(photoPath(pair, item), b, undefined, 'GET')).status, 403);
   assert.equal((await request('/widgetSnapshot', credential, undefined, 'GET')).status, 403);
+});
+
+test('widget location derives user, pair and source device from its credential and never exposes coordinates', async () => {
+  const {a, b, outsider, pair} = await paired(), location = await consent(a, pair);
+  const credential = await widget(a, location.deviceId), partnerLocation = await consent(b, pair);
+  const otherDevice = await widget(a), partnerWidget = await widget(b, partnerLocation.deviceId);
+  assert.deepEqual((await service.widgetSnapshot(credential.token)).locationAccess, {consentVersion: location.consentVersion});
+  assert.equal((await service.widgetSnapshot(otherDevice.token)).locationAccess, null);
+  await assert.rejects(widgetSample(otherDevice, location), /403:location_consent_required/);
+  const result = await widgetSample(credential, location, {
+    uid: b.uid, pairId: randomUUID(), pairEpoch: 999, deviceId: partnerLocation.deviceId,
+    enabled: true, sequence: 999, sourceDeviceId: otherDevice.deviceId
+  });
+  assert.equal(result.location.sharingEnabled, true);
+  const ownSample = (await db.doc(`locationPrivate/${a.uid}`).get()).data();
+  assert.equal(ownSample.pairId, pair.id); assert.equal(ownSample.pairEpoch, pair.pairEpoch);
+  assert.equal(ownSample.deviceId, location.deviceId); assert.equal(ownSample.sequence, 1);
+  for (const uid of [b.uid, outsider.uid]) assert.equal((await db.doc(`locationPrivate/${uid}`).get()).exists, false);
+  await widgetSample(partnerWidget, partnerLocation, {latitude: -31.42, longitude: -64.19});
+  for (const token of [credential.token, otherDevice.token, partnerWidget.token]) assertNoPrivateKeys(await service.widgetSnapshot(token));
+  assert.equal((await call('getCoupleSpace', a, scope(pair))).location.distance.status, 'available');
+});
+
+test('widget samples use the next server sequence while app sequences and timestamp replay protection remain strict', async () => {
+  const {a, pair} = await paired(), location = await consent(a, pair), credential = await widget(a, location.deviceId);
+  await sample(a, pair, location, {sequence: 10});
+  now += 1;
+  await widgetSample(credential, location, {sequence: 1});
+  assert.equal((await db.doc(`locationPrivate/${a.uid}`).get()).data().sequence, 11);
+  await assert.rejects(widgetSample(credential, location, {sequence: Number.MAX_SAFE_INTEGER}), /409:stale_location_sample/);
+  now += 1;
+  await widgetSample(credential, location, {sequence: -1});
+  assert.equal((await db.doc(`locationPrivate/${a.uid}`).get()).data().sequence, 12);
+  now += 1;
+  await assert.rejects(sample(a, pair, location, {sequence: 12}), /stale_location_sample/);
+  await sample(a, pair, location, {sequence: 13});
+  assert.equal((await db.doc(`locationPrivate/${a.uid}`).get()).data().sequence, 13);
+});
+
+test('widget location rejects malformed, inaccurate, future and old GPS samples without retaining them', async () => {
+  const {a, pair} = await paired(), location = await consent(a, pair), credential = await widget(a, location.deviceId);
+  for (const values of [{latitude: 91}, {latitude: -91}, {longitude: 181}, {longitude: -181},
+    {latitude: null}, {longitude: '0'}, {horizontalAccuracy: -1}, {horizontalAccuracy: 5001},
+    {capturedAt: now + 60_001}, {capturedAt: now - 30 * 60_000}, {capturedAt: null},
+    {consentVersion: 0}, {consentVersion: 1.5}]) {
+    await assert.rejects(widgetSample(credential, location, values), /400:invalid_/);
+    assert.equal((await db.doc(`locationPrivate/${a.uid}`).get()).exists, false);
+  }
+  await widgetSample(credential, location, {latitude: -90, longitude: 180, horizontalAccuracy: 0});
+  const stored = (await db.doc(`locationPrivate/${a.uid}`).get()).data();
+  assert.equal(stored.latitude, -90); assert.equal(stored.longitude, 180); assert.equal(stored.accuracy, 0);
+});
+
+test('widgets cannot enable sharing, bypass a pause or reuse consent after changing source', async () => {
+  const {a, b, pair} = await paired(), credential = await widget(a);
+  assert.equal((await service.widgetSnapshot(credential.token)).locationAccess, null);
+  await assert.rejects(widgetSample(credential, {consentVersion: 1}, {enabled: true}), /403:location_consent_required/);
+  assert.equal((await db.doc(`pairs/${pair.id}/locationConsent/${a.uid}`).get()).exists, false);
+  const location = await consent(a, pair, credential.deviceId), partnerLocation = await consent(b, pair);
+  await assert.rejects(widgetSample(credential, {...location, consentVersion: location.consentVersion + 1}), /403:location_consent_required/);
+  await widgetSample(credential, location); await sample(b, pair, partnerLocation);
+  await call('setLocationConsent', a, {...scope(pair), enabled: false});
+  await assert.rejects(widgetSample(credential, location, {enabled: true}), /403:location_consent_required/);
+  assert.equal((await service.widgetSnapshot(credential.token)).locationAccess, null);
+  assert.equal((await db.doc(`pairs/${pair.id}/distance/current`).get()).exists, false);
+  for (const uid of [a.uid, b.uid]) assert.equal((await db.doc(`locationPrivate/${uid}`).get()).exists, false);
+  const resumed = await consent(a, pair, credential.deviceId);
+  await assert.rejects(widgetSample(credential, location), /403:location_consent_required/);
+  await widgetSample(credential, resumed);
+  const nextWidget = await widget(a), nextSource = await consent(a, pair, nextWidget.deviceId);
+  assert.equal((await service.widgetSnapshot(credential.token)).locationAccess, null);
+  await assert.rejects(widgetSample(credential, nextSource), /403:location_consent_required/);
+  await widgetSample(nextWidget, nextSource);
+  const stored = (await db.doc(`locationPrivate/${a.uid}`).get()).data();
+  assert.equal(stored.deviceId, nextWidget.deviceId); assert.equal(stored.consentVersion, nextSource.consentVersion);
+  assert.equal((await call('getCoupleSpace', b, scope(pair))).location.sharingEnabled, true);
+});
+
+test('widget location denies rotated, expired, removed, transferred and closed-pair credentials', async () => {
+  const {a, b, outsider, pair} = await paired(), location = await consent(a, pair), old = await widget(a, location.deviceId);
+  const rotated = {...await call('issueWidgetSession', a, {deviceId: location.deviceId}), deviceId: location.deviceId};
+  await assert.rejects(widgetSample(old, location), /401:widget_session_unavailable/);
+  await widgetSample(rotated, location);
+  await db.doc(`widgetSessions/${digest(rotated.token)}`).update({expiresAt: Timestamp.fromMillis(now)});
+  await assert.rejects(widgetSample(rotated, location), /401:widget_session_unavailable/);
+  const removed = await widget(a, location.deviceId);
+  await call('unregisterDevice', a, {deviceId: location.deviceId});
+  await assert.rejects(widgetSample(removed, location), /401:widget_session_unavailable/);
+  const nextSource = await consent(a, pair, location.deviceId), transferred = await widget(a, location.deviceId);
+  await call('registerDevice', outsider, {deviceId: location.deviceId});
+  await assert.rejects(widgetSample(transferred, nextSource), /401:widget_session_unavailable/);
+  const partnerLocation = await consent(b, pair), closed = await widget(b, partnerLocation.deviceId);
+  await call('closePair', a, scope(pair));
+  await assert.rejects(widgetSample(closed, partnerLocation), /403:not_pair_member|403:stale_pair_epoch/);
+  for (const uid of [a.uid, b.uid, outsider.uid]) assert.equal((await db.doc(`locationPrivate/${uid}`).get()).exists, false);
+});
+
+test('widget location revalidates credential, consent and pair inside the write transaction', async t => {
+  for (const change of ['rotate', 'remove', 'pause', 'source', 'close']) {
+    await t.test(change, async () => {
+      const {a, pair} = await paired(), location = await consent(a, pair), credential = await widget(a, location.deviceId);
+      const nextDevice = randomUUID(); await call('registerDevice', a, {deviceId: nextDevice});
+      const rate = service.rate.bind(service); let pending = true;
+      // The endpoint has already accepted/renewed its credential when it
+      // reaches this barrier. Revoke before its separate write transaction.
+      service.rate = async (uid, action, ...args) => {
+        await rate(uid, action, ...args);
+        if (uid !== a.uid || action !== 'location' || !pending) return;
+        pending = false;
+        if (change === 'rotate') await call('issueWidgetSession', a, {deviceId: location.deviceId});
+        if (change === 'remove') await call('unregisterDevice', a, {deviceId: location.deviceId});
+        if (change === 'pause') await call('setLocationConsent', a, {...scope(pair), enabled: false});
+        if (change === 'source') await call('setLocationConsent', a, {...scope(pair), enabled: true, deviceId: nextDevice});
+        if (change === 'close') await call('closePair', a, scope(pair));
+      };
+      try {
+        await assert.rejects(widgetSample(credential, location), /401:widget_session_unavailable|403:location_consent_required|403:not_pair_member|403:stale_pair_epoch/);
+        assert.equal(pending, false, 'The revocation must occur after preflight authorization');
+        assert.equal((await db.doc(`locationPrivate/${a.uid}`).get()).exists, false);
+        assert.equal((await db.doc(`pairs/${pair.id}/distance/current`).get()).exists, false);
+      } finally {service.rate = rate;}
+    });
+  }
+});
+
+test('widget location requires its own bearer and a raw object payload, with private error responses', async () => {
+  const {a, pair} = await paired(), location = await consent(a, pair), credential = await widget(a, location.deviceId);
+  for (const user of [undefined, a, {token: 'invalid'}]) {
+    const response = await request('/widgetLocation', user, {consentVersion: location.consentVersion,
+      latitude: 0, longitude: 0, horizontalAccuracy: 1, capturedAt: now});
+    assert.equal(response.status, 401); assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assertNoPrivateKeys(await response.json());
+  }
+  for (const body of [null, [], 'invalid', {data: {consentVersion: location.consentVersion}}]) {
+    const response = await request('/widgetLocation', credential, body);
+    assert.equal(response.status, 400); assert.equal(response.headers.get('cache-control'), 'private, no-store');
+    assertNoPrivateKeys(await response.json());
+  }
+  await assert.rejects(call('setLocationConsent', credential, {...scope(pair), enabled: true, deviceId: credential.deviceId}), /authentication_required/);
+  assert.equal((await db.doc(`locationPrivate/${a.uid}`).get()).exists, false);
 });
 
 

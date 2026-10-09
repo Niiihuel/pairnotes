@@ -111,7 +111,7 @@ final class LocationSharingController: NSObject, ObservableObject, CLLocationMan
         } catch is CancellationError { return }
         catch {
             guard current(captured, services: services, uid: uid, pair: pair) else { return }
-            message = "No se pudo actualizar la distancia. Podés reintentar desde Nosotros."
+            message = "La distancia se actualizará cuando vuelva la conexión."
         }
     }
 

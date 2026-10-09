@@ -321,8 +321,10 @@ después de leer S3. Cambiar/borrar fotos las vuelve inaccesibles antes de su li
 `distance` contiene siempre `{status,meters,updatedAt,accuracyMeters}`: `disabled`
 si falta algún consentimiento, `waiting` hasta disponer de dos muestras,
 `available` hasta 15 minutos desde la muestra más antigua y `stale` después.
-Al cumplir 30 minutos, `meters` y `accuracyMeters` pasan a `null`; se conserva la
-fecha de referencia para indicar antigüedad. La distancia se redondea a 100 m y
+La última distancia calculada y su precisión se conservan con la fecha original
+hasta pausar o revocar el vínculo/dispositivo; después de 15 minutos se muestra
+como anterior, sin afirmar que sea una medición actual. Las coordenadas privadas
+sí vencen a los 30 minutos. La distancia se redondea a 100 m y
 la incertidumbre combina ambas precisiones, redondeadas hacia arriba; un valor
 redondeado a cero no prueba que ambos estén juntos.
 
@@ -346,8 +348,10 @@ que invalida el token anterior de ese dispositivo. Autoriza exclusivamente:
   es sólo el último recibido y la distancia nunca incluye coordenadas.
   `credentialExpiresAt` permite renovar automáticamente el acceso del dispositivo.
   `validUntil` limita la caché privada a 24 horas; los widgets solicitan refresco
-  cada 15 minutos y por push. La distancia se oculta independientemente al alcanzar
-  los 30 minutos de antigüedad, sin desconectar los otros widgets.
+  cada 15 minutos y por push, bajo el presupuesto de iOS. `locationAccess` es
+  `null` o `{consentVersion}` únicamente cuando ese dispositivo es la fuente
+  que la persona activó; no habilita ubicación por sí solo. La última distancia
+  conserva su fecha y se muestra como anterior cuando deja de ser reciente.
 - `GET /widgetImage?noteId=<última recibida>` → PNG; 409 si la última nota cambió.
 - `GET /widgetAvatar?uid=<miembro>&avatarId=<id>` → PNG actual de uno de los dos
   miembros. `avatarId` es opcional y permite rechazar una foto sustituida con 409.
@@ -360,12 +364,21 @@ que invalida el token anterior de ese dispositivo. Autoriza exclusivamente:
 - `POST /widgetPushRegistration {token:<hex>,enabled:<bool>,environment?}`
   registra/desactiva únicamente el token del dispositivo de esa credencial.
   Una retirada antigua no elimina un token más nuevo.
+- `POST /widgetLocation {consentVersion,latitude,longitude,horizontalAccuracy,capturedAt}`
+  recibe una única medición propia desde el widget de distancia. Usuario, pareja
+  y dispositivo se derivan de la credencial. La escritura revalida en la misma
+  transacción la credencial vigente, época, dispositivo activo, fuente y versión
+  del consentimiento; asigna la siguiente secuencia del servidor y rechaza
+  muestras repetidas/antiguas. No activa consentimiento ni permite elegir otra
+  persona o dispositivo. Devuelve `{location}` sin coordenadas. Las rutas de la
+  app siguen sin aceptar la credencial del widget.
 
 Usan Bearer del widget y verifican dispositivo, vencimiento y época actual.
 Autorizan sólo ese resumen, las imágenes de la última nota y foto recibidas,
-la reacción a esa foto, los avatares de los dos miembros y el registro push propio.
+la reacción a esa foto, los avatares de los dos miembros, el registro push propio
+y una medición propia si ese dispositivo ya tiene consentimiento de ubicación.
 No autorizan historial de notas o mensajes,
-recuerdos/fotos de recuerdos, fuentes editables, coordenadas ni modificaciones de
+recuerdos/fotos de recuerdos, fuentes editables, lectura de coordenadas ni modificaciones de
 la pareja. Un Bearer del widget tampoco autentica las rutas de la app. Al cerrar pareja,
 rotar la credencial o quitar dispositivo fallan inmediatamente nuevas consultas;
 la caché del dispositivo puede permanecer hasta su vencimiento y la actualización

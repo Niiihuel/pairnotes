@@ -68,7 +68,7 @@ struct HomeView: View {
             }.padding(20)
         }
         .foregroundStyle(theme.ink)
-        .background(theme.canvas)
+        .coupleScreenBackground()
         .navigationTitle("Inicio").navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.foreground() }
     }

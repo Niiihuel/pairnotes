@@ -76,8 +76,7 @@ struct MessagesView: View {
             }
         }
         .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(theme.canvas)
+        .coupleScreenBackground()
         .navigationTitle("Mensajes")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

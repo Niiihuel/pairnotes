@@ -344,8 +344,10 @@ export class CoupleFeatures {
     let publicDistance: DocumentData = {status: enabled ? 'waiting' : 'disabled', meters: null, updatedAt: null, accuracyMeters: null};
     if (enabled && distance) {
       const age = this.service.now() - distance.updatedAt;
-      publicDistance = {status: age <= freshness ? 'available' : 'stale', meters: age < retention ? distance.meters : null,
-        updatedAt: distance.updatedAt, accuracyMeters: age < retention ? distance.accuracyMeters : null};
+      // Retain the derived value as a clearly dated previous distance. The raw
+      // coordinates still expire after retention and are never returned.
+      publicDistance = {status: age < freshness ? 'available' : 'stale', meters: distance.meters,
+        updatedAt: distance.updatedAt, accuracyMeters: distance.accuracyMeters};
     }
     return {sharingEnabled: mine?.enabled === true, sourceDeviceId: mine?.enabled ? mine.deviceId : null,
       consentVersion: mine?.version ?? 0, distance: publicDistance};
@@ -373,9 +375,11 @@ export class CoupleFeatures {
     const binding = (await tx.get(this.db.doc(`installationSessions/${digest(deviceId)}`))).data();
     if (!device?.active || (binding && (binding.uid !== caller.uid || binding.sessionId !== caller.sessionId))) fail('location_device_unavailable', 'permission-denied');
   }
-  async updateLocation(caller: Caller, input: Input): Promise<Input> {
+  async updateLocation(caller: Caller, input: Input,
+    authorizeWidget?: (tx: Transaction) => Promise<void>): Promise<Input> {
     const {pairId, pairEpoch} = pairInput(input), deviceId = id(input.deviceId, 'device_id');
-    const version = positive(input.consentVersion, 'consent_version'), sequence = positive(input.sequence, 'sequence');
+    const version = positive(input.consentVersion, 'consent_version');
+    const requestedSequence = authorizeWidget ? undefined : positive(input.sequence, 'sequence');
     const latitude = numeric(input.latitude, -90, 90, 'latitude'), longitude = numeric(input.longitude, -180, 180, 'longitude');
     const accuracy = numeric(input.horizontalAccuracy, 0, 5000, 'accuracy'), capturedAt = positive(input.capturedAt, 'captured_at');
     const now = this.service.now();
@@ -383,9 +387,11 @@ export class CoupleFeatures {
     await this.service.rate(caller.uid, 'location', 30, 60_000);
     await this.db.runTransaction(async tx => {
       const pair = await this.service.pair(tx, caller.uid, pairId, pairEpoch);
+      if (authorizeWidget) await authorizeWidget(tx);
       const consent = (await tx.get(this.db.doc(`pairs/${pairId}/locationConsent/${caller.uid}`))).data();
       if (!consent?.enabled || consent.version !== version || consent.deviceId !== deviceId) fail('location_consent_required', 'permission-denied');
-      await this.locationDevice(tx, caller, deviceId);
+      if (!authorizeWidget) await this.locationDevice(tx, caller, deviceId);
+      const sequence = requestedSequence ?? positive((consent.lastSequence ?? 0) + 1, 'sequence');
       const ref = this.db.doc(`locationPrivate/${caller.uid}`);
       if (sequence <= (consent.lastSequence ?? 0) || capturedAt <= (consent.lastCapturedAt ?? 0)) fail('stale_location_sample', 'aborted');
       const sample = {pairId, pairEpoch, deviceId, consentVersion: version, sequence, latitude, longitude, accuracy,

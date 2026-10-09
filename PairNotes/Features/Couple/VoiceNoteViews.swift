@@ -67,8 +67,7 @@ struct VoiceNotesView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(services.personalization.theme.canvas)
+        .coupleScreenBackground()
         .navigationTitle("Audios")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

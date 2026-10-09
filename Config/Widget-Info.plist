@@ -11,6 +11,7 @@
     <key>PAIRNOTES_APP_GROUP</key><string>$(PAIRNOTES_APP_GROUP)</string>
     <key>PAIRNOTES_KEYCHAIN_GROUP</key><string>$(PAIRNOTES_KEYCHAIN_GROUP)</string>
     <key>PAIRNOTES_APNS_ENVIRONMENT</key><string>$(PAIRNOTES_APNS_ENVIRONMENT)</string>
+    <key>NSWidgetWantsLocation</key><true/>
     <key>NSExtension</key><dict>
         <key>NSExtensionPointIdentifier</key><string>com.apple.widgetkit-extension</string>
     </dict>

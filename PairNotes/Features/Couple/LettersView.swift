@@ -58,7 +58,7 @@ struct LettersView: View {
                 }
                 if draftScope == key, let error { Text(error).font(.footnote).foregroundStyle(.secondary) }
             }.padding(20)
-        }.background(LetterStationeryPalette(dark: colorScheme == .dark).canvas)
+        }.coupleScreenBackground()
         .navigationTitle("Cartas").navigationBarTitleDisplayMode(.inline)
         .tint(LetterStationeryPalette(dark: colorScheme == .dark).accent)
         .toolbar { ToolbarItem(placement: .primaryAction) { Button(hasLocalDraft ? "Retomar borrador" : "Escribir carta", systemImage: "square.and.pencil", action: beginComposition) } }
@@ -223,7 +223,7 @@ struct LetterDetailView: View {
                     }
                 }.frame(maxWidth: 640).padding(20).frame(maxWidth: .infinity)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: opened != nil)
-            }.background(stationery.canvas)
+            }.coupleScreenBackground()
             .navigationTitle("Carta").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { dismiss() } } }
             .sensoryFeedback(.impact(weight: .light, intensity: 0.5), trigger: feedback)

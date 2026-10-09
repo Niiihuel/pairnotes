@@ -540,7 +540,7 @@ struct NativePaperEditorView: View {
                 .padding(.horizontal, 16).padding(.top, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .background(Color(uiColor: .systemGroupedBackground))
+            .coupleScreenBackground()
             .navigationTitle(session.title).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -663,6 +663,7 @@ struct NativePaperEditorView: View {
                 }
                 Button("Agregar capa", systemImage: "plus") { session.controller.addLayer() }
             }
+            .coupleScreenBackground()
             .navigationTitle("Capas").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Listo") { showingLayers = false } } }
         }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
@@ -868,6 +869,7 @@ private struct PaperBackgroundPicker: View {
                     Text("El color se guarda con el dibujo y también aparece al enviarlo, exportarlo y en el widget.")
                 }
             }
+            .coupleScreenBackground()
             .navigationTitle("Color de la hoja").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Listo") { dismiss() } }

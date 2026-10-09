@@ -2,6 +2,38 @@ import PairNotesCore
 import SwiftUI
 import UIKit
 
+private struct CoupleAppThemeKey: EnvironmentKey {
+    static let defaultValue: CoupleTheme = .rose
+}
+
+extension EnvironmentValues {
+    var coupleAppTheme: CoupleTheme {
+        get { self[CoupleAppThemeKey.self] }
+        set { self[CoupleAppThemeKey.self] = newValue }
+    }
+}
+
+/// The surrounding app surface is shared by collections, forms and sheets.
+/// Paper, photographs and other content keep their own surfaces inside it.
+private struct CoupleScreenBackground: ViewModifier {
+    @Environment(\.coupleAppTheme) private var inheritedTheme
+    let theme: CoupleTheme?
+
+    func body(content: Content) -> some View {
+        let background = (theme ?? inheritedTheme).canvas
+        content
+            .scrollContentBackground(.hidden)
+            .background(background.ignoresSafeArea())
+            .presentationBackground(background)
+    }
+}
+
+extension View {
+    func coupleScreenBackground(_ theme: CoupleTheme? = nil) -> some View {
+        modifier(CoupleScreenBackground(theme: theme))
+    }
+}
+
 extension CoupleTheme {
     var accent: Color { adaptive(accentRGB, dark: self == .cream ? 0xE0BB95 : self == .rose ? 0xE7A5BB : 0xD8B6EE) }
     var paper: Color { adaptive(paperRGB, dark: 0x26282E) }

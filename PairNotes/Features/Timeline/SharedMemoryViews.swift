@@ -146,6 +146,7 @@ struct MemoryDetailView: View {
                 }
             }
             .disabled(busy)
+            .coupleScreenBackground()
             .navigationTitle("Recuerdo").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Listo") { dismiss() } }
@@ -298,6 +299,7 @@ struct SharedMemoryEditor: View {
                 if busy { ProgressView("Guardando recuerdo…") }
             }
             .disabled(busy)
+            .coupleScreenBackground()
             .navigationTitle(original == nil ? "Nuevo recuerdo" : "Editar recuerdo").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cerrar") { if changed { discarding = true } else { finished = true; storage.clear(); dismiss() } }.disabled(busy) }

@@ -16,24 +16,31 @@ struct CoupleEntry: TimelineEntry {
 }
 
 struct CoupleProvider: TimelineProvider {
+    var updatesLocation: Bool = false
+
     func placeholder(in context: Context) -> CoupleEntry { .empty(message: "Su espacio compartido") }
 
     func getSnapshot(in context: Context, completion: @escaping (CoupleEntry) -> Void) {
         if context.isPreview { completion(placeholder(in: context)); return }
         Task {
-            let result = await WidgetRemoteClient.shared.refresh()
+            let result = await refresh()
             completion(entry(result, at: Date()))
         }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<CoupleEntry>) -> Void) {
         Task {
-            let result = await WidgetRemoteClient.shared.refresh()
+            let result = await refresh()
             let now = Date()
             let expiry = result.expiresAt ?? now.addingTimeInterval(15 * 60)
+            guard expiry > now else {
+                completion(Timeline(entries: [.empty(at: now, message: "Esperando conexión…")],
+                                    policy: .after(now.addingTimeInterval(15 * 60))))
+                return
+            }
             var dates: [Date] = [now]
             if let updated = result.couple?.distance.updatedAt {
-                dates += [updated.addingTimeInterval(CoupleDistance.freshAge), updated.addingTimeInterval(CoupleDistance.maximumAge)]
+                dates += [updated.addingTimeInterval(CoupleDistance.freshAge)]
                     .filter { $0 > now && $0 < expiry }
             }
             if let midnight = Calendar.current.dateInterval(of: .day, for: now)?.end,
@@ -44,10 +51,17 @@ struct CoupleProvider: TimelineProvider {
         }
     }
 
+    private func refresh() async -> WidgetRefreshResult {
+        if updatesLocation { return await WidgetRemoteClient.shared.refreshDistance() }
+        return await WidgetRemoteClient.shared.refresh()
+    }
+
     private func entry(_ result: WidgetRefreshResult, at date: Date) -> CoupleEntry {
-        CoupleEntry(date: date, snapshot: result.couple, avatars: result.avatars,
-                    message: result.message,
-                    cached: result.cached)
+        if let expiry = result.expiresAt, date >= expiry {
+            return .empty(at: date, message: "Esperando conexión…")
+        }
+        return CoupleEntry(date: date, snapshot: result.couple, avatars: result.avatars,
+                           message: result.message, cached: result.cached)
     }
 }
 
@@ -73,7 +87,7 @@ private struct CoupleWidgetView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: accessory ? 2 : 7) {
-            if !(accessory && (content == .distance || content == .message || content == .together)) {
+            if content != .distance && !(accessory && (content == .message || content == .together)) {
                 Label(title, systemImage: content == .message ? "bubble.left.fill" : "heart")
                     .font(accessory ? .caption.weight(.semibold) : .headline).lineLimit(1)
                     .widgetAccentable()
@@ -160,35 +174,7 @@ private struct CoupleWidgetView: View {
     }
 
     private func distanceContent(_ snapshot: CoupleWidgetSnapshot) -> some View {
-        let presentation = CoupleDistancePresentation(distance: snapshot.distance, at: entry.date)
-        let size: CGFloat = accessory ? 28 : family == .systemSmall ? 36 : 48
-        return VStack(spacing: accessory ? 2 : 8) {
-            Text(presentation.title).font(accessory ? .caption.bold() : .headline)
-                .minimumScaleFactor(0.85).lineLimit(1)
-            GeometryReader { geometry in
-                let available = max(0, geometry.size.width - size * 2 - (accessory ? 24 : 30))
-                let spread = available * presentation.separation
-                HStack(spacing: 0) {
-                    if let first = snapshot.profiles.first { avatar(first, size: size) }
-                    Spacer().frame(width: spread / 2)
-                    Image(systemName: "heart.fill").font(.system(size: accessory ? 14 : 20))
-                        .overlay(alignment: .topTrailing) {
-                            Image(systemName: "heart.fill").font(.system(size: accessory ? 9 : 13)).offset(x: 4, y: -3)
-                        }
-                        .frame(width: accessory ? 24 : 30)
-                        .foregroundStyle(accessory || renderingMode != .fullColor ? Color.primary : theme.accent)
-                        .widgetAccentable()
-                        .opacity(presentation.fresh ? 1 : 0.5)
-                    Spacer().frame(width: spread / 2)
-                    if let last = snapshot.profiles.last, snapshot.profiles.count > 1 { avatar(last, size: size) }
-                }
-                .frame(width: geometry.size.width, height: size)
-            }.frame(height: size)
-            Text(presentation.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(snapshot.profiles.map(\.displayName).joined(separator: " y ")). \(presentation.title). \(presentation.detail)")
+        WidgetDistanceContent(date: entry.date, avatars: entry.avatars, snapshot: snapshot)
     }
 
     private func avatar(_ profile: CoupleProfile, size: CGFloat) -> some View {
@@ -255,7 +241,7 @@ struct AnniversaryWidget: Widget {
 
 struct DistanceWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: SharedWidgetContainer.distanceKind, provider: CoupleProvider()) {
+        StaticConfiguration(kind: SharedWidgetContainer.distanceKind, provider: CoupleProvider(updatesLocation: true)) {
             CoupleWidgetView(entry: $0, content: .distance)
         }
         .configurationDisplayName("Nuestra distancia")
@@ -279,7 +265,8 @@ struct ThinkingOfYouWidget: Widget {
 
 private enum CoupleWidgetPreviewData {
     @MainActor
-    static func entry(missingAvatars: Bool = false, stale: Bool = false) -> CoupleEntry {
+    static func entry(missingAvatars: Bool = false, stale: Bool = false, meters: Double = 2500,
+                      status: CoupleDistanceStatus = .available, age: TimeInterval = 0) -> CoupleEntry {
         let now = Date()
         let first = portrait(background: UIColor(red: 0.16, green: 0.32, blue: 0.51, alpha: 1))
         let second = portrait(background: UIColor(red: 0.54, green: 0.23, blue: 0.32, alpha: 1))
@@ -289,11 +276,11 @@ private enum CoupleWidgetPreviewData {
             startedOn: CoupleDate(rawValue: "2023-05-07"),
             latestMessage: CoupleMessage(id: "preview-message", authorID: "preview-sam", recipientID: "preview-alex",
                                          text: "Te extraño demasiado ♡", sentAt: now),
-            distance: CoupleDistance(status: .available, meters: 2500,
-                updatedAt: stale ? now.addingTimeInterval(-20 * 60) : now, accuracyMeters: 20))
+            distance: CoupleDistance(status: status, meters: meters,
+                updatedAt: now.addingTimeInterval(-max(age, stale ? 20 * 60 : 0)), accuracyMeters: 20))
         return CoupleEntry(date: now, snapshot: snapshot,
             avatars: missingAvatars ? [:] : ["preview-alex": first, "preview-sam": second],
-            message: "", cached: stale)
+            message: "", cached: false)
     }
 
     @MainActor
@@ -335,11 +322,21 @@ struct CoupleWidgetAvatar_Previews: PreviewProvider {
                 .environment(\.widgetRenderingMode, .vibrant)
                 .previewContext(WidgetPreviewContext(family: .accessoryRectangular))
                 .previewDisplayName("Avatares · distancia desactualizada")
-            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(), content: .message)
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(), content: .distance)
                 .environment(\.widgetRenderingMode, .vibrant)
                 .redacted(reason: .privacy)
                 .previewContext(WidgetPreviewContext(family: .accessoryRectangular))
                 .previewDisplayName("Avatares · contenido privado")
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(meters: 30), content: .distance)
+                .previewContext(WidgetPreviewContext(family: .systemSmall))
+                .previewDisplayName("Distancia · cerca en pequeño")
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(meters: 4_000_000, age: 3 * 86_400), content: .distance)
+                .previewContext(WidgetPreviewContext(family: .systemSmall))
+                .previewDisplayName("Distancia · última conocida")
+            CoupleWidgetView(entry: CoupleWidgetPreviewData.entry(status: .disabled), content: .distance)
+                .environment(\.widgetRenderingMode, .vibrant)
+                .previewContext(WidgetPreviewContext(family: .accessoryRectangular))
+                .previewDisplayName("Distancia · compartir pausado")
         }
     }
 }

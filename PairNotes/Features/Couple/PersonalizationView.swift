@@ -80,6 +80,8 @@ struct PersonalizationView: View {
         }
         .tint(value.theme.accent)
         .disabled(saving)
+        .coupleScreenBackground(value.theme)
+        .preferredColorScheme(value.theme == .night ? .dark : nil)
         .navigationTitle("Apariencia").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {

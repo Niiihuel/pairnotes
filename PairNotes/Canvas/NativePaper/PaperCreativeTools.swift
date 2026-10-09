@@ -109,6 +109,7 @@ struct PaperEyedropper: View {
                 }
                 Spacer(minLength: 0)
             }.padding()
+                .coupleScreenBackground()
                 .navigationTitle("Cuentagotas").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
@@ -207,6 +208,7 @@ struct PersonalStickerLibrary: View {
                     if let error { Text(error).font(.callout).foregroundStyle(.red) }
                 }.padding()
             }.disabled(busy)
+                .coupleScreenBackground()
                 .navigationTitle("Mis stickers").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Listo") { dismiss() }.disabled(busy) } }
                 .interactiveDismissDisabled(busy)

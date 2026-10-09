@@ -128,7 +128,7 @@ struct LetterComposer: View {
                 }.frame(maxWidth: 640).padding(20).frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(stationery.canvas)
+            .coupleScreenBackground()
             .safeAreaInset(edge: .bottom) { sendBar }
             .navigationTitle(startsWithVoice ? "Tu voz" : "Escribir carta").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -185,7 +185,7 @@ struct LetterComposer: View {
                 attachmentsSection
                 voiceSection
             }
-            .scrollContentBackground(.hidden).background(stationery.canvas)
+            .coupleScreenBackground()
             .navigationTitle("Adjuntos").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

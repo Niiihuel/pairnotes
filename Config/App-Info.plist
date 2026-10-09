@@ -15,7 +15,7 @@
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>ITSAppUsesNonExemptEncryption</key><false/>
-    <key>NSLocationWhenInUseUsageDescription</key><string>Si activás Compartir distancia, PairNotes usa tu ubicación al abrir la app para calcular la distancia aproximada con tu pareja. Podés pausarlo cuando quieras.</string>
+    <key>NSLocationWhenInUseUsageDescription</key><string>Si activás Compartir distancia, PairNotes usa tu ubicación al usar la app o su widget para calcular la distancia aproximada con tu pareja. Podés pausarlo cuando quieras.</string>
     <key>UILaunchScreen</key><dict/>
     <key>UIApplicationSceneManifest</key><dict>
         <key>UIApplicationSupportsMultipleScenes</key><false/>

@@ -76,6 +76,7 @@ struct QuickPhotoComposer: View {
                     }
                 }.padding(20)
             }
+            .coupleScreenBackground()
             .navigationTitle("Enviar foto").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

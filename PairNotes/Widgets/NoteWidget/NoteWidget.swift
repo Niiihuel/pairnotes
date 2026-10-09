@@ -73,13 +73,13 @@ struct ReceivedNoteWidgetView: View {
                     if let published = entry.publishedAt, family != .systemSmall {
                         Text(published, style: .time).font(.caption2).foregroundStyle(.secondary)
                     }
-                }.padding(.horizontal, 12).padding(.top, 10)
-                Image(uiImage: image).resizable().widgetAccentedRenderingMode(.fullColor).scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityLabel("Último dibujo recibido de \(entry.authorName ?? "tu pareja")")
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.top, 10)
+                WidgetNotePaper(image: image,
+                    label: "Último dibujo recibido de \(entry.authorName ?? "tu pareja")")
                     .privacySensitive()
-                    .clipped()
-                    .padding(.horizontal, 8).padding(.bottom, 8)
+                    .padding(.horizontal, 12).padding(.bottom, 12)
             } else {
                 Label("PairNotes", systemImage: "heart.text.clipboard").font(.headline)
                 Text(entry.message).font(.caption).foregroundStyle(.secondary)

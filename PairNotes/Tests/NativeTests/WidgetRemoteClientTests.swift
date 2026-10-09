@@ -301,7 +301,77 @@ final class WidgetRemoteClientTests: XCTestCase {
         XCTAssertGreaterThan(far.separation, near.separation)
         let expired = CoupleDistancePresentation(distance: CoupleDistance(status: .available, meters: 30,
             updatedAt: now.addingTimeInterval(-CoupleDistance.maximumAge), accuracyMeters: 20), at: now)
-        XCTAssertEqual(expired.title, "Sin ubicación reciente")
+        XCTAssertEqual(expired.title, "≈ menos de 100 m")
+        XCTAssertEqual(expired.detail, "Ubicación anterior")
+        XCTAssertFalse(expired.fresh)
+        XCTAssertEqual(expired.separation, near.separation)
+        XCTAssertNotNil(expired.updatedAt)
+    }
+
+    func testDistanceSeparationIsMonotonicAcrossItsWholeRangeAndDoesNotChangeAsItAges() {
+        let now = Date()
+        let ranges: [Double] = [0, 30, 100, 500, 1_000, 10_000, 100_000, 1_000_000, 21_000_000]
+        var previous: CGFloat = -1
+        for meters in ranges {
+            let fresh = CoupleDistancePresentation(distance: CoupleDistance(status: .available,
+                meters: meters, updatedAt: now, accuracyMeters: 20), at: now)
+            let old = CoupleDistancePresentation(distance: CoupleDistance(status: .available,
+                meters: meters, updatedAt: now.addingTimeInterval(-3 * 86_400), accuracyMeters: 20), at: now)
+            XCTAssertGreaterThan(fresh.separation, previous)
+            XCTAssertGreaterThanOrEqual(fresh.separation, 0)
+            XCTAssertLessThanOrEqual(fresh.separation, 1)
+            XCTAssertEqual(fresh.separation, old.separation)
+            XCTAssertTrue(old.hasDistance)
+            XCTAssertFalse(old.fresh)
+            XCTAssertNotEqual(old.title, "¡Estamos juntos!")
+            XCTAssertEqual(old.detail, "Ubicación anterior")
+            previous = fresh.separation
+        }
+    }
+
+    func testUnavailableDistancesHaveNeutralGeometryAndNeverExposeAnOldMeasurement() {
+        let now = Date()
+        for status in [CoupleDistanceStatus.disabled, .waiting] {
+            let value = CoupleDistancePresentation(distance: CoupleDistance(status: status,
+                meters: 30, updatedAt: now, accuracyMeters: 20), at: now)
+            XCTAssertFalse(value.hasDistance)
+            XCTAssertNil(value.updatedAt)
+            XCTAssertEqual(value.separation, 0.5)
+            XCTAssertNotEqual(value.symbol, "heart.fill")
+        }
+        for meters in [-1.0, .infinity, .nan, 21_000_001] {
+            let value = CoupleDistancePresentation(distance: CoupleDistance(status: .available,
+                meters: meters, updatedAt: now, accuracyMeters: 20), at: now)
+            XCTAssertFalse(value.hasDistance)
+            XCTAssertNil(value.updatedAt)
+        }
+    }
+
+    func testDistanceAvatarLayoutFitsNarrowAccessoriesAndMovesFacesTogetherAsDistanceDecreases() {
+        for width: CGFloat in [0, 1, 60, 100, 126, 152, 271, 600] {
+            for compact in [false, true] {
+                let size: CGFloat = compact ? 28 : 48
+                let near = CoupleDistanceAvatarLayout(width: width, preferredAvatarSize: size,
+                    separation: 0, compact: compact)
+                let far = CoupleDistanceAvatarLayout(width: width, preferredAvatarSize: size,
+                    separation: 1, compact: compact)
+                XCTAssertLessThanOrEqual(near.connectorWidth, far.connectorWidth)
+                for layout in [near, far] {
+                    XCTAssertGreaterThanOrEqual(layout.avatarDiameter, 0)
+                    XCTAssertLessThanOrEqual(layout.avatarDiameter, size)
+                    XCTAssertGreaterThanOrEqual(layout.leadingInset, 0)
+                    XCTAssertEqual(layout.leadingInset * 2 + layout.avatarDiameter * 2 + layout.connectorWidth,
+                                   width, accuracy: 0.001)
+                }
+            }
+        }
+        for width: CGFloat in [-1, .infinity, .nan] {
+            let layout = CoupleDistanceAvatarLayout(width: width, preferredAvatarSize: 28,
+                separation: .nan, compact: true)
+            XCTAssertEqual(layout.width, 0)
+            XCTAssertEqual(layout.avatarDiameter, 0)
+            XCTAssertEqual(layout.connectorWidth, 0)
+        }
     }
 }
 

@@ -242,6 +242,7 @@ struct RootView: View {
             default: break
             }
         }
+        .environment(\.coupleAppTheme, services.personalization.theme)
     }
 
     private func openDraft(_ draft: DraftSummary?) {
@@ -428,6 +429,7 @@ struct ReceivedNoteDetailView: View {
                 }
             }.padding()
         }
+        .coupleScreenBackground()
         .navigationTitle("Recuerdo").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { dismiss() } } }
         .task { await load() }

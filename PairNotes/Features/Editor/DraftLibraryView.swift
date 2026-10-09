@@ -212,6 +212,7 @@ struct DraftLibraryView: View {
                 }.padding().background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding()
             }
         }
+        .coupleScreenBackground()
         .navigationTitle("Dibujos")
         .onChange(of: model.identity?.uid) { _, _ in copiedGuest = []; copyingGuest = nil }
         .refreshable {

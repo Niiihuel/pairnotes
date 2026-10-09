@@ -11,20 +11,27 @@ struct WidgetRefreshResult: Sendable {
     let cached: Bool
     let expiresAt: Date?
     let needsAuthorization: Bool
+    let locationAccess: WidgetLocationAccess?
 
     init(snapshot: NoteWidgetSnapshot?, couple: CoupleWidgetSnapshot? = nil, avatars: [String: Data] = [:], photoData: Data? = nil,
          photoInteractionMessage: String? = nil,
-         message: String, cached: Bool, expiresAt: Date?, needsAuthorization: Bool = false) {
+         message: String, cached: Bool, expiresAt: Date?, needsAuthorization: Bool = false,
+         locationAccess: WidgetLocationAccess? = nil) {
         self.snapshot = snapshot; self.couple = couple; self.avatars = avatars
         self.photoData = photoData
         self.photoInteractionMessage = photoInteractionMessage
         self.message = message; self.cached = cached; self.expiresAt = expiresAt
         self.needsAuthorization = needsAuthorization
+        self.locationAccess = locationAccess
     }
 
     static func empty(_ message: String, needsAuthorization: Bool = false) -> Self {
         Self(snapshot: nil, message: message, cached: false, expiresAt: nil, needsAuthorization: needsAuthorization)
     }
+}
+
+struct WidgetLocationAccess: Decodable, Sendable {
+    let consentVersion: UInt64
 }
 
 private struct ServerWidgetNote: Decodable {
@@ -51,6 +58,7 @@ private struct ServerWidgetSnapshot: Decodable {
     let latestMessage: CoupleMessage?
     let latestPhoto: CouplePhoto?
     let distance: CoupleDistance?
+    let locationAccess: WidgetLocationAccess?
 }
 
 private struct AuthorizedWidgetCache: Codable {
@@ -89,16 +97,21 @@ actor WidgetRemoteClient {
     private var flightAuthorization: WidgetAuthorization?
     private var generation = 0
     private var authorizationGeneration = 0
+    private let locationSampler: @Sendable () async -> WidgetLocationSample?
+    private var distanceFlight: (id: UUID, authorization: WidgetAuthorization, task: Task<WidgetRefreshResult, Never>)?
+    private var lastLocationAttempt: (authorization: WidgetAuthorization, date: Date)?
     private let maximumImageBytes = 4 * 1024 * 1024
     private let maximumPhotoBytes = 5 * 1024 * 1024
 
     init(session: URLSession? = nil,
          authorization: @escaping @Sendable () -> WidgetAuthorization? = { WidgetAccessStore.load() },
          saveAuthorization: @escaping @Sendable (WidgetAuthorization) throws -> Void = { try WidgetAccessStore.save($0) },
+         sampleLocation: @escaping @Sendable () async -> WidgetLocationSample? = { await WidgetLocationSampler().sample() },
          directory: @escaping @Sendable () -> URL? = { SharedWidgetContainer.directory() }) {
         authorizationProvider = authorization
         authorizationSaver = saveAuthorization
         directoryProvider = directory
+        locationSampler = sampleLocation
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 8
         configuration.timeoutIntervalForResource = 15
@@ -121,14 +134,83 @@ actor WidgetRemoteClient {
         return result
     }
 
+    /// Only the distance provider requests a measurement. Other widgets and the
+    /// app keep their ordinary refresh path and never start Location Services.
+    func refreshDistance() async -> WidgetRefreshResult {
+        guard let authorization = authorizationProvider(), authorization.isUsable() else { return await refresh() }
+        if let flight = distanceFlight, flight.authorization.hasSameCredential(as: authorization) {
+            return await flight.task.value
+        }
+        distanceFlight?.task.cancel()
+        let id = UUID()
+        let task = Task { await performDistanceRefresh(authorization) }
+        distanceFlight = (id, authorization, task)
+        let result = await task.value
+        if distanceFlight?.id == id { distanceFlight = nil }
+        return result
+    }
+
+    private func performDistanceRefresh(_ authorization: WidgetAuthorization) async -> WidgetRefreshResult {
+        let captured = authorizationGeneration
+        let result = await refresh()
+        func stillCurrent() -> Bool {
+            guard authorizationGeneration == captured, !Task.isCancelled,
+                  let latest = authorizationProvider(), latest.isUsable() else { return false }
+            return latest.hasSameCredential(as: authorization)
+        }
+        guard stillCurrent() else { return .empty("Actualizando su espacio…") }
+        guard !result.cached, !result.needsAuthorization, let access = result.locationAccess,
+              access.consentVersion > 0, access.consentVersion <= 9_007_199_254_740_991 else { return result }
+        if let previous = lastLocationAttempt, previous.authorization.hasSameCredential(as: authorization),
+           Date().timeIntervalSince(previous.date) < 5 * 60 { return result }
+        lastLocationAttempt = (authorization, Date())
+        let measured = await locationSampler()
+        guard stillCurrent() else { return .empty("Actualizando su espacio…") }
+        guard let sample = measured, sample.isUsable() else { return result }
+        do {
+            // This narrow credential cannot enable sharing or choose a person,
+            // pair or device. The server checks the consent again at write time.
+            guard let latest = authorizationProvider() else { return .empty("Actualizando su espacio…") }
+            var request = try request("widgetLocation", authorization: latest)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "consentVersion": access.consentVersion, "latitude": sample.latitude, "longitude": sample.longitude,
+                "horizontalAccuracy": sample.horizontalAccuracy,
+                "capturedAt": Int64(sample.capturedAt.timeIntervalSince1970 * 1_000)
+            ])
+            let (_, response) = try await session.data(for: request)
+            guard stillCurrent() else { return .empty("Actualizando su espacio…") }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401 || status == 403 {
+                // A pause or replaced source must not leave a previous distance
+                // on screen. Re-fetch the authorized snapshot without measuring.
+                invalidateSnapshotFlight()
+                removeCache()
+                return await refresh()
+            }
+            guard status == 200 else { return result }
+            return await refresh()
+        } catch {
+            return stillCurrent() ? result : .empty("Actualizando su espacio…")
+        }
+    }
+
     func clearCache() {
-        generation += 1
+        invalidateSnapshotFlight()
         authorizationGeneration += 1
+        distanceFlight?.task.cancel()
+        distanceFlight = nil
+        lastLocationAttempt = nil
+        removeCache()
+    }
+
+    private func invalidateSnapshotFlight() {
+        generation += 1
         inFlight?.cancel()
         inFlight = nil
         flightID = nil
         flightAuthorization = nil
-        removeCache()
     }
 
     private var cacheURL: URL? {
@@ -289,7 +371,7 @@ actor WidgetRemoteClient {
             return WidgetRefreshResult(snapshot: snapshot, couple: couple, avatars: avatars, photoData: photoData,
                                        photoInteractionMessage: feedback?.message,
                                        message: snapshot == nil ? "Tu próxima nota recibida aparecerá acá." : "",
-                                       cached: false, expiresAt: expiration)
+                                       cached: false, expiresAt: expiration, locationAccess: remote.locationAccess)
         } catch {
             guard current(authorization, generation: captured), let url = cacheURL,
                   let bytes = try? Data(contentsOf: url),

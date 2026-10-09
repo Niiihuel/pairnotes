@@ -60,6 +60,7 @@ struct TimelineView: View {
                 Section { Text(status).font(.footnote).foregroundStyle(.secondary) }
             }
         }
+        .coupleScreenBackground()
         .navigationTitle("Recuerdos")
         .refreshable { await model.foreground() }
     }

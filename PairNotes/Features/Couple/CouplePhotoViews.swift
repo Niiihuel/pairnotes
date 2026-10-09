@@ -92,6 +92,7 @@ struct CouplePhotoDetailView: View {
                 }
             }.padding(20)
         }
+        .coupleScreenBackground()
         .navigationTitle("Foto").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Listo") { dismiss() } } }
         .task(id: scope) { await load() }

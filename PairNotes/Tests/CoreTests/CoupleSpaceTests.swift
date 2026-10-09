@@ -67,13 +67,15 @@ final class CoupleSpaceTests: XCTestCase {
         XCTAssertTrue(source.monthlyMilestones(after: Date(), count: 3, hour: 24).isEmpty)
     }
 
-    func testDistanceAgesToStaleThenHidesNumberAtThirtyMinutes() {
+    func testDistanceAgesToStaleAndPreservesItsDatedNumber() {
         let update = instant("2026-10-04T12:00:00Z")
         let distance = CoupleDistance(status: .available, meters: 1_200, updatedAt: update, accuracyMeters: 200)
         XCTAssertEqual(distance.displayStatus(at: update.addingTimeInterval(899)), .available)
         XCTAssertEqual(distance.displayStatus(at: update.addingTimeInterval(900)), .stale)
         XCTAssertEqual(distance.displayMeters(at: update.addingTimeInterval(1_799)), 1_200)
-        XCTAssertNil(distance.displayMeters(at: update.addingTimeInterval(1_800)))
+        XCTAssertEqual(distance.displayMeters(at: update.addingTimeInterval(1_800)), 1_200)
+        XCTAssertEqual(distance.displayMeters(at: update.addingTimeInterval(86_400)), 1_200)
+        XCTAssertEqual(distance.displayStatus(at: update.addingTimeInterval(86_400)), .stale)
     }
 
     func testDisabledWaitingInvalidAndFutureDistancesNeverExposeANumber() {

@@ -494,15 +494,35 @@ export class PairNotesService {
       return {schemaVersion: 1, pairId: session.pairId, pairEpoch: session.pairEpoch, note: note ? publicNote(note) : null,
         authorDisplayName: profile?.displayName ?? null, imageSHA256: note?.widgetSHA256 ?? null, generatedAt: this.now(),
         credentialExpiresAt, validUntil: this.now() + 24 * 60 * 60_000, uid: session.uid, deviceId: session.deviceId,
+        locationAccess: space.location.sharingEnabled && space.location.sourceDeviceId === session.deviceId
+          ? {consentVersion: space.location.consentVersion} : null,
         latestPhoto: space.latestPhoto, latestGesture: space.latestGesture, personalization: space.personalization, profiles: space.profiles, startedOn: space.startedOn, latestMessage: space.latestMessage, distance: space.location.distance};
     });
   }
   async widgetSnapshot(secret: string): Promise<DocumentData> {
     const state = await this.widgetState(secret), note = state.note;
     return {schemaVersion: 1, pairId: state.pairId, pairEpoch: state.pairEpoch, generatedAt: state.generatedAt, validUntil: state.validUntil, credentialExpiresAt: state.credentialExpiresAt,
+      locationAccess: state.locationAccess,
       latestPhoto: state.latestPhoto, latestGesture: state.latestGesture, personalization: state.personalization, profiles: state.profiles, startedOn: state.startedOn, latestMessage: state.latestMessage, distance: state.distance,
       note: note ? {id: note.id, revision: note.revision, revisionHash: note.revisionHash, publishedAt: note.publishedAt,
         authorDisplayName: state.authorDisplayName, imageSHA256: state.imageSHA256} : null};
+  }
+  async widgetLocation(secret: string, input: Input): Promise<Input> {
+    const state = await this.widgetState(secret), hash = digest(secret);
+    // Scope comes entirely from the credential. The widget cannot enable
+    // sharing, choose another device/person or read either person's coordinates.
+    return this.couple.updateLocation({uid: state.uid, authTime: 0}, {
+      consentVersion: input.consentVersion, latitude: input.latitude, longitude: input.longitude,
+      horizontalAccuracy: input.horizontalAccuracy, capturedAt: input.capturedAt,
+      pairId: state.pairId, pairEpoch: state.pairEpoch, deviceId: state.deviceId
+    }, async tx => {
+      const session = (await tx.get(this.db.doc(`widgetSessions/${hash}`))).data();
+      if (!session || session.expiresAt.toMillis() <= this.now() || session.uid !== state.uid ||
+        session.deviceId !== state.deviceId || session.pairId !== state.pairId || session.pairEpoch !== state.pairEpoch)
+        fail('widget_session_unavailable', 'unauthenticated');
+      const device = (await tx.get(this.db.doc(`users/${session.uid}/devices/${session.deviceId}`))).data();
+      if (!device?.active || device.widgetSessionHash !== hash) fail('widget_session_unavailable', 'unauthenticated');
+    });
   }
   async widgetPushRegistration(secret: string, input: Input): Promise<Input> {
     if (typeof input.enabled !== 'boolean') fail('invalid_enabled', 'invalid-argument');

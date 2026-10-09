@@ -112,6 +112,7 @@ struct CoupleView: View {
             }
         }
         .disabled(busy)
+        .coupleScreenBackground()
         .navigationTitle("Nosotros")
         .toolbar {
             if services.identity != nil {
@@ -373,6 +374,7 @@ private struct ProfileEditor: View {
                 if saving { Section { ProgressView("Guardando…") } }
             }
             .disabled(saving)
+            .coupleScreenBackground()
             .navigationTitle("Editar perfil").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -456,6 +458,7 @@ private struct AcceptInvitationView: View {
                 if linking { Section { ProgressView("Vinculando cuentas…") } }
             }
             .disabled(linking)
+            .coupleScreenBackground()
             .navigationTitle("Tengo una invitación").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() }.disabled(linking) }
@@ -507,6 +510,7 @@ private struct InvitationCodeView: View {
                     }
                 }
             }
+            .coupleScreenBackground()
             .navigationTitle("Código de invitación").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Listo") { dismiss() } } }
         }

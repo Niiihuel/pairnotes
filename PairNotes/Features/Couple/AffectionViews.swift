@@ -52,8 +52,7 @@ struct AffectionHubView: View {
                 }.listRowBackground(Color.clear)
             }
         }
-        .scrollContentBackground(.hidden)
-        .background(services.personalization.theme.canvas)
+        .coupleScreenBackground()
         .navigationTitle("Para vos")
     }
 
@@ -95,7 +94,7 @@ struct CouplePhotosView: View {
                 }
             }.padding(20)
         }
-        .background(services.personalization.theme.canvas)
+        .coupleScreenBackground()
         .navigationTitle("Fotos")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

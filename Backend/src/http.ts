@@ -182,6 +182,12 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
     try {response.json(await options.service.widgetSnapshot(bearer(request)));}
     catch (error) {sendError(response, error, false);}
   });
+  app.post('/widgetLocation', async (request, response) => {
+    try {
+      if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) fail('invalid_request', 'invalid-argument');
+      response.json(await options.service.widgetLocation(bearer(request), request.body));
+    } catch (error) {sendError(response, error, false);}
+  });
   app.get('/widgetImage', async (request, response) => {
     try {
       if (typeof request.query.noteId !== 'string') fail('invalid_note_id', 'invalid-argument');

@@ -156,6 +156,7 @@ public enum CoupleDistanceStatus: String, Codable, Sendable {
 }
 
 /// Only the computed distance reaches widgets; coordinates remain on the server.
+/// A previous distance stays visible with its age until sharing is revoked.
 public struct CoupleDistance: Codable, Equatable, Sendable {
     public static let freshAge: TimeInterval = 15 * 60
     public static let maximumAge: TimeInterval = 30 * 60
@@ -183,7 +184,8 @@ public struct CoupleDistance: Codable, Equatable, Sendable {
 
     public func displayMeters(at date: Date = Date()) -> Double? {
         guard displayStatus(at: date) == .available || displayStatus(at: date) == .stale,
-              let updatedAt, date.timeIntervalSince(updatedAt) < Self.maximumAge else { return nil }
+              let meters, meters.isFinite, meters >= 0, meters <= 21_000_000,
+              let accuracyMeters, accuracyMeters.isFinite, accuracyMeters >= 0 else { return nil }
         return meters
     }
 }
