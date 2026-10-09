@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-09T19:21:05.960653+00:00",
+  "sourceCommit": "648e262f84edfde77738c9ba23cc2d44d81d4e46",
+  "sourceTree": "dfeda751208868ecfeed177575ea6f865493b6cc",
+  "backendTree": "3e8d2556bdc51a386a55504dec29b31f80be6c4d",
+  "backendTrackedFiles": 29,
+  "backendSourceSHA256": "be9e423b3ed89394cd184472b5139852bcf3da80b5105396ebe7754f674bde4a",
+  "environment": "development",
+  "service": {
+    "name": "pairnotes-api",
+    "id": "53774cc6-9364-4a0c-9e30-7ef697b84de2",
+    "projectName": "pairnotes-dev",
+    "projectId": "ae2e0081-67d5-4744-a795-145ea20e6177",
+    "url": "https://pairnotes-api-development.up.railway.app"
+  },
+  "previousDeploymentId": "bc0a95aa-2553-4dd5-ac7e-78cbf4a350f6",
+  "deployment": {
+    "id": "419a4993-dd0c-491f-bd12-3ea1134db59d",
+    "status": "SUCCESS",
+    "createdAt": "2026-10-09T19:17:58.861Z",
+    "imageDigest": "sha256:d5586075f20d17153760a353718248efed5719447e95398178e82d7bbac5f4b7",
+    "sourceMessage": "PairNotes main 648e262f84edfde77738c9ba23cc2d44d81d4e46 backend-tree 3e8d2556bdc51a386a55504dec29b31f80be6c4d"
+  },
+  "ci": {
+    "id": 37975650783,
+    "head_sha": "648e262f84edfde77738c9ba23cc2d44d81d4e46",
+    "status": "completed",
+    "conclusion": "success",
+    "run_attempt": 1,
+    "html_url": "https://github.com/Niiihuel/pairnotes/actions/runs/37975650783",
+    "created_at": "2026-10-09T18:46:52Z",
+    "updated_at": "2026-10-09T19:16:33Z"
+  },
+  "verification": {
+    "checkedAt": "2026-10-09T19:21:05.927457+00:00",
+    "checks": [
+      {
+        "method": "GET",
+        "route": "/healthz",
+        "httpStatus": 200,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-09T19:21:05.819081+00:00",
+        "body": {
+          "status": "ok"
+        }
+      },
+      {
+        "method": "POST",
+        "route": "/getChatReactions",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-09T19:21:05.926020+00:00",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/setChatReaction",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-09T19:21:05.867739+00:00",
+        "reason": "authentication_required"
+      }
+    ],
+    "newPrivateRoutesVerified": 2,
+    "legacyPrivateRoutesRetested": false,
+    "legacyEvidenceReference": "release-1eb56af.json",
+    "authenticatedProductFlowsVerified": false
+  },
+  "sourceProvenance": {
+    "method": "Railway CLI upload of Backend with --path-as-root from a clean detached Git worktree at the exact main commit; deployment metadata records the full source commit and Backend tree.",
+    "command": [
+      "rtk",
+      "proxy",
+      "railway",
+      "up",
+      "Backend",
+      "--path-as-root",
+      "--project",
+      "ae2e0081-67d5-4744-a795-145ea20e6177",
+      "--service",
+      "53774cc6-9364-4a0c-9e30-7ef697b84de2",
+      "--environment",
+      "a0e005fa-8213-4488-97d6-cab8e99671e0",
+      "--message",
+      "PairNotes main 648e262f84edfde77738c9ba23cc2d44d81d4e46 backend-tree 3e8d2556bdc51a386a55504dec29b31f80be6c4d",
+      "--ci"
+    ],
+    "worktreeClean": true,
+    "backendSourceSHA256Definition": "SHA256 of each tracked Backend path (Git ls-tree order), NUL, file bytes, NUL; includes tracked files excluded from the Docker runtime image.",
+    "deploymentMetadataMatchesSource": true,
+    "runtimeSourceIndependentlyVerified": false,
+    "limitation": "Source attribution is based on the clean uploaded checkout and Railway deployment metadata. The API health endpoint reports availability without a version or source SHA; runtime files were not inspected."
+  },
+  "scope": {
+    "personalDataAccessed": false,
+    "manualMessagesOrNotificationsSent": false,
+    "serviceVariablesChanged": false,
+    "accountsOrSessionsCreated": false,
+    "checksWereUnauthenticated": true
+  },
+  "limitations": [
+    "Anonymous 401 checks confirm rejection without credentials; they do not validate reactions with real accounts.",
+    "The HTTP checks and deployment status do not establish physical-device validation or TestFlight processing state."
+  ],
+  "sourceRecords": [
+    "railway-648e262-source.json",
+    "railway-648e262-http-smoke.json"
+  ],
+  "sourceRecordSHA256": {
+    "railway-648e262-source.json": "54b1203f38f3b0f2474f39c1714b70b64487c99925af3c3346cc58bdd11bdaa3",
+    "railway-648e262-http-smoke.json": "d93cc9386256b67a3a218eb3eebfb935cc3ac2a23116067cf5634d336706023c"
+  }
+}

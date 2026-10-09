@@ -1,0 +1,35 @@
+{
+  "conclusion": "success",
+  "headSha": "648e262f84edfde77738c9ba23cc2d44d81d4e46",
+  "status": "completed",
+  "url": "https://github.com/Niiihuel/pairnotes/actions/runs/37975650783",
+  "runID": 37975650783,
+  "runAttempt": 1,
+  "testCounts": {
+    "backendCasesAndSubcases": 110,
+    "portableCoreTests": 82,
+    "toolingTests": 21,
+    "nativeTests": 99,
+    "uiTests": 7,
+    "total": 319,
+    "failures": 0
+  },
+  "compilationSDK": "26.0",
+  "testSimulatorOS": "26.2",
+  "physicalDeviceTestsExecuted": false,
+  "regressionCoverage": {
+    "letters": "Mounted production composer keeps title, body and send action separate at phone widths and accessibility text sizes. Legacy drafts retain scheduled opening; new letters can open immediately.",
+    "keyboard": "Simulator UI closes the real keyboard from history, controls, dragging and the native Done action, retaining the draft.",
+    "latestMessage": "Simulator UI verifies the compact latest-message button, visible scroll position, older-message reading after an append, and return to the latest message.",
+    "longPress": "Simulator UI presents six accessible reaction controls, preserves unconfirmed selection, and exercises confirmed selection, retry and removal.",
+    "doubleTap": "Simulator UI requests a heart without opening the card, closes the keyboard and retains the draft; only a simulated confirmed response reveals the selected heart.",
+    "nativeAudioControls": "Simulator UI exercises a synthetic native play-button action and scrolling inside the production reaction wrapper; no physical recording or live audio playback is claimed.",
+    "reactionStore": "Native tests cover server-confirmed state, failed removal, scope and cancellation guards, stale GET versus POST/removal, batches over 100 targets and refresh coalescing.",
+    "drawing": "Simulator UI draws with real finger gestures, changes tools, cancels the photo picker, saves and reopens the same three strokes."
+  },
+  "validationLimits": [
+    "Reaction UI tests use synthetic data and manual confirmation callbacks, not authenticated live backend requests.",
+    "Backend reaction authorization and persistence are tested separately with SQL and S3 fixtures.",
+    "Simulator tests do not verify physical microphone/camera, GPS, APNs delivery, the physical WidgetKit compositor or effective display refresh rate."
+  ]
+}

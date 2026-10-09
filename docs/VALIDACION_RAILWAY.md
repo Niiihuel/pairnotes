@@ -98,3 +98,13 @@ La [CI del mismo commit](https://github.com/Niiihuel/pairnotes/actions/runs/3787
 Las suites controladas no validan entrega real APNs, widgets instalados/visibles, permisos interactivos, edición táctil, accesibilidad, rendimiento, restauración de backups ni el comportamiento conjunto en dos iPhones. Linux no tiene acceso a esos dispositivos; CI compila y ejecuta pruebas automáticas. La firma y distribución sí se completaron posteriormente al corte inicial, como registra [CI_GITHUB_ACTIONS.md](CI_GITHUB_ACTIONS.md).
 
 Antes de App Store siguen pendientes eliminación integral de cuenta/datos, política de retención y validación física del producto. Studio/Metal no forma parte de este corte.
+
+## Entrega del 9 de octubre de 2026: reacciones del chat
+
+Se desplegó `Backend` desde un checkout limpio del commit `648e262f84edfde77738c9ba23cc2d44d81d4e46`, con árbol `Backend` `3e8d2556bdc51a386a55504dec29b31f80be6c4d`. Railway confirmó `SUCCESS` para el deployment `419a4993-dd0c-491f-bd12-3ea1134db59d` de `pairnotes-api/development`. Este corte agrega reacciones persistentes del chat para mensajes, fotos, dibujos y cartas con audio, con permisos por pareja, generación y apertura de cartas.
+
+La [CI de esa fuente exacta](https://github.com/Niiihuel/pairnotes/actions/runs/37975650783), intento 1, terminó `SUCCESS` y aprobó **110 pruebas/subpruebas de backend** con PostgreSQL y S3 controlados. Incluye aislamiento entre parejas, contenido bloqueado, ambos participantes, reintentos idempotentes, eliminación, límites de frecuencia y revocación durante una petición en espera.
+
+La comprobación HTTPS de las 19:21 UTC obtuvo `/healthz` 200 y rechazo 401 `authentication_required` en los dos endpoints nuevos, `POST /getChatReactions` y `POST /setChatReaction`, siempre con `Cache-Control: private, no-store`. Las solicitudes fueron anónimas y sin contenidos ni reacciones de usuarios. Las 17 comprobaciones privadas del corte anterior se conservan en su evidencia y no se repitieron. [Evidencia sanitizada de este despliegue](evidence/railway/release-648e262.json).
+
+La procedencia se acredita mediante el checkout limpio y los metadatos de Railway. `runtimeSourceIndependentlyVerified` permanece en `false`: `/healthz` no publica un SHA y no se inspeccionaron archivos del contenedor. No se consultaron datos personales ni se modificaron variables, cuentas o sesiones, y no se enviaron notificaciones manuales. Los rechazos anónimos no acreditan los flujos autenticados con cuentas reales ni la distribución de una nueva beta.
