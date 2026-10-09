@@ -1,0 +1,32 @@
+{
+  "conclusion": "success",
+  "headSha": "77d3065cb3f70d8f7fcff82e7741020806eaf641",
+  "status": "completed",
+  "url": "https://github.com/Niiihuel/pairnotes/actions/runs/38002766192",
+  "runID": 38002766192,
+  "runAttempt": 1,
+  "testCounts": {
+    "backendCasesAndSubcases": 110,
+    "portableCoreTests": 82,
+    "toolingTests": 21,
+    "nativeTests": 107,
+    "uiTests": 8,
+    "total": 328,
+    "failures": 0
+  },
+  "compilationSDK": "26.0",
+  "testSimulatorOS": "26.2",
+  "physicalDeviceTestsExecuted": false,
+  "regressionCoverage": {
+    "latestNativeEdits": "testExplicitSaveCapturesNativeEditsBeforeTheChangeNotification verifies that the explicit capture used by Send reads real PaperKit markup newer than the cached autosave even before the delegate marks the session dirty. It validates the editable source and layers, all three updated renders, a newer revision, disk persistence and the immutable earlier capture.",
+    "inFlightAutosave": "testExplicitSaveDuringAutosaveCapturesNativeEditsWithoutAChangeNotification pauses the real catalog write, changes native markup without notifying the session, and verifies that the explicit request and older autosave waiter both receive the newest persisted capture.",
+    "persistenceFailureAndRetry": "testExplicitSaveFailureDoesNotReturnTheOlderArchiveAndCanRetry injects a write failure after a cached save, verifies that the explicit request returns nil rather than the earlier archive, and confirms that retry persists the latest native content.",
+    "realFingerDrawing": "Simulator UI sends finger gestures to the native canvas and verifies drawing across mode changes, photo-picker cancellation, explicit Save and reopen.",
+    "existingChatInteractions": "The existing simulator UI suite also passes keyboard dismissal and draft preservation, compact reactions, Copy and dismissal, double tap, latest-message navigation and synthetic native audio-control interactions."
+  },
+  "validationLimits": [
+    "The three new native regressions use real PaperKit encoding and rendering with deliberately suppressed change notifications and controlled persistence boundaries; they do not execute an authenticated live send.",
+    "Simulator tests do not establish physical-device timing, microphone/camera, GPS, APNs delivery, the physical WidgetKit compositor or effective display refresh rate.",
+    "This CI result does not establish Apple processing or TestFlight availability for build 12.2."
+  ]
+}
