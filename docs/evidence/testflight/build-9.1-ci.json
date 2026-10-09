@@ -1,0 +1,18 @@
+{
+  "conclusion": "success",
+  "headSha": "1eb56afcf2f76cf7241851b7693d2e182aba1703",
+  "status": "completed",
+  "url": "https://github.com/Niiihuel/pairnotes/actions/runs/37879195944",
+  "testCounts": {
+    "backendCasesAndSubcases": 104,
+    "portableCoreTests": 78,
+    "toolingTests": 21,
+    "nativeTests": 92,
+    "uiTests": 2,
+    "total": 297,
+    "failures": 0
+  },
+  "compilationSDK": "26.0",
+  "testSimulatorOS": "26.2",
+  "physicalDeviceTestsExecuted": false
+}

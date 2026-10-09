@@ -85,6 +85,14 @@ Las comprobaciones posteriores al despliegue confirmaron `/healthz` 200 y 14 rut
 
 La [CI del commit de la beta](https://github.com/Niiihuel/pairnotes/actions/runs/37742965381) aprobó las 82 pruebas/subpruebas de backend con PostgreSQL y S3 controlados. La [lectura posterior de Apple](evidence/testflight/build-8.1.json) confirma disponibilidad interna de `1.0 (8.1)`. Estas comprobaciones no sustituyen los flujos autenticados, la entrega APNs ni la interacción real en dos iPhones.
 
+## Entrega del 9 de octubre de 2026: chat y widgets
+
+Se desplegó `Backend` desde un checkout limpio del commit `1eb56afcf2f76cf7241851b7693d2e182aba1703`, la misma fuente de la beta `1.0 (9.1)`. Railway confirmó `SUCCESS` para el deployment `bc0a95aa-2553-4dd5-ac7e-78cbf4a350f6` de `pairnotes-api/development`. El árbol `Backend` es `d73e03d23711f963daa524f75f1700f85c1d1b3d`. Incluye historial paginado de fotos/cartas, fecha canónica de envío, apertura inmediata al sellar y ubicación automática desde el widget con consentimiento.
+
+La comprobación posterior obtuvo `/healthz` 200 y 17 rutas privadas con rechazo 401 y `Cache-Control: private, no-store`, incluidas `/widgetLocation`, `/photos` y `/letterHistory`. No se consultaron datos personales ni se modificaron cuentas, sesiones o variables. La atribución de fuente procede del checkout limpio y los metadatos de Railway; no se inspeccionó el runtime ni se atribuye un SHA a `/healthz`. [Evidencia sanitizada](evidence/railway/release-1eb56af.json).
+
+La [CI del mismo commit](https://github.com/Niiihuel/pairnotes/actions/runs/37879195944) aprobó 104 pruebas/subpruebas de backend con PostgreSQL y S3 controlados, dentro de 297 comprobaciones aprobadas. Estos resultados no sustituyen los flujos autenticados y la entrega real APNs en dos iPhones.
+
 ## Validaciones pendientes
 
 Las suites controladas no validan entrega real APNs, widgets instalados/visibles, permisos interactivos, edición táctil, accesibilidad, rendimiento, restauración de backups ni el comportamiento conjunto en dos iPhones. Linux no tiene acceso a esos dispositivos; CI compila y ejecuta pruebas automáticas. La firma y distribución sí se completaron posteriormente al corte inicial, como registra [CI_GITHUB_ACTIONS.md](CI_GITHUB_ACTIONS.md).
