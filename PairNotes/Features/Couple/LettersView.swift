@@ -184,10 +184,12 @@ struct LetterDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     if let letter = opened {
-                        LetterPaper {
-                            VStack(alignment: .leading, spacing: 28) {
-                                Text(letter.title ?? "Para vos,").font(.system(.largeTitle, design: .serif))
+                        LetterPaper(ruled: false) {
+                            VStack(alignment: .leading, spacing: 24) {
+                                Text(letter.title ?? "Para vos,").font(.system(.title, design: .serif).weight(.semibold))
                                     .foregroundStyle(stationery.accent).privacySensitive().accessibilityAddTraits(.isHeader)
+                                Rectangle().fill(stationery.fold.opacity(0.3)).frame(height: 1)
+                                    .accessibilityHidden(true)
                                 if let body = letter.body, !body.isEmpty {
                                     Text(body).font(.system(.body, design: .serif)).lineSpacing(8)
                                         .privacySensitive().textSelection(.enabled)

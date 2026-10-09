@@ -9,6 +9,7 @@ struct ChatMessageComposer: View {
     let showDrafts: () -> Void
     let createLetter: () -> Void
     let recordAudio: () -> Void
+    let keyboardDismissalRequest: UInt64
     let onSent: (CoupleConversationItem) -> Void
     private let storage: MemoryCompositionStorage
     @State private var draft: Draft
@@ -29,10 +30,12 @@ struct ChatMessageComposer: View {
     init(services: AppServices, createPhoto: @escaping () -> Void, takePhoto: @escaping () -> Void,
          createDrawing: @escaping () -> Void, showDrafts: @escaping () -> Void,
          createLetter: @escaping () -> Void, recordAudio: @escaping () -> Void,
+         keyboardDismissalRequest: UInt64 = 0,
          onSent: @escaping (CoupleConversationItem) -> Void) {
         self.services = services; self.createPhoto = createPhoto; self.takePhoto = takePhoto
         self.createDrawing = createDrawing; self.showDrafts = showDrafts
         self.createLetter = createLetter; self.recordAudio = recordAudio; self.onSent = onSent
+        self.keyboardDismissalRequest = keyboardDismissalRequest
         let storage = MemoryCompositionStorage(key: services.privateImageKey("message-draft"))
         self.storage = storage
         var recovered: Draft = storage.loadValue() ?? Draft(text: "", id: UUID())
@@ -112,9 +115,20 @@ struct ChatMessageComposer: View {
         .padding(.horizontal, 8).padding(.vertical, 7)
         .background(services.personalization.theme.canvas)
         .sensoryFeedback(.success, trigger: feedback)
+        .toolbar {
+            if focused {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Listo") { focused = false }
+                        .accessibilityLabel("Ocultar teclado")
+                        .accessibilityIdentifier("chat.keyboard.dismiss")
+                }
+            }
+        }
+        .onChange(of: keyboardDismissalRequest) { _, _ in focused = false }
         .onChange(of: draft.text) { _, _ in persist() }
         .onChange(of: draft.opensAt) { _, _ in persist() }
-        .onDisappear { persist() }
+        .onDisappear { focused = false; persist() }
     }
 
     @discardableResult private func persist() -> Bool {

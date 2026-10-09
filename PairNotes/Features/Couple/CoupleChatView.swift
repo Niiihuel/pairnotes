@@ -15,7 +15,6 @@ struct CoupleChatView: View {
     let openPhoto: (String) -> Void
     let showDrafts: () -> Void
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.coupleModalControl) private var modalControl
     @StateObject private var history = CoupleChatHistory()
     @State private var composingLetter = false
@@ -26,6 +25,7 @@ struct CoupleChatView: View {
     @State private var audioOwner = UUID()
     @State private var atBottom = true
     @State private var scrollRequest = UUID()
+    @State private var keyboardDismissalRequest: UInt64 = 0
     @State private var routeError: String?
 
     private var scope: String { services.privateImageKey("conversation") }
@@ -53,8 +53,9 @@ struct CoupleChatView: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
+        ChatConversationScrollView(atBottom: $atBottom, newestItemID: items.last?.id,
+                                   scrollRequest: scrollRequest, hasMessages: !items.isEmpty,
+                                   dismissKeyboard: dismissKeyboard) {
                 LazyVStack(spacing: 12) {
                     if !linked {
                         ContentUnavailableView {
@@ -94,25 +95,10 @@ struct CoupleChatView: View {
                             }
                         }
                     }
-                    Color.clear.frame(height: 1).id("chat.bottom")
-                        .onAppear { atBottom = true }
-                        .onDisappear { atBottom = false }
                 }.padding(.horizontal, 14).padding(.vertical, 12)
                     .frame(maxWidth: 700).frame(maxWidth: .infinity)
-            }
-            .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .scrollDismissesKeyboard(.interactively)
-            .overlay(alignment: .bottomTrailing) {
-                if !atBottom, !items.isEmpty {
-                    Button("Últimos mensajes", systemImage: "arrow.down") { scrollRequest = UUID() }
-                        .labelStyle(.iconOnly).buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.circle).controlSize(.large)
-                        .padding(16)
-                }
-            }
-            .onChange(of: items.last?.id) { _, _ in if atBottom { scroll(proxy) } }
-            .onChange(of: scrollRequest) { _, _ in scroll(proxy) }
         }
+        .id(scope)
         .coupleScreenBackground()
         .navigationTitle(linked ? services.partnerNickname : "Chat")
         .navigationBarTitleDisplayMode(.inline)
@@ -134,7 +120,8 @@ struct CoupleChatView: View {
                     } else {
                         ChatMessageComposer(services: services, createPhoto: createPhoto, takePhoto: takePhoto,
                             createDrawing: createDrawing, showDrafts: showDrafts,
-                            createLetter: presentLetterComposer, recordAudio: beginAudioRecording, onSent: sent)
+                            createLetter: presentLetterComposer, recordAudio: beginAudioRecording,
+                            keyboardDismissalRequest: keyboardDismissalRequest, onSent: sent)
                             .id(scope)
                     }
                 }.background(services.personalization.theme.canvas)
@@ -178,6 +165,7 @@ struct CoupleChatView: View {
             if recordingAudio { recordingAudio = false; modalControl.onDismissed(audioOwner) }
         }
         .onChange(of: scope) { _, _ in
+            dismissKeyboard(); atBottom = true
             composingLetter = false; selectedLetter = nil; recordingAudio = false; history.reset()
         }
     }
@@ -222,9 +210,7 @@ struct CoupleChatView: View {
             .accessibilityLabel("\(own ? "Vos" : services.partnerNickname): \(text)")
     }
 
-    private func scroll(_ proxy: ScrollViewProxy) {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo("chat.bottom", anchor: .bottom) }
-    }
+    private func dismissKeyboard() { keyboardDismissalRequest &+= 1 }
     private func dayTitle(_ date: Date) -> String {
         if Calendar.current.isDateInToday(date) { return "Hoy" }
         if Calendar.current.isDateInYesterday(date) { return "Ayer" }
@@ -238,16 +224,19 @@ struct CoupleChatView: View {
     private func sent(_ item: CoupleConversationItem) {
         history.accept(item, scope: scope)
         scrollRequest = UUID()
-        Task { await history.refresh(services: services); scrollRequest = UUID() }
+        Task { await history.refresh(services: services) }
     }
     private func presentLetterComposer() {
+        dismissKeyboard()
         modalControl.onPresented(modalOwner); composingLetter = true
     }
     private func beginAudioRecording() {
+        dismissKeyboard()
         modalControl.onPresented(audioOwner)
         startAudioRecording = true; recordingAudio = true
     }
     private func present(_ letter: TimeCapsuleLetter) {
+        dismissKeyboard()
         modalControl.onPresented(modalOwner); selectedLetter = letter
     }
     private func sheetDismissed() {

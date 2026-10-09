@@ -21,9 +21,12 @@ struct LetterPaper<Content: View>: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.colorSchemeContrast) private var contrast
     @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 36
+    let ruled: Bool
     let content: Content
 
-    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    init(ruled: Bool = true, @ViewBuilder content: () -> Content) {
+        self.ruled = ruled; self.content = content()
+    }
 
     var body: some View {
         let palette = LetterStationeryPalette(dark: scheme == .dark)
@@ -34,7 +37,7 @@ struct LetterPaper<Content: View>: View {
             .background {
                 ZStack(alignment: .top) {
                     palette.paper
-                    LetterRuling(spacing: max(28, lineHeight))
+                    LetterRuling(spacing: max(28, lineHeight), ruled: ruled)
                         .stroke(palette.fold.opacity(contrast == .increased ? 0.25 : 0.16), lineWidth: 0.75)
                     Rectangle().fill(palette.accent).frame(height: 3)
                     GeometryReader { geometry in
@@ -55,9 +58,11 @@ struct LetterPaper<Content: View>: View {
 
 private struct LetterRuling: Shape {
     let spacing: CGFloat
+    let ruled: Bool
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: 28, y: 0)); path.addLine(to: CGPoint(x: 28, y: rect.height))
+        guard ruled else { return path }
         var y: CGFloat = 72
         while y < rect.height {
             path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: rect.width, y: y))

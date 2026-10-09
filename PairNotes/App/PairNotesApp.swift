@@ -4,6 +4,14 @@ import SwiftUI
 struct PairNotesApp: App {
     @UIApplicationDelegateAdaptor(PairNotesApplicationDelegate.self) private var appDelegate
     var body: some Scene {
-        WindowGroup { RootView() }
+        WindowGroup {
+            #if DEBUG && targetEnvironment(simulator)
+            if ProcessInfo.processInfo.arguments.contains("-pairnotes-chat-interaction-fixture") {
+                ChatInteractionFixture()
+            } else { RootView() }
+            #else
+            RootView()
+            #endif
+        }
     }
 }

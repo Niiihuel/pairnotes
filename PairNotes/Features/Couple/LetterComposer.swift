@@ -45,7 +45,8 @@ struct LetterComposer: View {
     @State private var confirmDiscard = false
     @State private var confirmRerecord = false
     @State private var showingAttachments = false
-    @FocusState private var writing: Bool
+    private enum WritingField: Hashable { case title, body }
+    @FocusState private var writing: WritingField?
     @State private var error: String?
 
     init(services: AppServices, notes: [RemoteNote], catalog: DraftCatalogStore? = nil, original: TimeCapsuleLetter? = nil, startsWithVoice: Bool = false) {
@@ -104,7 +105,7 @@ struct LetterComposer: View {
                 VStack(spacing: 20) {
                     if startsWithVoice { audioEditor }
                     else {
-                        LetterPaper {
+                        LetterPaper(ruled: false) {
                             VStack(alignment: .leading, spacing: 22) {
                                 recipientSection
                                 writingSection
@@ -113,36 +114,27 @@ struct LetterComposer: View {
                             }
                         }
                     }
-                    scheduleSection
-                    if !startsWithVoice {
-                        Button {
-                            writing = false; showingAttachments = true
-                        } label: {
-                            HStack {
-                                Label(attachmentCount == 0 ? "Adjuntar" : "Adjuntos · \(attachmentCount)", systemImage: "paperclip")
-                                Spacer()
-                                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                            }.padding(.vertical, 12)
-                        }.buttonStyle(.plain).foregroundStyle(stationery.accent)
-                            .disabled(busy || draft.sealAttempted)
-                            .accessibilityIdentifier("letter.attachments")
-                    }
+                    compositionOptions
                     statusSection
                 }.frame(maxWidth: 640).padding(20).frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
             .coupleScreenBackground()
-            .safeAreaInset(edge: .bottom) { sendBar }
             .navigationTitle(startsWithVoice ? "Tu voz" : "Escribir carta").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Listo") { voice.stopAll(); if persist() { dismiss() } }.disabled(busy) }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Descartar borrador", systemImage: "trash", role: .destructive) { confirmDiscard = true }
-                    } label: { Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44) }
-                        .accessibilityLabel("Opciones del borrador").disabled(busy || draft.sealAttempted)
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cerrar", systemImage: "xmark") { voice.stopAll(); if persist() { dismiss() } }
+                        .labelStyle(.iconOnly).frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel("Guardar borrador y cerrar")
+                        .accessibilityIdentifier("letter.close").disabled(busy)
                 }
-                ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Listo") { writing = false } }
+                ToolbarItem(placement: .confirmationAction) { sendButton }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Listo") { writing = nil }
+                        .accessibilityLabel("Ocultar teclado")
+                        .accessibilityIdentifier("letter.keyboard.dismiss")
+                }
             }
             .confirmationDialog(startsWithVoice ? "¿Enviar este audio?" : "¿Cerrar y enviar esta carta?", isPresented: $confirm, titleVisibility: .visible) {
                 Button("Enviar para el \(draft.opensAt.formatted(date: .abbreviated, time: .shortened))") { send() }
@@ -172,7 +164,7 @@ struct LetterComposer: View {
             recipientSection
             TextField("Título del audio", text: $draft.title,
                       prompt: Text("Título del audio").foregroundStyle(stationery.secondaryInk))
-                .font(.title3).focused($writing).accessibilityLabel("Título del audio").accessibilityIdentifier("voice.title")
+                .font(.title3).focused($writing, equals: .title).accessibilityLabel("Título del audio").accessibilityIdentifier("voice.title")
             voiceContents
             Text("Hasta 1 minuto").font(.caption).foregroundStyle(stationery.secondaryInk)
         }
@@ -227,15 +219,30 @@ struct LetterComposer: View {
     }
 
     @ViewBuilder private var writingSection: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            TextField("Un título", text: $draft.title,
-                      prompt: Text("Un título").foregroundStyle(stationery.secondaryInk))
-                .font(.system(.title2, design: .serif)).focused($writing)
-                .accessibilityLabel("Título de la carta").accessibilityIdentifier("letter.title")
-            TextField("Querido amor…", text: $draft.body,
-                      prompt: Text("Querido amor…").foregroundStyle(stationery.secondaryInk), axis: .vertical)
-                .lineLimit(8...30).font(.system(.body, design: .serif)).lineSpacing(8).focused($writing)
-                .accessibilityLabel("Contenido de la carta").accessibilityIdentifier("letter.body")
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Título").font(.caption.weight(.medium)).foregroundStyle(stationery.secondaryInk)
+                TextField("Título de tu carta", text: $draft.title,
+                          prompt: Text("Título de tu carta").foregroundStyle(stationery.secondaryInk), axis: .vertical)
+                    .lineLimit(1...3).font(.system(.title2, design: .serif).weight(.semibold))
+                    .frame(minHeight: 44, alignment: .topLeading)
+                    .focused($writing, equals: .title).submitLabel(.next)
+                    .onSubmit { writing = .body }
+                    .accessibilityLabel("Título de la carta").accessibilityIdentifier("letter.title")
+                if draft.title.utf16.count > 120 {
+                    Text("\(draft.title.utf16.count)/120").font(.caption).foregroundStyle(.red)
+                }
+            }
+            Rectangle().fill(stationery.fold.opacity(0.3)).frame(height: 1)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Tu carta").font(.caption.weight(.medium)).foregroundStyle(stationery.secondaryInk)
+                TextField("Querido amor…", text: $draft.body,
+                          prompt: Text("Querido amor…").foregroundStyle(stationery.secondaryInk), axis: .vertical)
+                    .lineLimit(8...30).font(.system(.body, design: .serif)).lineSpacing(8)
+                    .focused($writing, equals: .body)
+                    .accessibilityLabel("Contenido de la carta").accessibilityIdentifier("letter.body")
+            }
             if draft.body.utf16.count >= 5400 {
                 Text("\(draft.body.utf16.count)/6000").font(.caption).foregroundStyle(stationery.secondaryInk)
             }
@@ -246,9 +253,42 @@ struct LetterComposer: View {
         MessageOpeningControl(opensAt: Binding(get: { isScheduled ? draft.opensAt : nil }, set: { date in
             draft.scheduled = date != nil
             if let date { draft.opensAt = date }
-        }), onPresent: { writing = false })
+        }), onPresent: { writing = nil })
             .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(busy || draft.sealAttempted)
+    }
+
+    private var compositionOptions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !startsWithVoice {
+                Button {
+                    writing = nil; showingAttachments = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Label(attachmentCount == 0 ? "Adjuntar" : "Adjuntos · \(attachmentCount)", systemImage: "paperclip")
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    }.frame(minHeight: 44)
+                }
+                .buttonStyle(.plain).disabled(busy || draft.sealAttempted)
+                .accessibilityIdentifier("letter.attachments")
+                Divider()
+            }
+            HStack(alignment: .top, spacing: 12) {
+                scheduleSection
+                Menu {
+                    Button("Descartar borrador", systemImage: "trash", role: .destructive) { confirmDiscard = true }
+                } label: {
+                    Image(systemName: "ellipsis").frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Opciones del borrador")
+                .disabled(busy || draft.sealAttempted)
+            }
+        }
+        .padding(16)
+        .foregroundStyle(services.personalization.theme.accent)
+        .background(services.personalization.theme.card, in: RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder private var attachmentsSection: some View {
@@ -301,7 +341,7 @@ struct LetterComposer: View {
                 EmptyView()
             }
             Button(hasAudio ? "Grabar otra vez" : "Grabar mi voz", systemImage: "mic.fill") {
-                writing = false
+                writing = nil
                 if hasAudio { confirmRerecord = true }
                 else { Task { await voice.record() } }
             }.buttonStyle(.borderedProminent).controlSize(.large)
@@ -319,28 +359,29 @@ struct LetterComposer: View {
     @ViewBuilder private var statusSection: some View {
         if let error { Text(error).font(.footnote).foregroundStyle(stationery.secondaryInk) }
         if draft.sealAttempted { Text("El envío está pendiente de confirmación.").font(.footnote).foregroundStyle(stationery.secondaryInk) }
+        if isScheduled && draft.opensAt <= Date() && !draft.sealAttempted {
+            Text("Elegí una fecha futura o enviá ahora.").font(.footnote).foregroundStyle(stationery.secondaryInk)
+        }
         if busy { ProgressView("Enviando…") }
     }
 
-    private var sendBar: some View {
-        VStack(spacing: 8) {
-            if !canSend && !busy && !voice.recording && !draft.sealAttempted {
-                Text(sendHint).font(.caption).foregroundStyle(.secondary)
-            }
-            Button {
-                writing = false
-                if draft.sealAttempted || !isScheduled { send() } else { confirm = true }
-            } label: {
-                Label(busy ? "Enviando…" : draft.sealAttempted ? "Confirmar envío" : startsWithVoice ? "Enviar audio" : "Enviar carta",
-                      systemImage: startsWithVoice ? "paperplane.fill" : "envelope.fill")
-                    .frame(maxWidth: .infinity, minHeight: 50).contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .font(.body.weight(.semibold))
-            .foregroundStyle(canSend ? (colorScheme == .dark ? stationery.canvas : .white) : Color(uiColor: .secondaryLabel))
-            .background(canSend ? stationery.accent : Color(uiColor: .tertiarySystemFill), in: Capsule())
-            .disabled(!canSend)
-        }.padding().background(.regularMaterial)
+    private var sendButton: some View {
+        Button {
+            writing = nil
+            if draft.sealAttempted || !isScheduled { send() } else { confirm = true }
+        } label: {
+            Group {
+                if busy { ProgressView().controlSize(.small) }
+                else { Text("Enviar").font(.body.weight(.semibold)) }
+            }.frame(minWidth: 44, minHeight: 44)
+        }
+        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+        .tint(services.personalization.theme.accent)
+        .foregroundStyle(canSend ? (colorScheme == .dark ? Color.black : Color.white) : Color(uiColor: .secondaryLabel))
+        .disabled(!canSend)
+        .accessibilityLabel(busy ? "Enviando…" : draft.sealAttempted ? "Confirmar envío" : startsWithVoice ? "Enviar audio" : "Enviar carta")
+        .accessibilityHint(busy || canSend ? "" : sendHint)
+        .accessibilityIdentifier("letter.send")
     }
 
     @discardableResult private func persist() -> Bool {

@@ -11,6 +11,7 @@ struct HomeView: View {
     let openMessages: () -> Void
     let editDate: () -> Void
     let openDistance: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     init(model: AppModel, createNote: @escaping () -> Void, openNote: @escaping (RemoteNote) -> Void,
          createPhoto: @escaping () -> Void = {}, openPhoto: @escaping (String) -> Void = { _ in },
@@ -78,6 +79,7 @@ struct HomeView: View {
         Button(action: createNote) {
             Label("Dibujar", systemImage: "pencil.tip.crop.circle")
                 .font(.headline).fixedSize(horizontal: true, vertical: false)
+                .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }.buttonStyle(.borderedProminent).accessibilityLabel("Crear un dibujo")
         if services.membership != nil {
