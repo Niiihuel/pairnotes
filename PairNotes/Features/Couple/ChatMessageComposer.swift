@@ -120,7 +120,7 @@ struct ChatMessageComposer: View {
     @discardableResult private func persist() -> Bool {
         guard storage.key == services.privateImageKey("message-draft") else { return false }
         do { try storage.saveValue(draft); return true }
-        catch { error = "No se pudo guardar el mensaje en este iPhone."; return false }
+        catch { self.error = "No se pudo guardar el mensaje en este iPhone."; return false }
     }
 
     private func send() {

@@ -53,7 +53,11 @@ struct WidgetDistanceContent: View {
             }.frame(height: size)
             Group {
                 if let updated = presentation.updatedAt {
-                    Text(presentation.fresh ? "Hace " : "Anterior · hace ") + Text(updated, style: .relative)
+                    if presentation.fresh {
+                        Text("Hace \(Text(updated, style: .relative))")
+                    } else {
+                        Text("Anterior · hace \(Text(updated, style: .relative))")
+                    }
                 } else {
                     Text(presentation.detail)
                 }
@@ -71,7 +75,7 @@ struct WidgetDistanceContent: View {
         let names = snapshot.profiles.map(\.displayName).joined(separator: " y ")
         let label = Text("\(names). \(presentation.title). \(presentation.detail).")
         if let updated = presentation.updatedAt {
-            return label + Text(" Medida el ") + Text(updated, format: .dateTime.day().month().hour().minute())
+            return Text("\(label) Medida el \(Text(updated, format: .dateTime.day().month().hour().minute()))")
         }
         return label
     }

@@ -185,7 +185,7 @@ struct AudioMessageComposer: View {
             if audioDirty { try storage.saveAudio(audio); audioDirty = false }
             try storage.saveValue(draft)
             return true
-        } catch { error = "No se pudo guardar el audio en este iPhone."; return false }
+        } catch { self.error = "No se pudo guardar el audio en este iPhone."; return false }
     }
 
     private func ensureCurrentScope() throws {
