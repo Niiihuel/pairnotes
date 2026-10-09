@@ -322,6 +322,19 @@ final class NativePaperSession: ObservableObject {
         }
     }
 
+    /// Explicit Save/Send must read the live canvas even when PaperKit's
+    /// change notification is still queued. Invalidate before joining the single
+    /// writer so an autosave already persisting an older capture cannot satisfy
+    /// this request. A failed capture returns nil, never the cached archive.
+    func saveCurrentEdits() async -> DraftArchive? {
+        guard loaded, !finished, !Task.isCancelled else { return nil }
+        if readOnly { return lastArchive }
+        guard saveTask != nil || !busy else { return nil }
+        controller.finishEditing()
+        changed()
+        return await save()
+    }
+
     /// Exactly one task writes revisions. If a native callback or edit arrives
     /// during a capture, save() captures again before releasing any caller.
     private func writeCurrentCapture() async -> DraftArchive? {
@@ -782,7 +795,7 @@ struct NativePaperEditorView: View {
         closing = true
         Task {
             defer { closing = false }
-            if let archive = await session.save() {
+            if let archive = await session.saveCurrentEdits() {
                 session.commit(archive)
                 onSavedArchive?(archive)
                 onSaved()
@@ -816,7 +829,7 @@ struct NativePaperEditorView: View {
         sending = true
         Task {
             defer { sending = false }
-            guard let archive = await session.save() else { return }
+            guard let archive = await session.saveCurrentEdits() else { return }
             onSaved()
             if await onSend(archive) {
                 UIImpactFeedbackGenerator(style: .soft).impactOccurred()

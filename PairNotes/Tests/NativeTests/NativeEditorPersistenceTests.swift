@@ -246,6 +246,137 @@ final class NativeEditorPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testExplicitSaveCapturesNativeEditsBeforeTheChangeNotification() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DraftCatalogStore(directory: directory, account: .guest)
+        let editor = NativePaperSession(store: store, draft: nil)
+        await editor.load()
+        editor.suspendAutosave()
+        let initialSave = await editor.save()
+        let initial = try XCTUnwrap(initialSave, editor.status)
+        editor.commit(initial)
+
+        // PaperKit's document can be newer than the session's deferred delegate
+        // callback. Reproduce that boundary without waiting for the debounce or
+        // manually marking the session dirty on behalf of the implementation.
+        let delegate = editor.controller.canvas.delegate
+        editor.controller.canvas.delegate = nil
+        editor.controller.canvas.markup = PaperProbeDocument.fixture()
+        editor.controller.canvas.delegate = delegate
+        XCTAssertFalse(editor.hasChanges)
+        let explicitSave = await editor.saveCurrentEdits()
+        let sent = try XCTUnwrap(explicitSave, editor.status)
+
+        try await assertLatestNativeCapture(sent, replacing: initial)
+        let persisted = try await store.load(id: sent.document.id)
+        XCTAssertEqual(persisted, sent, "The outbound archive must be the successfully persisted capture")
+        editor.commit(sent)
+        XCTAssertFalse(editor.hasChanges)
+    }
+
+    @MainActor
+    func testExplicitSaveDuringAutosaveCapturesNativeEditsWithoutAChangeNotification() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalog = DraftCatalogStore(directory: directory, account: .guest)
+        let writeStarted = expectation(description: "Older autosave reached persistence")
+        let store = PausingNativeDraftStore(catalog: catalog) { writeStarted.fulfill() }
+        let editor = NativePaperSession(store: store, draft: nil)
+        await editor.load()
+        editor.suspendAutosave()
+        let autosave = Task { @MainActor in await editor.save() }
+        await fulfillment(of: [writeStarted], timeout: 10)
+        guard let initial = await store.firstCapture else {
+            await store.release()
+            _ = await autosave.value
+            XCTFail("No capture reached persistence: \(editor.status)")
+            return
+        }
+
+        let delegate = editor.controller.canvas.delegate
+        editor.controller.canvas.delegate = nil
+        editor.controller.canvas.markup = PaperProbeDocument.fixture()
+        editor.controller.canvas.delegate = delegate
+        XCTAssertFalse(editor.hasChanges, "Only the native document knows about these final edits")
+        let explicitStarted = expectation(description: "Explicit save joins the older writer")
+        let explicitSave = Task { @MainActor in
+            explicitStarted.fulfill()
+            return await editor.saveCurrentEdits()
+        }
+        await fulfillment(of: [explicitStarted], timeout: 2)
+        await store.release()
+        let explicitResult = await explicitSave.value
+        let sent = try XCTUnwrap(explicitResult, editor.status)
+        let autosaveResult = await autosave.value
+        XCTAssertEqual(autosaveResult, sent, "All waiters must receive the final capture")
+        try await assertLatestNativeCapture(sent, replacing: initial)
+        let persisted = try await catalog.load(id: sent.document.id)
+        XCTAssertEqual(persisted, sent)
+    }
+
+    @MainActor
+    func testExplicitSaveFailureDoesNotReturnTheOlderArchiveAndCanRetry() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalog = DraftCatalogStore(directory: directory, account: .guest)
+        let store = FailingNativeDraftStore(catalog: catalog)
+        let editor = NativePaperSession(store: store, draft: nil)
+        await editor.load()
+        editor.suspendAutosave()
+        let initialSave = await editor.save()
+        let initial = try XCTUnwrap(initialSave, editor.status)
+        editor.commit(initial)
+        await store.setRejectWrites(true)
+
+        let delegate = editor.controller.canvas.delegate
+        editor.controller.canvas.delegate = nil
+        editor.controller.canvas.markup = PaperProbeDocument.fixture()
+        editor.controller.canvas.delegate = delegate
+        let failedSave = await editor.saveCurrentEdits()
+        XCTAssertNil(failedSave, "A failed final capture must block sending instead of reusing the old autosave")
+        XCTAssertTrue(editor.hasChanges)
+        let retained = try await catalog.load(id: initial.document.id)
+        XCTAssertEqual(retained, initial)
+
+        await store.setRejectWrites(false)
+        let retrySave = await editor.saveCurrentEdits()
+        let sent = try XCTUnwrap(retrySave, editor.status)
+        try await assertLatestNativeCapture(sent, replacing: initial)
+        let persisted = try await catalog.load(id: sent.document.id)
+        XCTAssertEqual(persisted, sent)
+    }
+
+    @MainActor
+    private func assertLatestNativeCapture(_ capture: DraftArchive, replacing previous: DraftArchive) async throws {
+        try previous.validateIntegrity()
+        try capture.validateIntegrity()
+        XCTAssertEqual(capture.document.id, previous.document.id)
+        XCTAssertGreaterThan(capture.document.revision, previous.document.revision)
+        XCTAssertNotEqual(capture.document.revisionHash, previous.document.revisionHash)
+        let restored = try PaperProbeDocument.decode(capture.source.data,
+                                                     editorVersion: capture.document.minimumEditorVersion)
+        let text = await restored.markup.indexableContent
+        XCTAssertTrue(text?.contains("Un recuerdo inventado") == true,
+                      "The sent native document must include the edit that preceded its delegate notification")
+        let activeLayer = try XCTUnwrap(restored.layers?.last)
+        let layerText = await activeLayer.markup.indexableContent
+        XCTAssertTrue(layerText?.contains("Un recuerdo inventado") == true,
+                      "The editable layer must match the sent composition")
+        let old = try PaperProbeDocument.decode(previous.source.data,
+                                               editorVersion: previous.document.minimumEditorVersion)
+        let oldText = await old.markup.indexableContent
+        XCTAssertFalse(oldText?.contains("Un recuerdo inventado") == true,
+                       "The already captured autosave remains immutable")
+        for kind in RenderKind.allCases {
+            let latest = try XCTUnwrap(capture.image(for: kind)?.pngData)
+            let stale = try XCTUnwrap(previous.image(for: kind)?.pngData)
+            XCTAssertNotEqual(try rgbaPixels(latest), try rgbaPixels(stale),
+                              "Every sent render must show the new native content: \(kind)")
+        }
+    }
+
+    @MainActor
     func testLegacyNativeDraftReopensOnWhiteAndMigratesOnlyWhenEdited() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -1206,5 +1337,21 @@ private actor PausingNativeDraftStore: NativePaperDraftStore {
         released = true
         pause?.resume()
         pause = nil
+    }
+}
+
+private actor FailingNativeDraftStore: NativePaperDraftStore {
+    let catalog: DraftCatalogStore
+    private var rejectWrites = false
+
+    init(catalog: DraftCatalogStore) { self.catalog = catalog }
+
+    func load(id: UUID) async throws -> DraftArchive? { try await catalog.load(id: id) }
+    func remove(id: UUID) async throws { try await catalog.remove(id: id) }
+    func setRejectWrites(_ reject: Bool) { rejectWrites = reject }
+
+    func save(_ archive: DraftArchive, title: String, at date: Date) async throws -> DraftSummary {
+        if rejectWrites { throw CocoaError(.fileWriteOutOfSpace) }
+        return try await catalog.save(archive, title: title, at: date)
     }
 }

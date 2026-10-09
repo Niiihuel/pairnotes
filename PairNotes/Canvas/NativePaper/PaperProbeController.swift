@@ -353,6 +353,7 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     /// recover its first responder when the operation or presentation ends.
     func setEditingEnabled(_ enabled: Bool) {
         let changed = editingEnabled != enabled
+        if changed && !enabled { finishEditing() }
         editingEnabled = enabled
         loadViewIfNeeded()
         if canvas.isEditable != enabled { canvas.isEditable = enabled }
@@ -378,6 +379,13 @@ final class PaperProbeController: UIViewController, PaperMarkupViewController.De
     }
 
     func resumeCanvasInput() { activateCanvasInput() }
+
+    /// Commit the active native text editor before capturing the document.
+    /// This does not wait for the asynchronous delegate notification: explicit
+    /// persistence reads canvas.markup directly after ending editing.
+    func finishEditing() {
+        viewIfLoaded?.endEditing(true)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
