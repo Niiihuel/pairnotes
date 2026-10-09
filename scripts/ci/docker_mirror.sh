@@ -7,6 +7,12 @@ set -euo pipefail
   exit 1
 }
 
+# Public test images do not need the runner's preconfigured Docker Hub account.
+# Isolate this job's CLI config instead of mutating the runner's credentials.
+docker_config="${RUNNER_TEMP:?}/pairnotes-docker"
+mkdir -p "$docker_config"
+printf 'DOCKER_CONFIG=%s\n' "$docker_config" >> "${GITHUB_ENV:?}"
+
 # Keep the original image references and digest verification. Docker falls back
 # to Docker Hub on a cache miss. Preserve all other runner daemon settings.
 # https://docs.cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images
