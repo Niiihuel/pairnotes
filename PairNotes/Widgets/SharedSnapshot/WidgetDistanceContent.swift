@@ -95,4 +95,3 @@ private struct DistanceConnectionLine: Shape {
         return path
     }
 }
-
