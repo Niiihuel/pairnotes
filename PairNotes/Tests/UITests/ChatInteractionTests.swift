@@ -101,8 +101,10 @@ final class ChatInteractionTests: XCTestCase {
         for kind in kinds {
             let control = app.buttons["chat.reaction.\(kind)"]
             XCTAssertTrue(control.exists)
-            XCTAssertGreaterThanOrEqual(control.frame.width, 44)
-            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+            // AX converts screen coordinates through floating-point transforms.
+            // A 44pt target can be reported as 43.999999999999986pt.
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44 - 0.01)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44 - 0.01)
             XCTAssertTrue(window.contains(control.frame), "All six reactions must stay visible on the phone")
             frames.append(control.frame)
         }
