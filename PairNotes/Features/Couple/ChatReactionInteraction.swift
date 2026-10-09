@@ -42,7 +42,6 @@ struct ChatReactionInteraction<Content: View>: View {
     var body: some View {
         VStack(alignment: own ? .trailing : .leading, spacing: 4) {
             interactionContent
-                .accessibilityIdentifier("chat.reaction.target.\(id)")
                 .contentShape(Rectangle())
                 .gesture(interactionGesture)
                 .accessibilityActions {
@@ -93,6 +92,7 @@ struct ChatReactionInteraction<Content: View>: View {
             // card content must not contain a competing Button action.
             content.allowsHitTesting(false)
                 .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("chat.reaction.target.\(id)")
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction(.default, onOpen)
         } else {

@@ -204,6 +204,7 @@ final class ChatInteractionTests: XCTestCase {
         let app = launchFixture(reactions: true, nativeChildren: true)
         defer { attachDiagnostics(in: app, name: "chat-reaction-native-child") }
         let child = app.buttons["fixture.reaction.native-action"]
+        attachDiagnostics(in: app, name: "chat-reaction-before-native-child")
         XCTAssertTrue(child.waitForExistence(timeout: 15))
         waitUntilHittable(child)
         child.tap()
