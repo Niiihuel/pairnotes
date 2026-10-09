@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Configure the public Docker Hub cache
+        run: bash scripts/ci/docker_mirror.sh
       - name: Start isolated PostgreSQL and S3 test fixtures
         run: |
           docker compose -p pairnotes-ci -f Backend/compose.test.yml up -d --wait --wait-timeout 120
@@ -68,6 +70,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Configure the public Docker Hub cache
+        run: bash scripts/ci/docker_mirror.sh
       - name: Test simulator selection logic
         run: |
           mkdir -p artifacts/linux
