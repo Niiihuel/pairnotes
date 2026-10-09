@@ -57,6 +57,7 @@ export class Transaction {
   get(ref: Query): Promise<QuerySnapshot>;
   get(ref: Reference | Query): Promise<Snapshot | QuerySnapshot> {return ref instanceof Reference ? this.db.read(ref, this.client) : this.db.query(ref, this.client);}
   getAll(...refs: Reference[]): Promise<Snapshot[]> {return Promise.all(refs.map(ref => this.db.read(ref, this.client)));}
+  getMany(refs: Reference[]): Promise<Snapshot[]> {return this.db.readMany(refs, this.client);}
   create(ref: Reference, value: DocumentData): void {
     this.writes.push(async () => {await this.client.query('INSERT INTO documents(path, value) VALUES ($1,$2::jsonb)', [ref.path, JSON.stringify(value)]);});
   }
@@ -97,6 +98,12 @@ export class Database {
   async read(ref: Reference, connection: Pool | PoolClient = this.pool): Promise<Snapshot> {
     const rows = await connection.query('SELECT value FROM documents WHERE path=$1', [ref.path]);
     return new Snapshot(ref, rows.rows[0] ? decode(rows.rows[0].value) : undefined);
+  }
+  async readMany(refs: Reference[], connection: Pool | PoolClient = this.pool): Promise<Snapshot[]> {
+    if (!refs.length) return [];
+    const rows = await connection.query('SELECT path,value FROM documents WHERE path=ANY($1::text[])', [refs.map(ref => ref.path)]);
+    const values = new Map(rows.rows.map(row => [row.path, decode(row.value)]));
+    return refs.map(ref => new Snapshot(ref, values.get(ref.path)));
   }
   async query(query: Query, connection: Pool | PoolClient = this.pool): Promise<QuerySnapshot> {
     const values: unknown[] = [`${query.prefix}/`];

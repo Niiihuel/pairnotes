@@ -28,7 +28,9 @@ struct ChatConversationScrollView<Content: View>: View {
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollDismissesKeyboard(.immediately)
             .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
+            .simultaneousGesture(TapGesture(count: 2).exclusively(before: TapGesture()).onEnded { _ in
+                dismissKeyboard()
+            })
             .onScrollPhaseChange { _, phase in
                 userScrolling = phase == .tracking || phase == .interacting || phase == .decelerating
             }

@@ -7,6 +7,7 @@ import {AffectionFeatures} from './affection';
 import {CoupleFeatures, publicProfile} from './couple';
 import {revokeLocationDevice} from './location';
 import {PhotoFeatures} from './photos';
+import {ChatReactionFeatures} from './chatReactions';
 
 export const roles = ['source', 'final', 'widget', 'thumbnail'] as const;
 type Role = typeof roles[number];
@@ -44,6 +45,7 @@ export class PairNotesService {
   readonly affection = new AffectionFeatures(this);
   readonly couple = new CoupleFeatures(this);
   readonly photos = new PhotoFeatures(this);
+  readonly chatReactions = new ChatReactionFeatures(this);
   constructor(readonly db: Database, readonly bucket: AssetStore, readonly now: () => number = Date.now) {}
   async sendGesture(caller: Caller, input: Input) {return this.affection.sendGesture(caller, input);}
   async reactions(caller: Caller, input: Input) {return this.affection.reactions(caller, input);}
@@ -51,6 +53,8 @@ export class PairNotesService {
   async getPhoto(caller: Caller, input: Input) {return this.photos.getPhoto(caller, input);}
   async photoHistory(caller: Caller, input: Input) {return this.photos.history(caller, input);}
   async setPhotoReaction(caller: Caller, input: Input) {return this.photos.setReaction(caller, input);}
+  async getChatReactions(caller: Caller, input: Input) {return this.chatReactions.get(caller, input);}
+  async setChatReaction(caller: Caller, input: Input) {return this.chatReactions.set(caller, input);}
   async letters(caller: Caller, input: Input) {return this.affection.letters(caller, input);}
   async letterHistory(caller: Caller, input: Input) {return this.affection.letterHistory(caller, input);}
   async saveLetterDraft(caller: Caller, input: Input) {return this.affection.saveLetterDraft(caller, input);}

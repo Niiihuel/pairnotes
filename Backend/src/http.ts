@@ -165,7 +165,7 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
   const operations = ['upsertProfile', 'getPairState', 'createInvite', 'acceptInvite', 'revokeInvite', 'closePair',
     'createUploadSession', 'finalizeNote', 'timeline', 'note', 'latestReceivedNote', 'markNoteViewed', 'registerDevice', 'unregisterDevice', 'issueWidgetSession',
     'getCoupleSpace', 'updatePersonalization', 'restoreMemory', 'updatePairDetails', 'upsertMemory', 'memories', 'deleteMemory', 'deleteMemoryPhoto', 'deleteProfileAvatar',
-    'getPhoto', 'photos', 'setPhotoReaction', 'sendGesture', 'reactions', 'setReaction', 'letters', 'letterHistory', 'saveLetterDraft', 'sealLetter', 'openLetter', 'deleteLetterDraft', 'removeLetterAsset',
+    'getPhoto', 'photos', 'setPhotoReaction', 'getChatReactions', 'setChatReaction', 'sendGesture', 'reactions', 'setReaction', 'letters', 'letterHistory', 'saveLetterDraft', 'sealLetter', 'openLetter', 'deleteLetterDraft', 'removeLetterAsset',
     'sendMessage', 'messages', 'setLocationConsent', 'updateLocation'] as const;
   for (const name of operations) {
     app.post(`/${name}`, async (request, response) => {

@@ -17,6 +17,7 @@ struct CoupleChatView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.coupleModalControl) private var modalControl
     @StateObject private var history = CoupleChatHistory()
+    @StateObject private var reactions = ChatReactionStore()
     @State private var composingLetter = false
     @State private var recordingAudio = false
     @State private var startAudioRecording = false
@@ -30,6 +31,7 @@ struct CoupleChatView: View {
 
     private var scope: String { services.privateImageKey("conversation") }
     private var linked: Bool { services.membershipResolved && services.membership != nil }
+    private var reactionsAreCurrent: Bool { reactions.loadedScope == scope }
     private var items: [CoupleConversationItem] {
         guard linked, history.loadedScope == scope, let pair = services.membership else { return [] }
         var photos = history.photos
@@ -134,17 +136,23 @@ struct CoupleChatView: View {
             LetterDetailView(services: services, original: letter)
         }
         .task(id: scope) {
-            history.reset(); routeError = nil; recordingAudio = false
+            history.reset(); reactions.reset(); routeError = nil; recordingAudio = false
             await refresh(); await handle(request)
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(15)) } catch { return }
-                if scenePhase == .active { await history.refresh(services: services) }
+                if scenePhase == .active {
+                    await history.refresh(services: services)
+                    await refreshReactions()
+                }
             }
         }
+        .task(id: items.map(\.reactionTarget)) { await refreshReactions() }
         .refreshable { await refresh() }
         .onChange(of: request) { _, value in Task { await handle(value) } }
         .onChange(of: refreshVersion) { _, _ in
-            if scenePhase == .active { Task { await history.refresh(services: services) } }
+            if scenePhase == .active {
+                Task { await history.refresh(services: services); await refreshReactions() }
+            }
         }
         .onChange(of: incomingPhoto) { _, photo in
             guard linked, let photo, let pair = services.membership,
@@ -152,7 +160,9 @@ struct CoupleChatView: View {
             sent(.photo(photo))
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await history.refresh(services: services) } }
+            if phase == .active {
+                Task { await history.refresh(services: services); await refreshReactions() }
+            }
         }
         .onChange(of: modalControl.dismissalVersion) { _, _ in
             composingLetter = false; selectedLetter = nil; recordingAudio = false
@@ -166,7 +176,8 @@ struct CoupleChatView: View {
         }
         .onChange(of: scope) { _, _ in
             dismissKeyboard(); atBottom = true
-            composingLetter = false; selectedLetter = nil; recordingAudio = false; history.reset()
+            composingLetter = false; selectedLetter = nil; recordingAudio = false
+            history.reset(); reactions.reset()
         }
     }
 
@@ -175,23 +186,17 @@ struct CoupleChatView: View {
         HStack(alignment: .bottom, spacing: 0) {
             if own { Spacer(minLength: 36) }
             VStack(alignment: own ? .trailing : .leading, spacing: 4) {
-                switch item {
-                case .message(let message): messageBubble(message.text, own: own)
-                case .photo(let photo):
-                    ChatPhotoCard(services: services, photo: photo, onOpen: { openPhoto(photo.id) })
-                case .drawing(let note):
-                    ChatDrawingCard(services: services, note: note, onOpen: { openNote(note) })
-                case .letter(let letter):
-                    if letter.title == "Mensaje", let text = letter.body,
-                       letter.authorId == services.identity?.uid || letter.canOpen,
-                       letter.audio == nil, letter.photo == nil, letter.drawing == nil, letter.noteId == nil {
-                        messageBubble(text, own: own)
-                    } else {
-                        ChatLetterCard(services: services, letter: letter, onOpen: { present(letter) })
-                    }
-                    if own, !letter.canOpen {
-                        Label("Se abre \(letter.opensAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
-                            .font(.caption2).foregroundStyle(.secondary)
+                ChatReactionInteraction(id: item.id, own: own, canReact: canReact(to: item),
+                    selectedKind: reactionsAreCurrent ? reactions.myReaction(for: item.reactionTarget)?.kind : nil,
+                    isReacting: reactionsAreCurrent && reactions.isReacting(item.reactionTarget),
+                    confirmationRevision: reactionsAreCurrent ? reactions.confirmationRevision(item.reactionTarget) : 0,
+                    errorMessage: reactionsAreCurrent ? reactions.error(for: item.reactionTarget) : nil,
+                    copyText: copyText(for: item),
+                    onReact: { kind in react(kind, to: item) },
+                    onPresent: dismissKeyboard, onOpen: detailAction(for: item)) {
+                    VStack(alignment: own ? .trailing : .leading, spacing: 4) {
+                        conversationContent(item, own: own)
+                        reactionSummary(for: item)
                     }
                 }
                 Text(item.date, format: .dateTime.hour().minute())
@@ -202,12 +207,102 @@ struct CoupleChatView: View {
     }
 
     private func messageBubble(_ text: String, own: Bool) -> some View {
-        Text(text).foregroundStyle(services.personalization.theme.ink).textSelection(.enabled)
+        Text(text).foregroundStyle(services.personalization.theme.ink)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(own ? services.personalization.theme.accent.opacity(0.18) : services.personalization.theme.card,
                         in: RoundedRectangle(cornerRadius: 20))
             .accessibilityLabel("\(own ? "Vos" : services.partnerNickname): \(text)")
+    }
+
+    @ViewBuilder private func conversationContent(_ item: CoupleConversationItem, own: Bool) -> some View {
+        switch item {
+        case .message(let message): messageBubble(message.text, own: own)
+        case .photo(let photo): ChatPhotoCard(services: services, photo: photo)
+        case .drawing(let note): ChatDrawingCard(services: services, note: note)
+        case .letter(let letter):
+            if isInlineMessage(letter), let text = letter.body { messageBubble(text, own: own) }
+            else { ChatLetterCard(services: services, letter: letter) }
+            if own, !letter.canOpen {
+                Label("Se abre \(letter.opensAt.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private func reactionSummary(for item: CoupleConversationItem) -> some View {
+        let values = reactionsAreCurrent ? reactions.reactions(for: item.reactionTarget) : []
+        if !values.isEmpty {
+            ReactionBubble(tail: .topLeading, surface: .solid(services.personalization.theme.card)) {
+                HStack(spacing: 8) {
+                    ForEach(ChatReactionKind.allCases, id: \.self) { kind in
+                        let matches = values.filter { $0.kind == kind }
+                        if !matches.isEmpty {
+                            HStack(spacing: 3) {
+                                Text(kind.symbol).font(.body)
+                                if matches.count > 1 { Text("\(matches.count)").font(.caption) }
+                            }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(matches.map {
+                                "\($0.authorID == services.identity?.uid ? "Vos" : services.partnerNickname): \(kind.accessibilityLabel)"
+                            }.joined(separator: ", "))
+                        }
+                    }
+                }.padding(.horizontal, 4)
+            }
+        }
+    }
+
+    private func isInlineMessage(_ letter: TimeCapsuleLetter) -> Bool {
+        letter.title == "Mensaje" && letter.body != nil &&
+        (letter.authorId == services.identity?.uid || letter.canOpen) &&
+        letter.audio == nil && letter.photo == nil && letter.drawing == nil && letter.noteId == nil
+    }
+
+    private func isInlineAudio(_ letter: TimeCapsuleLetter) -> Bool {
+        (letter.authorId == services.identity?.uid || letter.canOpen) && letter.audio != nil &&
+        letter.photo == nil && letter.drawing == nil && letter.noteId == nil &&
+        (letter.body?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
+    private func canReact(to item: CoupleConversationItem) -> Bool {
+        guard linked else { return false }
+        if case .letter(let letter) = item {
+            return letter.status == "sealed" && (letter.authorId == services.identity?.uid || letter.canOpen)
+        }
+        return true
+    }
+
+    private func copyText(for item: CoupleConversationItem) -> String? {
+        switch item {
+        case .message(let message): return message.text
+        case .letter(let letter): return isInlineMessage(letter) ? letter.body : nil
+        default: return nil
+        }
+    }
+
+    private func detailAction(for item: CoupleConversationItem) -> (() -> Void)? {
+        switch item {
+        case .message: return nil
+        case .photo(let photo): return { dismissKeyboard(); openPhoto(photo.id) }
+        case .drawing(let note): return { dismissKeyboard(); openNote(note) }
+        case .letter(let letter):
+            guard letter.authorId == services.identity?.uid || letter.canOpen,
+                  !isInlineMessage(letter), !isInlineAudio(letter) else { return nil }
+            return { present(letter) }
+        }
+    }
+
+    private func react(_ kind: ChatReactionKind?, to item: CoupleConversationItem) {
+        guard canReact(to: item) else { return }
+        dismissKeyboard()
+        let captured = scope
+        Task { await reactions.setReaction(kind, for: item.reactionTarget, services: services, expectedScope: captured) }
+    }
+
+    private func refreshReactions() async {
+        guard linked else { return }
+        await reactions.refresh(services: services, targets: items.map(\.reactionTarget))
     }
 
     private func dismissKeyboard() { keyboardDismissalRequest &+= 1 }
@@ -220,11 +315,12 @@ struct CoupleChatView: View {
         guard linked else { return }
         await history.refresh(services: services)
         await model.refreshTimeline()
+        await refreshReactions()
     }
     private func sent(_ item: CoupleConversationItem) {
         history.accept(item, scope: scope)
         scrollRequest = UUID()
-        Task { await history.refresh(services: services) }
+        Task { await history.refresh(services: services); await refreshReactions() }
     }
     private func presentLetterComposer() {
         dismissKeyboard()
