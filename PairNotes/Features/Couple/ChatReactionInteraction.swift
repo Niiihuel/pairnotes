@@ -53,15 +53,14 @@ struct ChatReactionInteraction<Content: View>: View {
                         Button("Copiar") { UIPasteboard.general.string = copyText }
                     }
                 }
-                .popover(isPresented: $presented, attachmentAnchor: .rect(.bounds)) {
-                    picker
-                        .presentationCompactAdaptation(.popover)
-                        .presentationBackground(.clear)
-                        .background {
-                            if let ownerID = presentation.ownerID {
-                                ChatReactionLifecycleObserver(ownerID: ownerID, presentation: presentation)
-                            }
-                        }
+                .anchorPreference(key: ChatReactionMenuPreferenceKey.self, value: .bounds) { anchor in
+                    if presented, let ownerID = presentation.ownerID {
+                        ChatReactionMenuPreferences(menus: [ChatReactionMenuAnchor(ownerID: ownerID, bounds: anchor, own: own,
+                            content: AnyView(picker), presentation: presentation,
+                            dismiss: { presented = false })])
+                    } else {
+                        ChatReactionMenuPreferences()
+                    }
                 }
             if let errorMessage, !errorMessage.isEmpty, !presented {
                 Text(errorMessage).font(.caption).foregroundStyle(.secondary)
@@ -124,38 +123,54 @@ struct ChatReactionInteraction<Content: View>: View {
     }
 
     private var picker: some View {
-        VStack(spacing: 8) {
-            ReactionBubble {
-                HStack(spacing: 2) {
-                    ForEach(ChatReactionKind.allCases, id: \.rawValue) { kind in
-                        Button { request(selectedKind == kind ? nil : kind) } label: {
-                            ReactionEmojiLabel(symbol: kind.symbol, selected: selectedKind == kind,
-                                               tint: theme.accent)
-                        }
-                        .accessibilityIdentifier("chat.reaction.\(kind.rawValue)")
-                        .accessibilityLabel(kind.accessibilityLabel)
-                        .accessibilityValue(selectedKind == kind ? "Seleccionada" : "")
-                        .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
-                        .disabled(isReacting || !canReact)
+        VStack(alignment: own ? .trailing : .leading, spacing: 8) {
+            HStack(spacing: 2) {
+                ForEach(ChatReactionKind.allCases, id: \.rawValue) { kind in
+                    Button { request(selectedKind == kind ? nil : kind) } label: {
+                        Text(kind.symbol).font(.system(size: 25))
+                            .frame(width: 44, height: 44)
+                            .background(selectedKind == kind ? theme.accent.opacity(0.18) : .clear, in: Circle())
+                            .contentShape(Rectangle())
                     }
-                }.buttonStyle(ReactionBubbleButtonStyle())
+                    .accessibilityIdentifier("chat.reaction.\(kind.rawValue)")
+                    .accessibilityLabel(kind.accessibilityLabel)
+                    .accessibilityValue(selectedKind == kind ? "Seleccionada" : "")
+                    .accessibilityAddTraits(selectedKind == kind ? .isSelected : [])
+                    .disabled(isReacting || !canReact)
+                }
             }
+            .buttonStyle(ReactionBubbleButtonStyle())
+            .padding(.horizontal, 6).padding(.vertical, 5)
+            .background(theme.card, in: Capsule())
+            .overlay { Capsule().strokeBorder(.primary.opacity(0.12), lineWidth: 0.75).allowsHitTesting(false) }
+            .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("chat.reaction.bar")
             if isReacting {
-                ProgressView().accessibilityLabel("Enviando reacción")
+                ProgressView().frame(maxWidth: .infinity).accessibilityLabel("Enviando reacción")
             }
             if let copyText {
-                Button("Copiar", systemImage: "doc.on.doc") {
+                Button {
                     UIPasteboard.general.string = copyText; presented = false
+                } label: {
+                    Label("Copiar", systemImage: "doc.on.doc")
+                        .font(.body).padding(.horizontal, 16).padding(.vertical, 12)
+                        .frame(width: 180, alignment: .leading).frame(minHeight: 48)
+                        .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(theme.card, in: RoundedRectangle(cornerRadius: 16))
+                .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(.primary.opacity(0.12), lineWidth: 0.75).allowsHitTesting(false) }
+                .shadow(color: .black.opacity(0.14), radius: 8, y: 3)
                 .buttonStyle(.plain).accessibilityIdentifier("chat.reaction.copy")
             }
             if let errorMessage, !errorMessage.isEmpty {
                 Text(errorMessage).font(.caption).foregroundStyle(.secondary)
-                    .lineLimit(2).accessibilityIdentifier("chat.reaction.picker-error")
+                    .fixedSize(horizontal: false, vertical: true).padding(12)
+                    .background(theme.card, in: RoundedRectangle(cornerRadius: 16))
+                    .accessibilityIdentifier("chat.reaction.picker-error")
             }
         }
-        .padding(.vertical, 6).fixedSize(horizontal: true, vertical: false)
+        .foregroundStyle(theme.ink)
         .tint(theme.accent)
     }
 
@@ -180,16 +195,127 @@ struct ChatReactionInteraction<Content: View>: View {
     }
 }
 
-@MainActor
-private struct ChatReactionLifecycleObserver: UIViewControllerRepresentable {
+private struct ChatReactionMenuAnchor {
     let ownerID: UUID
+    let bounds: Anchor<CGRect>
+    let own: Bool
+    let content: AnyView
     let presentation: MessageOpeningPresentation
-    func makeUIViewController(context: Context) -> MessageOpeningLifecycleController {
-        presentation.didMount(ownerID)
-        return MessageOpeningLifecycleController(ownerID: ownerID, presentation: presentation)
+    let dismiss: () -> Void
+}
+
+private struct ChatReactionViewportAnchor {
+    let bounds: Anchor<CGRect>
+    let insets: EdgeInsets
+}
+
+private struct ChatReactionMenuPreferences {
+    var menus: [ChatReactionMenuAnchor] = []
+    var viewport: ChatReactionViewportAnchor?
+}
+
+private struct ChatReactionMenuPreferenceKey: PreferenceKey {
+    static var defaultValue: ChatReactionMenuPreferences { ChatReactionMenuPreferences() }
+    static func reduce(value: inout ChatReactionMenuPreferences, nextValue: () -> ChatReactionMenuPreferences) {
+        let next = nextValue()
+        value.menus.append(contentsOf: next.menus)
+        if let viewport = next.viewport { value.viewport = viewport }
     }
-    func updateUIViewController(_ controller: MessageOpeningLifecycleController, context: Context) {}
-    static func dismantleUIViewController(_ controller: MessageOpeningLifecycleController, coordinator: ()) {
-        if controller.viewIfLoaded?.window == nil { controller.presentation.didClose(controller.ownerID) }
+}
+
+extension View {
+    /// Measure inside the caller's safeAreaInset, where the composer is already
+    /// part of the excluded area. The outer overlay still intercepts its taps.
+    func chatReactionViewport() -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear.anchorPreference(key: ChatReactionMenuPreferenceKey.self, value: .bounds) {
+                    ChatReactionMenuPreferences(viewport: ChatReactionViewportAnchor(bounds: $0, insets: proxy.safeAreaInsets))
+                }
+            }
+        }
+    }
+
+    /// Render above the conversation and composer, outside the scrolling rows.
+    /// A native popover adds its own glass outline and arrow around both panels.
+    func chatReactionOverlay() -> some View {
+        overlayPreferenceValue(ChatReactionMenuPreferenceKey.self) { preferences in
+            GeometryReader { proxy in
+                if let menu = preferences.menus.last {
+                    let history = preferences.viewport.map { proxy[$0.bounds] } ?? CGRect(origin: .zero, size: proxy.size)
+                    let insets = preferences.viewport?.insets ?? proxy.safeAreaInsets
+                    let viewport = CGRect(x: history.minX + insets.leading, y: history.minY + insets.top,
+                        width: max(0, history.width - insets.leading - insets.trailing),
+                        height: max(0, history.height - insets.top - insets.bottom))
+                    ChatReactionMenuOverlay(menu: menu, anchor: proxy[menu.bounds], viewport: viewport)
+                        .id(menu.ownerID)
+                }
+            }
+        }
+    }
+}
+
+private struct ChatReactionMenuOverlay: View {
+    let menu: ChatReactionMenuAnchor
+    let anchor: CGRect
+    let viewport: CGRect
+    @Environment(\.layoutDirection) private var layoutDirection
+    @State private var menuSize = CGSize(width: ChatReactionMenuPlacement.width, height: 110)
+
+    var body: some View {
+        let height = min(menuSize.height, max(1, viewport.height - 24))
+        let fits = menuSize.height <= height
+        let placement = ChatReactionMenuPlacement(anchor: anchor, viewport: viewport,
+            menuSize: CGSize(width: ChatReactionMenuPlacement.width, height: height),
+            alignRight: menu.own != (layoutDirection == .rightToLeft))
+        ZStack(alignment: .topLeading) {
+            Button(action: menu.dismiss) {
+                Color.clear.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).ignoresSafeArea().accessibilityHidden(true)
+
+            ScrollView(.vertical) {
+                menu.content
+                    .frame(width: ChatReactionMenuPlacement.width)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { menuSize = $0 }
+            }
+                .frame(width: ChatReactionMenuPlacement.width, height: height)
+                .scrollDisabled(fits).scrollIndicators(.hidden).scrollClipDisabled(fits)
+                .position(placement.center)
+                .accessibilityElement(children: .contain)
+                .accessibilityAddTraits(.isModal)
+                .accessibilityAction(.escape, menu.dismiss)
+                .accessibilityAction(named: Text("Cerrar reacciones"), menu.dismiss)
+        }
+        .onAppear { menu.presentation.didMount(menu.ownerID) }
+        .onDisappear { menu.presentation.didClose(menu.ownerID) }
+    }
+}
+
+/// Keeps both separate panels inside the visible history, including after the
+/// keyboard closes or an error/large text changes the menu's measured height.
+struct ChatReactionMenuPlacement {
+    static let width: CGFloat = 286 // Six 44pt targets, five 2pt gaps, 12pt padding.
+    let center: CGPoint
+
+    init(anchor: CGRect, viewport: CGRect, menuSize: CGSize, alignRight: Bool) {
+        let bounds = viewport.insetBy(dx: 12, dy: 12)
+        let desiredX = alignRight ? anchor.maxX - menuSize.width : anchor.minX
+        let above = anchor.minY - menuSize.height - 8
+        let below = anchor.maxY + 8
+        let desiredY: CGFloat
+        if above >= bounds.minY {
+            desiredY = above
+        } else if below + menuSize.height <= bounds.maxY {
+            desiredY = below
+        } else {
+            let spaceAbove = anchor.minY - bounds.minY
+            let spaceBelow = bounds.maxY - anchor.maxY
+            desiredY = spaceAbove >= spaceBelow ? above : below
+        }
+        let x = max(bounds.minX, min(desiredX, bounds.maxX - menuSize.width))
+        let y = max(bounds.minY, min(desiredY, bounds.maxY - menuSize.height))
+        center = CGPoint(x: x + menuSize.width / 2, y: y + menuSize.height / 2)
     }
 }

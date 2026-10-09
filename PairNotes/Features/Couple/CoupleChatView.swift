@@ -129,6 +129,7 @@ struct CoupleChatView: View {
                 }.background(services.personalization.theme.canvas)
             }
         }
+        .chatReactionOverlay()
         .sheet(isPresented: $composingLetter, onDismiss: sheetDismissed) {
             LetterComposer(services: services, notes: model.notes, catalog: model.catalog)
         }

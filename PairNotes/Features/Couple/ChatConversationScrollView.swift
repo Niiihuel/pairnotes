@@ -72,6 +72,7 @@ struct ChatConversationScrollView<Content: View>: View {
             }
             .onChange(of: scrollRequest) { _, _ in scroll(proxy, animated: true) }
         }
+        .chatReactionViewport()
     }
 
     private func scroll(_ proxy: ScrollViewProxy, animated: Bool) {

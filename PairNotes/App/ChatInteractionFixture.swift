@@ -65,6 +65,7 @@ struct ChatInteractionFixture: View {
                                         keyboardDismissalRequest: keyboardDismissalRequest, onSent: { _ in })
                         .background(services.personalization.theme.canvas)
                 }
+                .chatReactionOverlay()
                 .toolbar {
                     if testsReactions {
                         ToolbarItemGroup(placement: .topBarLeading) {

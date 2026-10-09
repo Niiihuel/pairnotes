@@ -115,16 +115,6 @@ struct ChatMessageComposer: View {
         .padding(.horizontal, 8).padding(.vertical, 7)
         .background(services.personalization.theme.canvas)
         .sensoryFeedback(.success, trigger: feedback)
-        .toolbar {
-            if focused {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Listo") { focused = false }
-                        .accessibilityLabel("Ocultar teclado")
-                        .accessibilityIdentifier("chat.keyboard.dismiss")
-                }
-            }
-        }
         .onChange(of: keyboardDismissalRequest) { _, _ in focused = false }
         .onChange(of: draft.text) { _, _ in persist() }
         .onChange(of: draft.opensAt) { _, _ in persist() }

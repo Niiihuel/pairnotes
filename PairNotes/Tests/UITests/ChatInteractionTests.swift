@@ -4,7 +4,7 @@ import XCTest
 /// linked accounts, messages, microphone requests or network fixtures.
 final class ChatInteractionTests: XCTestCase {
     @MainActor
-    func testKeyboardClosesFromHistoryControlsDraggingAndDoneWithoutLosingDraft() {
+    func testKeyboardHasNoDoneToolbarAndClosesFromHistoryControlsAndDraggingWithoutLosingDraft() {
         continueAfterFailure = false
         let app = launchFixture()
         defer { attachDiagnostics(in: app, name: "chat-keyboard-geometry") }
@@ -14,6 +14,8 @@ final class ChatInteractionTests: XCTestCase {
         field.tap()
         field.typeText("Mi borrador")
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["chat.keyboard.dismiss"].exists,
+                       "The chat must not add a floating Done control above the keyboard")
 
         // Empty space in the conversation must dismiss, without selecting text.
         tapVisibleHistorySpace(in: app, history: history, composer: field)
@@ -38,9 +40,8 @@ final class ChatInteractionTests: XCTestCase {
 
         field.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        let done = app.buttons["chat.keyboard.dismiss"]
-        XCTAssertTrue(done.waitForExistence(timeout: 5))
-        done.tap()
+        XCTAssertFalse(app.buttons["chat.keyboard.dismiss"].exists)
+        tapVisibleHistorySpace(in: app, history: history, composer: field)
         waitForKeyboardToClose(in: app)
         XCTAssertEqual(field.value as? String, "Mi borrador")
         attach(app.screenshot(), name: "chat-keyboard-dismissed-draft-preserved")
@@ -107,7 +108,20 @@ final class ChatInteractionTests: XCTestCase {
         }
         for (left, right) in zip(frames, frames.dropFirst()) {
             XCTAssertLessThanOrEqual(left.maxX, right.minX, "Reaction hit targets must not overlap")
+            XCTAssertEqual(left.midY, right.midY, accuracy: 0.5, "Reactions must stay in one horizontal row")
         }
+        let bar = app.descendants(matching: .any).matching(identifier: "chat.reaction.bar").firstMatch
+        XCTAssertTrue(bar.exists)
+        XCTAssertEqual(bar.frame.width, 286, accuracy: 1)
+        XCTAssertEqual(bar.frame.height, 54, accuracy: 1, "The emoji pill must not grow into an oversized popover")
+        let copy = app.buttons["chat.reaction.copy"]
+        XCTAssertTrue(copy.exists)
+        XCTAssertTrue(window.contains(copy.frame))
+        let field = app.descendants(matching: .any).matching(identifier: "chat.message").firstMatch
+        XCTAssertLessThanOrEqual(copy.frame.maxY, field.frame.minY,
+                                "The menu must fit in the history above the composer")
+        XCTAssertLessThan(copy.frame.width, bar.frame.width, "Copy has its own compact panel")
+        XCTAssertGreaterThanOrEqual(copy.frame.minY - bar.frame.maxY, 7, "The two panels must remain separate")
         attach(app.screenshot(), name: "chat-reaction-six-options")
 
         fire.tap()
@@ -141,6 +155,34 @@ final class ChatInteractionTests: XCTestCase {
         XCTAssertTrue(app.buttons["chat.latest"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["chat.reaction.heart"].exists, "A drag on a reaction-enabled row must remain a scroll")
         waitForReactionState("requests=3; confirmations=2; pending=idle; confirmed=none; actions=0", in: app)
+    }
+
+    @MainActor
+    func testCopyClosesReactionMenuWithoutRequestingReactionOrOpeningMessage() {
+        continueAfterFailure = false
+        let app = launchFixture(reactions: true)
+        defer { attachDiagnostics(in: app, name: "chat-reaction-copy") }
+        let target = reactionTarget(in: app)
+        XCTAssertTrue(target.waitForExistence(timeout: 15))
+        waitUntilHittable(target)
+        target.press(forDuration: 0.55)
+        let copy = app.buttons["chat.reaction.copy"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 5))
+        copy.tap()
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: copy)
+        XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 5), .completed)
+        XCTAssertFalse(app.buttons["chat.reaction.heart"].exists)
+        waitForReactionState("requests=0; confirmations=0; pending=idle; confirmed=none; actions=0", in: app)
+
+        // A closed menu must release its owner so the same message can reopen it.
+        target.press(forDuration: 0.55)
+        XCTAssertTrue(copy.waitForExistence(timeout: 5))
+        let field = app.descendants(matching: .any).matching(identifier: "chat.message").firstMatch
+        // The outer backdrop must consume the first tap even over the composer.
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: copy)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
     }
 
     @MainActor
@@ -252,7 +294,7 @@ final class ChatInteractionTests: XCTestCase {
     @MainActor
     private func dismissReactionPicker(in app: XCUIApplication) {
         let window = app.windows.firstMatch
-        // Outside the compact popover, in the conversation's empty left margin.
+        // Outside both menu panels, in the conversation's empty left margin.
         window.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: 5, dy: window.frame.height / 2)).tap()
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),

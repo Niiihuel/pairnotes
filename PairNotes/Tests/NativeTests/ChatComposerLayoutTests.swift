@@ -5,6 +5,91 @@ import XCTest
 @testable import PairNotes
 
 final class ChatComposerLayoutTests: XCTestCase {
+    func testReactionMenuStaysInsidePhoneViewportAtBothHorizontalEdges() {
+        for width: CGFloat in [320, 393] {
+            let viewport = CGRect(x: 0, y: 59, width: width, height: 700)
+            let menuSize = CGSize(width: ChatReactionMenuPlacement.width, height: 110)
+            let anchors = [
+                CGRect(x: -40, y: 200, width: 150, height: 44),
+                CGRect(x: width - 30, y: viewport.maxY - 60, width: 150, height: 44)
+            ]
+            for anchor in anchors {
+                for alignRight in [false, true] {
+                    let frame = reactionMenuFrame(anchor: anchor, viewport: viewport,
+                                                  menuSize: menuSize, alignRight: alignRight)
+                    XCTAssertTrue(viewport.insetBy(dx: 12, dy: 12).contains(frame),
+                                  "Menu must fit at \(width) pt for either message alignment: \(frame)")
+                }
+            }
+        }
+    }
+
+    func testReactionMenuAlignsWithEitherMessageEdgeWhenThereIsRoom() {
+        for width: CGFloat in [320, 393] {
+            let viewport = CGRect(x: 0, y: 59, width: width, height: 700)
+            let anchor = CGRect(x: 14, y: 300, width: width - 28, height: 64)
+            let menuSize = CGSize(width: ChatReactionMenuPlacement.width, height: 110)
+            let leading = reactionMenuFrame(anchor: anchor, viewport: viewport,
+                                            menuSize: menuSize, alignRight: false)
+            let trailing = reactionMenuFrame(anchor: anchor, viewport: viewport,
+                                             menuSize: menuSize, alignRight: true)
+            XCTAssertEqual(leading.minX, anchor.minX, accuracy: 0.5)
+            XCTAssertEqual(trailing.maxX, anchor.maxX, accuracy: 0.5)
+            XCTAssertNotEqual(leading.minX, trailing.minX,
+                              "Incoming and outgoing messages must use their respective edges")
+        }
+    }
+
+    func testReactionMenuFallsBelowMessageAtTopOfViewport() {
+        let viewport = CGRect(x: 0, y: 59, width: 393, height: 700)
+        let anchor = CGRect(x: 40, y: viewport.minY + 16, width: 230, height: 64)
+        let frame = reactionMenuFrame(anchor: anchor, viewport: viewport,
+                                      menuSize: CGSize(width: ChatReactionMenuPlacement.width, height: 110),
+                                      alignRight: false)
+        XCTAssertEqual(frame.minY, anchor.maxY + 8, accuracy: 0.5)
+        XCTAssertTrue(viewport.insetBy(dx: 12, dy: 12).contains(frame))
+    }
+
+    func testReactionMenuAppearsAboveMessageAtBottomOfViewport() {
+        let viewport = CGRect(x: 0, y: 59, width: 393, height: 700)
+        let anchor = CGRect(x: 40, y: viewport.maxY - 84, width: 230, height: 64)
+        let frame = reactionMenuFrame(anchor: anchor, viewport: viewport,
+                                      menuSize: CGSize(width: ChatReactionMenuPlacement.width, height: 110),
+                                      alignRight: true)
+        XCTAssertEqual(frame.maxY, anchor.minY - 8, accuracy: 0.5)
+        XCTAssertTrue(viewport.insetBy(dx: 12, dy: 12).contains(frame))
+    }
+
+    func testReactionMenuClampsTallMessageAndRepositionsForLargerContent() {
+        for width: CGFloat in [320, 393] {
+            let viewport = CGRect(x: 0, y: 59, width: width, height: 620)
+            let anchor = CGRect(x: 16, y: 100, width: width - 32, height: 530)
+            let normal = reactionMenuFrame(anchor: anchor, viewport: viewport,
+                                           menuSize: CGSize(width: ChatReactionMenuPlacement.width, height: 110),
+                                           alignRight: false)
+            let expanded = reactionMenuFrame(anchor: anchor, viewport: viewport,
+                                             menuSize: CGSize(width: ChatReactionMenuPlacement.width, height: 240),
+                                             alignRight: true)
+            let available = viewport.insetBy(dx: 12, dy: 12)
+            XCTAssertTrue(available.contains(normal))
+            XCTAssertTrue(available.contains(expanded),
+                          "Copy actions, errors and larger text must remain inside the viewport")
+            XCTAssertEqual(normal.maxY, available.maxY, accuracy: 0.5)
+            XCTAssertEqual(expanded.maxY, available.maxY, accuracy: 0.5)
+            XCTAssertLessThan(expanded.minY, normal.minY,
+                              "A taller menu must move up instead of being clipped at the bottom")
+        }
+    }
+
+    private func reactionMenuFrame(anchor: CGRect, viewport: CGRect, menuSize: CGSize,
+                                   alignRight: Bool) -> CGRect {
+        let placement = ChatReactionMenuPlacement(anchor: anchor, viewport: viewport,
+                                                  menuSize: menuSize, alignRight: alignRight)
+        return CGRect(x: placement.center.x - menuSize.width / 2,
+                      y: placement.center.y - menuSize.height / 2,
+                      width: menuSize.width, height: menuSize.height)
+    }
+
     /// Mounts the production composer directly. No account, restored session,
     /// microphone request, send action or networking is needed to render it.
     @MainActor
