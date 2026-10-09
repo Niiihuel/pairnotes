@@ -246,7 +246,7 @@ struct LetterComposer: View {
         MessageOpeningControl(opensAt: Binding(get: { isScheduled ? draft.opensAt : nil }, set: { date in
             draft.scheduled = date != nil
             if let date { draft.opensAt = date }
-        }))
+        }), onPresent: { writing = false })
             .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(busy || draft.sealAttempted)
     }

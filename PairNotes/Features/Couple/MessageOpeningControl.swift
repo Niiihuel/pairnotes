@@ -65,6 +65,7 @@ private struct MessageOpeningLifecycleObserver: UIViewControllerRepresentable {
 struct MessageOpeningControl: View {
     @Binding var opensAt: Date?
     var compact = false
+    var onPresent: @MainActor () -> Void = {}
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.coupleModalControl) private var modalControl
     @StateObject private var presentation = MessageOpeningPresentation()
@@ -74,6 +75,7 @@ struct MessageOpeningControl: View {
     var body: some View {
         Button {
             guard presentation.begin(modalControl) != nil else { return }
+            onPresent()
             candidate = max(opensAt ?? Date().addingTimeInterval(3_600), Date().addingTimeInterval(60))
             presented = true
         } label: {

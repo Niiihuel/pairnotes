@@ -85,7 +85,7 @@ struct ChatMessageComposer: View {
                         .labelStyle(.iconOnly).frame(width: 44, height: 44)
                         .accessibilityIdentifier("chat.camera")
                 } else {
-                    MessageOpeningControl(opensAt: $draft.opensAt, compact: true)
+                    MessageOpeningControl(opensAt: $draft.opensAt, compact: true, onPresent: { focused = false })
                         .disabled(sending || draft.submittedText != nil)
                 }
                 Button {
