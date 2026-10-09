@@ -12,6 +12,7 @@ struct ChatInteractionFixture: View {
     @State private var scrollRequest = UUID()
     @State private var messageCount = 30
     @State private var actionCount = 0
+    @State private var geometryDescription = "Awaiting scroll geometry"
 
     var body: some View {
         NavigationStack {
@@ -39,6 +40,16 @@ struct ChatInteractionFixture: View {
                         }
                     }.padding(14)
                 }
+                .onScrollGeometryChange(for: String.self) { geometry in
+                    "content=\(geometry.contentSize); container=\(geometry.containerSize); " +
+                    "offset=\(geometry.contentOffset); insets=\(geometry.contentInsets); visible=\(geometry.visibleRect)"
+                } action: { _, value in geometryDescription = value }
+                .overlay(alignment: .topLeading) {
+                    Text("atBottom=\(atBottom); \(geometryDescription)")
+                        .font(.system(size: 1)).foregroundStyle(.clear)
+                        .frame(width: 1, height: 1).allowsHitTesting(false)
+                        .accessibilityIdentifier("fixture.geometry")
+                }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     ChatMessageComposer(services: services, createPhoto: {}, takePhoto: {},
                                         createDrawing: {}, showDrafts: {}, createLetter: {}, recordAudio: {},
@@ -51,12 +62,12 @@ struct ChatInteractionFixture: View {
                             .accessibilityIdentifier("fixture.incoming")
                     }
                 }
+                .navigationTitle("Prueba de chat")
             } else {
                 Text("La prueba requiere una sesión limpia.")
                     .accessibilityIdentifier("fixture.unavailable")
             }
         }
-        .navigationTitle("Prueba de chat")
         .tint(services.personalization.theme.accent)
         .environment(\.coupleAppTheme, services.personalization.theme)
         .background(services.personalization.theme.canvas)

@@ -33,8 +33,8 @@ struct ChatConversationScrollView<Content: View>: View {
             }
             .onScrollGeometryChange(for: ChatScrollMetrics.self) { geometry in
                 ChatScrollMetrics(contentHeight: geometry.contentSize.height,
-                                  viewportHeight: geometry.containerSize.height,
-                                  offsetY: geometry.contentOffset.y,
+                                  viewportHeight: geometry.visibleRect.height,
+                                  visibleBottom: geometry.visibleRect.maxY,
                                   bottomInset: geometry.contentInsets.bottom)
             } action: { old, new in
                 guard new.isValid else { return }
@@ -81,12 +81,14 @@ struct ChatScrollMetrics: Equatable {
     let isValid: Bool
     let isNearBottom: Bool
 
-    init(contentHeight: CGFloat, viewportHeight: CGFloat, offsetY: CGFloat, bottomInset: CGFloat) {
+    init(contentHeight: CGFloat, viewportHeight: CGFloat, visibleBottom: CGFloat, bottomInset: CGFloat) {
         self.contentHeight = contentHeight
         self.viewportHeight = viewportHeight
         self.bottomInset = bottomInset
-        isValid = contentHeight.isFinite && viewportHeight.isFinite && offsetY.isFinite && bottomInset.isFinite &&
+        isValid = contentHeight.isFinite && viewportHeight.isFinite && visibleBottom.isFinite && bottomInset.isFinite &&
             contentHeight >= 0 && viewportHeight > 0
-        isNearBottom = isValid && contentHeight + bottomInset - offsetY - viewportHeight <= 60
+        // visibleRect already accounts for content insets and keyboard-safe
+        // layout. Adding the bottom inset again leaves a false gap at the end.
+        isNearBottom = isValid && contentHeight - visibleBottom <= 60
     }
 }

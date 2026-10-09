@@ -7,6 +7,7 @@ final class ChatInteractionTests: XCTestCase {
     func testKeyboardClosesFromHistoryControlsDraggingAndDoneWithoutLosingDraft() {
         continueAfterFailure = false
         let app = launchFixture()
+        defer { attachDiagnostics(in: app, name: "chat-keyboard-geometry") }
         let field = app.descendants(matching: .any).matching(identifier: "chat.message").firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 15))
         let history = app.scrollViews["chat.history"]
@@ -15,7 +16,7 @@ final class ChatInteractionTests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
 
         // Empty space in the conversation must dismiss, without selecting text.
-        history.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.7)).tap()
+        tapVisibleHistorySpace(in: app, history: history, composer: field)
         waitForKeyboardToClose(in: app)
         XCTAssertEqual(field.value as? String, "Mi borrador")
 
@@ -49,11 +50,14 @@ final class ChatInteractionTests: XCTestCase {
     func testLatestMessageButtonUsesVisiblePositionAndNewMessagesRespectOlderReading() {
         continueAfterFailure = false
         let app = launchFixture()
+        defer { attachDiagnostics(in: app, name: "chat-scroll-geometry") }
         let history = app.scrollViews["chat.history"]
         XCTAssertTrue(history.waitForExistence(timeout: 15))
         let last = app.staticTexts["fixture.message.29"]
         waitUntilHittable(last)
-        XCTAssertFalse(app.buttons["chat.latest"].exists)
+        let initiallyHidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                                       object: app.buttons["chat.latest"])
+        XCTAssertEqual(XCTWaiter.wait(for: [initiallyHidden], timeout: 5), .completed)
         history.swipeDown()
         let latest = app.buttons["chat.latest"]
         XCTAssertTrue(latest.waitForExistence(timeout: 5))
@@ -87,6 +91,40 @@ final class ChatInteractionTests: XCTestCase {
     private func waitUntilHittable(_ element: XCUIElement) {
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: element)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+    }
+
+    @MainActor
+    private func tapVisibleHistorySpace(in app: XCUIApplication, history: XCUIElement, composer: XCUIElement) {
+        let window = app.windows.firstMatch
+        let bounds = window.frame
+        let area = history.frame.intersection(bounds)
+        let navigation = app.navigationBars.firstMatch
+        let top = max(area.minY, navigation.exists ? navigation.frame.maxY : bounds.minY)
+        var bottom = min(area.maxY, composer.frame.minY)
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.exists { bottom = min(bottom, keyboard.frame.minY) }
+        XCTAssertGreaterThan(bottom - top, 40, "The tap must land in visible history, above both composer and keyboard")
+        // ScrollView's AX frame includes content underneath safe-area insets.
+        // Use an actual window point in the empty left margin of visible rows.
+        window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: area.minX - bounds.minX + 16,
+                                 dy: (top + bottom) / 2 - bounds.minY)).tap()
+    }
+
+    @MainActor
+    private func attachDiagnostics(in app: XCUIApplication, name: String) {
+        attach(app.screenshot(), name: name + "-screen")
+        let field = app.descendants(matching: .any).matching(identifier: "chat.message").firstMatch
+        let geometry = app.staticTexts["fixture.geometry"]
+        let text = "Window: \(describeFrame(app.windows.firstMatch))\nHistory: \(describeFrame(app.scrollViews["chat.history"]))\n" +
+            "Composer: \(describeFrame(field))\nKeyboard: \(describeFrame(app.keyboards.firstMatch))\n" +
+            "Geometry: \(geometry.exists ? geometry.label : "not exposed")\n\(app.debugDescription)"
+        let attachment = XCTAttachment(string: text)
+        attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    private func describeFrame(_ element: XCUIElement) -> String {
+        element.exists ? String(describing: element.frame) : "not present"
     }
 
     @MainActor
