@@ -1,0 +1,35 @@
+{
+  "conclusion": "success",
+  "headSha": "34f5a6e41fcbfddef1d99cd493b9b043a0683358",
+  "status": "completed",
+  "url": "https://github.com/Niiihuel/pairnotes/actions/runs/37998145985",
+  "runID": 37998145985,
+  "runAttempt": 1,
+  "testCounts": {
+    "backendCasesAndSubcases": 110,
+    "portableCoreTests": 82,
+    "toolingTests": 21,
+    "nativeTests": 104,
+    "uiTests": 8,
+    "total": 325,
+    "failures": 0
+  },
+  "compilationSDK": "26.0",
+  "testSimulatorOS": "26.2",
+  "physicalDeviceTestsExecuted": false,
+  "regressionCoverage": {
+    "keyboard": "Simulator UI verifies that the chat adds no Done keyboard toolbar, dismisses the real keyboard through history taps, controls and dragging, and retains the draft.",
+    "reactionPlacement": "Five native geometry tests cover 320- and 393-point viewports, both message alignments, below-at-top and above-at-bottom placement, tall message clamping and expanded menu height.",
+    "longPress": "Simulator UI verifies six non-overlapping reaction controls in one 286-by-54-point bar, with a separate compact Copy panel above the composer; manual fixture callbacks exercise pending selection, failure, retry, confirmation and removal.",
+    "copyAndDismissal": "Simulator UI verifies that Copy closes the menu without requesting a reaction or opening the message, that the same message can reopen it, and that a backdrop tap over the composer dismisses without opening the keyboard.",
+    "doubleTap": "Simulator UI requests a heart without opening the card, closes the keyboard and retains the draft; only a simulated confirmed response reveals the selected heart.",
+    "latestMessage": "Simulator UI verifies the compact latest-message button, visible scroll position, older-message reading after an append, and return to the latest message.",
+    "nativeAudioControls": "Simulator UI exercises a synthetic native play-button action and scrolling inside the production reaction wrapper; no physical recording or live audio playback is claimed."
+  },
+  "validationLimits": [
+    "Reaction UI tests use synthetic data and manual confirmation callbacks, not authenticated live backend requests.",
+    "Backend reaction authorization and persistence are tested separately with SQL and S3 fixtures.",
+    "Simulator tests do not verify physical microphone/camera, GPS, APNs delivery, the physical WidgetKit compositor or effective display refresh rate.",
+    "This CI result does not establish Apple processing or TestFlight availability for build 11.1."
+  ]
+}

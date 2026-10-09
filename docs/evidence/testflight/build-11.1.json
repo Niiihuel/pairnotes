@@ -1,0 +1,131 @@
+{
+  "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37999939845",
+  "commit": "34f5a6e41fcbfddef1d99cd493b9b043a0683358",
+  "workflowConclusion": "success",
+  "marketingVersion": "1.0",
+  "buildNumber": "11.1",
+  "xcode": "26.2 (17C52)",
+  "minimumOS": "26.0",
+  "ipaSHA256": "2ff0daffe82c43018c98933e263e56651042fdd01de195c9919836db7584115c",
+  "archiveAndExportSucceeded": true,
+  "exportStepVerification": {
+    "app_and_widget_signatures_verified": true,
+    "bundle_ids_and_versions_verified": true,
+    "embedded_profiles_verified": true,
+    "production_entitlements_verified": true,
+    "keychain_isolation_verified": true,
+    "privacy_manifests_present": true,
+    "api_and_google_configuration_present": true,
+    "uploaded_to_apple": false
+  },
+  "uploadReceipt": {
+    "upload_status": "upload_confirmed",
+    "command_exit_code": 0,
+    "success_receipt_observed": true,
+    "error_observed": false,
+    "delivery_uuid": "92572caf-b65d-49e2-89dd-5988dd617e09",
+    "error_codes": [],
+    "apple_processing_status": "not_checked",
+    "testflight_availability": "not_checked",
+    "tester_configuration_changed": false,
+    "store_submission_requested": false,
+    "encryption_declaration_changed": false
+  },
+  "appStoreConnectReadback": {
+    "queriedAt": "2026-10-09T22:43:43.157629+00:00",
+    "appID": "6819083456",
+    "appName": "PairNotes",
+    "bundleID": "com.niiihuel.pairnotes",
+    "groups": [
+      {
+        "id": "fd36449c-a82b-4c1d-aa50-d259a0c3649d",
+        "name": "amorchi",
+        "isInternalGroup": true,
+        "hasAccessToAllBuilds": true,
+        "publicLinkEnabled": null
+      }
+    ],
+    "groupTesterAccountCount": 3,
+    "groupTesterCountComplete": true,
+    "builds": [
+      {
+        "id": "92572caf-b65d-49e2-89dd-5988dd617e09",
+        "version": "11.1",
+        "processingState": "VALID",
+        "uploadedDate": "2026-10-09T15:42:44-07:00",
+        "expired": false,
+        "usesNonExemptEncryption": false,
+        "preRelease": "1.0",
+        "beta": {
+          "autoNotifyEnabled": true,
+          "internalBuildState": "IN_BETA_TESTING",
+          "externalBuildState": "READY_FOR_BETA_SUBMISSION"
+        },
+        "groups": [
+          {
+            "id": "fd36449c-a82b-4c1d-aa50-d259a0c3649d",
+            "name": "amorchi",
+            "isInternalGroup": true,
+            "hasAccessToAllBuilds": true,
+            "publicLinkEnabled": null
+          }
+        ],
+        "individualTesterCount": 0,
+        "individualTesterCountComplete": true
+      }
+    ],
+    "requestsReadOnly": true,
+    "sourceCommit": "34f5a6e41fcbfddef1d99cd493b9b043a0683358",
+    "signedWorkflowRunID": 37999939845,
+    "expectedUploadDeliveryUUID": "92572caf-b65d-49e2-89dd-5988dd617e09",
+    "matchesUploadDeliveryUUID": true,
+    "verificationState": "verified",
+    "verificationChecks": {
+      "uniqueExpectedBuild": true,
+      "buildVersionMatches": true,
+      "preReleaseVersionMatches": true,
+      "processingValid": true,
+      "internalBetaTesting": true,
+      "notExpired": true,
+      "nonExemptEncryptionFalse": true,
+      "onlyInternalAmorchi": true,
+      "noPublicLinkEnabled": true,
+      "exactlyThreeGroupAccountsComplete": true,
+      "noIndividualTestersComplete": true,
+      "requestsReadOnly": true,
+      "matchesUploadDeliveryUUID": true
+    },
+    "verificationPassed": true
+  },
+  "validation": {
+    "runURL": "https://github.com/Niiihuel/pairnotes/actions/runs/37998145985",
+    "commit": "34f5a6e41fcbfddef1d99cd493b9b043a0683358",
+    "conclusion": "success",
+    "testCounts": {
+      "backendCasesAndSubcases": 110,
+      "portableCoreTests": 82,
+      "toolingTests": 21,
+      "nativeTests": 104,
+      "uiTests": 8,
+      "total": 325,
+      "failures": 0
+    },
+    "runAttempt": 1,
+    "compilationSDK": "26.0",
+    "testSimulatorOS": "26.2"
+  },
+  "apiBaseURLVerified": "https://pairnotes-api-development.up.railway.app/",
+  "liveActivitiesDeclared": true,
+  "cameraAndMicrophonePurposeStringsPresent": true,
+  "widgetLocationDeclared": true,
+  "continuousBackgroundLocationRequested": false,
+  "highRefreshRateOptInDeclared": true,
+  "debugChatFixtureAbsentFromReleaseBinary": true,
+  "physicalDeviceTestsExecuted": false,
+  "publicAppStoreSubmissionRequested": false,
+  "signedRunNumber": 11,
+  "signedRunAttempt": 1,
+  "backendDeploymentEvidence": "../railway/release-648e262.json",
+  "backendDeploymentChangedForThisRelease": false,
+  "simulatorRenderEvidence": "build-11.1-renders.json"
+}

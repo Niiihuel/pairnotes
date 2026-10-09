@@ -2,6 +2,18 @@
 
 El workflow `PairNotes CI` se activa al subir cambios a `main`, abrir/actualizar un pull request o ejecutar **Actions → PairNotes CI → Run workflow**. No requiere secretos Apple: compila para simulador sin firma. El corte vigente reemplaza Firebase por Railway y agrega pruebas del backend y de servicios/widget/editor; sus resultados están en [VALIDACION_RAILWAY.md](VALIDACION_RAILWAY.md).
 
+## Entrega del 9 de octubre de 2026: teclado sin Listo y menú compacto de reacciones
+
+La [CI 37998145985](https://github.com/Niiihuel/pairnotes/actions/runs/37998145985), commit `34f5a6e41fcbfddef1d99cd493b9b043a0683358`, aprobó 110 pruebas/subpruebas de backend, 82 de Core, 21 de tooling, 104 nativas y 8 UI: **325 en total, cero fallos**. Compiló app, widget y tests con SDK iOS 26.0 y ejecutó las pruebas Apple en simulador iOS 26.2. [Resumen verificable](evidence/testflight/build-11.1-ci.json).
+
+El chat elimina la barra adicional «Listo» del teclado. Las seis reacciones aparecen en una barra de 286 × 54 pt, con «Copiar» en un panel separado. El menú se coloca dentro del área visible del historial, considera mensajes altos y se cierra al tocar fuera, incluso sobre el compositor. Las regresiones comprueban copiar, cerrar y reabrir el mismo mensaje, conservar el borrador y solicitar el corazón sin abrir la tarjeta. Se conservan [tres PNG originales con hashes y procedencia](evidence/testflight/build-11.1-renders.json), inspeccionados visualmente: son fixtures sintéticos del simulador y las confirmaciones se controlan con callbacks, sin acreditar entrega real ni gestos físicos en iPhone.
+
+La [distribución 37999939845](https://github.com/Niiihuel/pairnotes/actions/runs/37999939845) exigió la CI aprobada de esa fuente exacta, firmó con Xcode 26.2 (17C52) y subió **`1.0 (11.1)`**. Archive, exportación, firmas/perfiles de app y widget, configuración, carga y limpieza terminaron correctamente. IPA, símbolos, recibo y logs se conservan fuera de Git en `~/.local/share/pairnotes/builds/1.0-11.1/`.
+
+La lectura de App Store Connect a las `2026-10-09T22:43:43.157629Z` confirmó `VALID`, `IN_BETA_TESTING`, build no vencida y `usesNonExemptEncryption=false`. Su UUID coincide con el recibo de subida. Sólo está asociada al grupo interno `amorchi`, con tres cuentas, cero testers individuales y sin enlace público. La [evidencia de exportación, recibo y disponibilidad](evidence/testflight/build-11.1.json) verifica además la ausencia del fixture de chat de Debug en el binario Release.
+
+Para resolver los timeouts de autenticación de Docker Hub en los runners Linux, la CI configura su espejo público de Google y un directorio de credenciales aislado; mantiene las imágenes y digests fijados. Una comprobación UI admite 0,01 pt de redondeo en los límites accesibles de 44 pt, después de que XCTest devolviera `43.999999999999986`. La ejecución final pasó en su primer intento. Este corte no modifica ni despliega el backend; conserva la [versión existente de Railway](evidence/railway/release-648e262.json).
+
 ## Entrega del 9 de octubre de 2026: teclado, cartas y reacciones del chat
 
 La [CI 37975650783](https://github.com/Niiihuel/pairnotes/actions/runs/37975650783), commit `648e262f84edfde77738c9ba23cc2d44d81d4e46`, aprobó en su primer intento 110 pruebas/subpruebas de backend, 82 de Core, 21 de tooling, 99 nativas y 7 UI: **319 en total, cero fallos**. Compiló app, widget y tests con SDK iOS 26.0 y ejecutó las pruebas Apple en simulador iOS 26.2. [Resumen verificable](evidence/testflight/build-10.1-ci.json).
