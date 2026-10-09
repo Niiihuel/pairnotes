@@ -66,6 +66,7 @@ struct MessageOpeningControl: View {
     @Binding var opensAt: Date?
     var compact = false
     var onPresent: @MainActor () -> Void = {}
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.coupleModalControl) private var modalControl
     @StateObject private var presentation = MessageOpeningPresentation()
@@ -109,6 +110,7 @@ struct MessageOpeningControl: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Button("Programar") { opensAt = candidate; presented = false }
                         .buttonStyle(.borderedProminent)
+                        .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
                         .disabled(candidate <= Date())
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }.padding(20)

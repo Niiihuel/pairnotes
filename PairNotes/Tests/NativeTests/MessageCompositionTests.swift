@@ -99,18 +99,30 @@ final class MessageCompositionTests: XCTestCase {
                         onCancel: { XCTFail("Rendering must not dismiss audio") })
                     let content = VStack(spacing: 0) {
                         Spacer(minLength: 0)
-                        composer.padding(12).background {
-                            GeometryReader { geometry in Color.clear.preference(key: AudioComposerSize.self, value: geometry.size) }
+                        composer.padding(12).onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                            Task { @MainActor in layout.record(size) }
                         }
                     }.dynamicTypeSize(largeText ? .accessibility3 : .large)
                         .tint(services.personalization.theme.accent).background(services.personalization.theme.canvas)
-                        .onPreferenceChange(AudioComposerSize.self) { size in Task { @MainActor in layout.record(size) } }
+                        .frame(width: width, height: 800)
                         .ignoresSafeArea()
                     let host = UIHostingController(rootView: AnyView(content))
                     let window = UIWindow(windowScene: scene)
                     window.frame = CGRect(x: 0, y: 0, width: width, height: 800)
                     window.overrideUserInterfaceStyle = width == 320 ? .light : .dark
-                    window.rootViewController = host; window.makeKeyAndVisible(); host.view.layoutIfNeeded()
+                    window.rootViewController = host
+                    window.makeKeyAndVisible()
+                    host.view.frame = window.bounds
+                    host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                    window.setNeedsLayout()
+                    window.layoutIfNeeded()
+                    host.view.setNeedsLayout()
+                    host.view.layoutIfNeeded()
+                    // Commit the mounted SwiftUI tree before awaiting its size.
+                    // The previous final screenshot rendered it only after the timeout.
+                    _ = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                        XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+                    }
                     await fulfillment(of: [ready], timeout: 3)
                     XCTAssertEqual(layout.size.width, width, accuracy: 0.5, name)
                     XCTAssertTrue(layout.size.height.isFinite)
@@ -183,11 +195,6 @@ final class MessageCompositionTests: XCTestCase {
         XCTAssertTrue(cadence.shouldSample(at: 5), "Skipped display frames should sample once without inventing history")
         XCTAssertFalse(cadence.shouldSample(at: 5.01))
     }
-}
-
-private struct AudioComposerSize: PreferenceKey {
-    static let defaultValue = CGSize.zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
 }
 
 @MainActor

@@ -27,14 +27,25 @@ final class WidgetDistanceLayoutTests: XCTestCase {
             let near = try portraits(try pixels(nearImage))
             let farBitmap = try pixels(farImage)
             let far = try portraits(farBitmap)
-            let old = try portraits(try pixels(oldImage))
+            let oldBitmap = try pixels(oldImage)
+            let old = try portraits(oldBitmap)
             XCTAssertGreaterThan(near.left.midX, far.left.midX + 5, name)
             XCTAssertLessThan(near.right.midX, far.right.midX - 5, name)
             XCTAssertEqual(near.left.width, far.left.width, accuracy: 1, name)
             XCTAssertEqual(near.right.width, far.right.width, accuracy: 1, name)
-            XCTAssertEqual(old.left, far.left, "An old measurement must not fade or reposition the portraits")
-            XCTAssertEqual(old.right, far.right, "An old measurement must not fade or reposition the portraits")
-            for rect in [near.left, near.right, far.left, far.right] {
+            // Footer text can change the centered stack's height. Proximity is
+            // encoded horizontally; age must preserve that spacing and photo detail.
+            for (previous, current) in [(old.left, far.left), (old.right, far.right)] {
+                XCTAssertEqual(previous.minX, current.minX, "Age must preserve horizontal position (\(name))")
+                XCTAssertEqual(previous.width, current.width, "Age must preserve portrait width (\(name))")
+                XCTAssertEqual(previous.height, current.height, "Age must preserve portrait height (\(name))")
+                let oldCenter = (Int(previous.midY) * oldBitmap.width + Int(previous.midX)) * 4
+                let farCenter = (Int(current.midY) * farBitmap.width + Int(current.midX)) * 4
+                XCTAssertEqual(Array(oldBitmap.bytes[oldCenter..<(oldCenter + 4)]),
+                               Array(farBitmap.bytes[farCenter..<(farCenter + 4)]),
+                               "Age must preserve photo color and opacity (\(name))")
+            }
+            for rect in [near.left, near.right, far.left, far.right, old.left, old.right] {
                 XCTAssertTrue(CGRect(origin: .zero, size: size).contains(rect), name)
             }
             XCTAssertGreaterThan(connectionPixels(farBitmap, between: far, scheme: scheme), 10,

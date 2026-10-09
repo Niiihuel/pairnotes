@@ -18,6 +18,7 @@ struct AudioMessageComposer: View {
     private let scope: String
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var voice = VoiceNoteController()
     @State private var draft: AudioMessageDraft
     @State private var audio: Data?
@@ -141,6 +142,7 @@ struct AudioMessageComposer: View {
                 if busy { ProgressView() }
                 else { Label(draft.sealAttempted ? "Confirmar envío" : "Enviar audio", systemImage: "paperplane.fill") }
             }.frame(minWidth: 44, minHeight: 44)
+                .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
         }.buttonStyle(.borderedProminent).disabled(!canSend)
             .accessibilityIdentifier("chat.audio.send")
     }

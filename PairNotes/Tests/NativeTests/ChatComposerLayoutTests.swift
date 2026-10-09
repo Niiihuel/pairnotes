@@ -35,18 +35,15 @@ final class ChatComposerLayoutTests: XCTestCase {
                         onSent: { _ in XCTFail("Rendering must not send a message") })
                     let root = VStack(spacing: 0) {
                         Spacer(minLength: 0)
-                        composer.background {
-                            GeometryReader { proxy in
-                                Color.clear.preference(key: ChatComposerSize.self, value: proxy.size)
-                            }
+                        composer.onGeometryChange(for: CGSize.self) { $0.size } action: { value in
+                            Task { @MainActor in layout.record(value) }
                         }
                     }
                     .background(services.personalization.theme.canvas)
+                    .tint(services.personalization.theme.accent)
                     .dynamicTypeSize(largeText ? .accessibility3 : .large)
                     .environment(\.coupleAppTheme, services.personalization.theme)
-                    .onPreferenceChange(ChatComposerSize.self) { value in
-                        Task { @MainActor in layout.record(value) }
-                    }
+                    .frame(width: width, height: 420)
                     .ignoresSafeArea()
                     let host = UIHostingController(rootView: AnyView(root))
                     let window = UIWindow(windowScene: scene)
@@ -54,7 +51,18 @@ final class ChatComposerLayoutTests: XCTestCase {
                     window.overrideUserInterfaceStyle = width == 320 ? .light : .dark
                     window.rootViewController = host
                     window.makeKeyAndVisible()
+                    host.view.frame = window.bounds
+                    host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+                    window.setNeedsLayout()
+                    window.layoutIfNeeded()
+                    host.view.setNeedsLayout()
                     host.view.layoutIfNeeded()
+                    // Commit the mounted SwiftUI tree before waiting for its
+                    // geometry callback. Previously only the final screenshot
+                    // forced this render, after the expectation had timed out.
+                    _ = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                        XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+                    }
                     await fulfillment(of: [ready], timeout: 3)
                     XCTAssertEqual(layout.size.width, width, accuracy: 0.5, caseName)
                     XCTAssertTrue(layout.size.height.isFinite)
@@ -136,11 +144,6 @@ private struct ChatLayoutDraft: Encodable {
     let submittedText: String? = nil
     let opensAt: Date? = nil
     let sealAttempted: Bool? = nil
-}
-
-private struct ChatComposerSize: PreferenceKey {
-    static let defaultValue = CGSize.zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
 }
 
 @MainActor
