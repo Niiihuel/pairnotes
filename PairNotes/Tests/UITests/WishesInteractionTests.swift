@@ -114,6 +114,13 @@ final class WishesInteractionTests: XCTestCase {
         done.tap()
         waitFor(app.webViews.firstMatch, predicate: NSPredicate(format: "exists == false"))
         XCTAssertTrue(app.buttons["wish.edit"].waitForExistence(timeout: 5))
+        // Closing Safari must keep the detail open and reset the sheet so the
+        // same publication can be consulted again without reopening the card.
+        reveal(link, app: app); link.tap()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(done.waitForExistence(timeout: 10)); done.tap()
+        waitFor(app.webViews.firstMatch, predicate: NSPredicate(format: "exists == false"))
+        XCTAssertTrue(app.buttons["wish.edit"].waitForExistence(timeout: 5))
         closeDetail(app)
 
         let recipe = app.buttons[cardID(3)]
@@ -206,25 +213,18 @@ final class WishesInteractionTests: XCTestCase {
     private func enter(_ text: String, into id: String, app: XCUIApplication) {
         let target = element(id, app: app)
         reveal(target, app: app); target.tap()
-        waitForKeyboardFocus(target)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         target.typeText(text)
+        waitFor(target, predicate: NSPredicate(format: "value == %@", text))
     }
     private func replace(_ text: String, in id: String, app: XCUIApplication) {
         let target = element(id, app: app)
         reveal(target, app: app)
         let previous = target.value as? String ?? ""
         target.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
-        waitForKeyboardFocus(target)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         target.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: previous.count) + text)
-    }
-    private func waitForKeyboardFocus(_ target: XCUIElement) {
-        // XCTest reports iOS keyboard focus in the element's own diagnostic attributes.
-        // Its public hasFocus property instead represents focus-engine UI focus.
-        let focused = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            target.exists && target.debugDescription.split(separator: "\n").first?.contains("Keyboard Focused") == true
-        }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 5), .completed,
-                       "Typing requires keyboard focus on \(target.identifier)")
+        waitFor(target, predicate: NSPredicate(format: "value == %@", text))
     }
     private func waitFor(_ target: XCUIElement, predicate: NSPredicate) {
         let ready = XCTNSPredicateExpectation(predicate: predicate, object: target)

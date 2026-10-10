@@ -463,7 +463,7 @@ struct WishDetailView: View {
                     })
                 }
                 .sheet(item: $browser) { target in
-                    WishWebLinkView(url: target.url, onClose: { browser = nil }).ignoresSafeArea()
+                    WishWebLinkView(url: target.url).ignoresSafeArea()
                 }
                 .confirmationDialog("¿Eliminar este antojo para los dos?", isPresented: $confirmsDelete, titleVisibility: .visible) {
                     Button("Eliminar antojo", role: .destructive) { delete() }
@@ -944,29 +944,11 @@ private struct WishBrowserTarget: Identifiable { let id = UUID(); let url: URL }
 
 struct WishWebLinkView: UIViewControllerRepresentable {
     let url: URL
-    let onClose: @MainActor () -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(onClose: onClose) }
 
     func makeUIViewController(context: Context) -> SFSafariViewController {
-        let controller = SFSafariViewController(url: url)
-        controller.delegate = context.coordinator
-        return controller
+        SFSafariViewController(url: url)
     }
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {
-        context.coordinator.onClose = onClose
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, SFSafariViewControllerDelegate {
-        var onClose: @MainActor () -> Void
-
-        init(onClose: @escaping @MainActor () -> Void) { self.onClose = onClose }
-
-        func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
-            // Safari closes its UIKit presentation itself. Clear the matching
-            // SwiftUI sheet state too, so the enclosing detail can close normally.
-            onClose()
-        }
-    }
+    // Safari dismisses its own presentation. A second dismissal from its
+    // delegate can also close the underlying wish detail when sheets are nested.
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
