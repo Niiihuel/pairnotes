@@ -66,8 +66,16 @@ final class EditorInteractionTests: XCTestCase {
         let preview = app.buttons["chat.audio.preview"]
         waitUntilEnabled(preview)
         preview.tap()
-        let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Pausar audio"), object: preview)
-        XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 5), .completed)
+        // A two-second clip can finish while XCTest waits for application idle.
+        // Assert real player transitions retained by the simulator-only probe.
+        waitForAudioState(in: app, containing: ["playbackStarts=1;", "playbackStops=1;",
+                                               "playbackEarlyPauses=0;", "playing=false;"])
+        // Send both touches in one event sequence, without XCTest's idle wait
+        // between play and pause. The recorded position must be before the end.
+        preview.tap(withNumberOfTaps: 2, numberOfTouches: 1)
+        waitForAudioState(in: app, containing: ["playbackStarts=2;", "playbackStops=2;",
+                                               "playbackEarlyPauses=1;", "playing=false;"])
+        XCTAssertEqual(preview.label, "Escuchar audio")
         app.buttons["chat.audio.resume"].tap()
         XCTAssertTrue(pause.waitForExistence(timeout: 5))
         waitForAudioState(in: app, containing: ["sent=0;", "starts=2;", "phase=locked;"])

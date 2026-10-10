@@ -116,6 +116,9 @@ struct ChatInteractionFixture: View {
         .onReceive(audioProbe.voice.$recordedData) { data in
             if testsAudio, let data { audioProbe.review(data) }
         }
+        .onReceive(audioProbe.voice.$playing) { playing in
+            if testsAudio { audioProbe.observePlayback(playing) }
+        }
         .task {
             guard !prepared, services.identity == nil else { return }
             // UI tests run in an isolated, unsigned simulator, without sessions.
@@ -234,6 +237,10 @@ private final class FixtureAudioProbe: ObservableObject {
     @Published private var firstSample: Int16 = 0
     @Published private var lastSample: Int16 = 0
     @Published private var error = "none"
+    @Published private var playbackStarts = 0
+    @Published private var playbackStops = 0
+    @Published private var playbackEarlyPauses = 0
+    @Published private var playbackActive = false
 
     lazy var voice = VoiceNoteController(requestPermission: { true }, makeRecorder: { [weak self] url, settings in
         guard let self else { throw CocoaError(.userCancelled) }
@@ -243,7 +250,24 @@ private final class FixtureAudioProbe: ObservableObject {
 
     var description: String {
         "sent=\(sent); starts=\(starts); reviewedFrames=\(reviewedFrames); sentFrames=\(sentFrames); " +
-            "first=\(firstSample); last=\(lastSample); error=\(error)"
+            "first=\(firstSample); last=\(lastSample); error=\(error); " +
+            "playbackStarts=\(playbackStarts); playbackStops=\(playbackStops); " +
+            "playbackEarlyPauses=\(playbackEarlyPauses); playing=\(playbackActive)"
+    }
+
+    /// Keep real AVAudioPlayer transitions observable after a short clip finishes.
+    /// XCTest can wait for application idleness longer than this two-second audio.
+    func observePlayback(_ playing: Bool) {
+        guard playing != playbackActive else { return }
+        playbackActive = playing
+        if playing {
+            playbackStarts += 1
+        } else {
+            playbackStops += 1
+            if voice.elapsed > 0, voice.elapsed < voice.duration - 0.1 {
+                playbackEarlyPauses += 1
+            }
+        }
     }
 
     func review(_ data: Data) {

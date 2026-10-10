@@ -331,7 +331,8 @@ struct WishCard: View {
                 }
             }.padding(14)
         }.background(theme.card, in: RoundedRectangle(cornerRadius: 22))
-            .clipShape(RoundedRectangle(cornerRadius: 22)).privacySensitive()
+            .clipShape(RoundedRectangle(cornerRadius: 22))
+            .contentShape(RoundedRectangle(cornerRadius: 22)).privacySensitive()
             .accessibilityElement(children: .combine)
     }
 }
@@ -361,6 +362,7 @@ struct WishPhotoView: View {
                 if loadedKey == key, let image {
                     Image(uiImage: image).resizable().scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                        .accessibilityHidden(true)
                 } else {
                     VStack(spacing: 10) {
                         Image(systemName: wish.category.symbol).font(.system(size: 38, weight: .light)).foregroundStyle(theme.accent)
@@ -370,7 +372,9 @@ struct WishPhotoView: View {
                     }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }.frame(width: geometry.size.width, height: geometry.size.height)
-        }.clipped().privacySensitive().accessibilityLabel(wish.photo == nil ? wish.category.title : "Foto de \(wish.title)")
+        }.clipped().contentShape(Rectangle()).privacySensitive()
+            .accessibilityElement(children: allowsRetry && failed ? .contain : .ignore)
+            .accessibilityLabel(wish.photo == nil ? wish.category.title : "Foto de \(wish.title)")
             .task(id: "\(key):\(retry)") {
                 let captured = key; image = nil; loadedKey = nil; failed = false
                 guard wish.photo != nil else { return }
@@ -779,7 +783,7 @@ struct WishEditorView: View {
                     Spacer()
                     Text(draft.fields.currencyCode ?? "Elegir moneda").foregroundStyle(draft.fields.currencyCode == nil ? .secondary : theme.ink)
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-                }.frame(minHeight: 44)
+                }.frame(minHeight: 44).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityIdentifier("wish.form.currency")
             if draft.fields.category == .travel {
                 TextField("Ahorrado (opcional)", text: $draft.fields.savedText)
