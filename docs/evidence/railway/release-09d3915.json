@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-10T00:44:43.261491+00:00",
+  "sourceCommit": "09d39150c1cf647cc11b6e2e1fe7168479051a99",
+  "sourceTree": "d0f05de898bfdb883247291d97bc799778f876e8",
+  "backendTree": "c8cf1a1d394d5928a56d78e54b4246e8b1b12561",
+  "backendTrackedFiles": 31,
+  "backendSourceSHA256": "0901a1afc479e1c698f503fc6c22034477b74aac5a85085340353e3d9e84dacf",
+  "environment": "development",
+  "service": {
+    "name": "pairnotes-api",
+    "id": "53774cc6-9364-4a0c-9e30-7ef697b84de2",
+    "projectName": "pairnotes-dev",
+    "projectId": "ae2e0081-67d5-4744-a795-145ea20e6177",
+    "url": "https://pairnotes-api-development.up.railway.app"
+  },
+  "previousDeploymentId": "419a4993-dd0c-491f-bd12-3ea1134db59d",
+  "deployment": {
+    "id": "bb6da015-08a9-4cf8-8168-398e214d4f66",
+    "status": "SUCCESS",
+    "createdAt": "2026-10-10T00:42:16.891Z",
+    "imageDigest": "sha256:f147b5caf12993a057b7d81f0db3c3aab3bf287f386d1681747b5e19b0ed19e4",
+    "sourceMessage": "PairNotes Antojos 09d39150c1cf647cc11b6e2e1fe7168479051a99 backend-tree c8cf1a1d394d5928a56d78e54b4246e8b1b12561"
+  },
+  "ci": {
+    "id": 38009572085,
+    "head_sha": "09d39150c1cf647cc11b6e2e1fe7168479051a99",
+    "html_url": "https://github.com/Niiihuel/pairnotes/actions/runs/38009572085",
+    "runStatusAtVerification": "in_progress",
+    "runConclusionAtVerification": null,
+    "backendJob": {
+      "name": "API, identity and private storage tests",
+      "status": "completed",
+      "conclusion": "success",
+      "databaseId": 114086191519,
+      "startedAt": "2026-10-10T00:33:38Z",
+      "completedAt": "2026-10-10T00:34:44Z",
+      "url": "https://github.com/Niiihuel/pairnotes/actions/runs/38009572085/job/114086191519"
+    },
+    "backendTests": {
+      "tests": 121,
+      "pass": 121,
+      "fail": 0,
+      "skipped": 0
+    },
+    "backendLogArtifact": {
+      "id": 11652697974,
+      "name": "backend-tests-1",
+      "testsLogSHA256": "6a656545e4102e5fc0e244ce2d6222dddf88e114b63b25e9bbb2ea14a15d8e93"
+    },
+    "overallRunClaimedSuccessful": false,
+    "iosJobStatusAtVerification": "in_progress"
+  },
+  "verification": {
+    "checkedAt": "2026-10-10T00:44:06.273740+00:00",
+    "checks": [
+      {
+        "method": "GET",
+        "route": "/healthz",
+        "httpStatus": 200,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-10T00:44:05.627417+00:00",
+        "body": {
+          "status": "ok"
+        }
+      },
+      {
+        "method": "POST",
+        "route": "/wishes",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-10T00:44:05.623742+00:00",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/getWish",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-10T00:44:05.620660+00:00",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/saveWish",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-10T00:44:05.612004+00:00",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/deleteWish",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-10T00:44:06.212481+00:00",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "POST",
+        "route": "/deleteWishPhoto",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-10T00:44:06.243712+00:00",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "PUT",
+        "route": "/wishPhoto",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-10T00:44:06.273180+00:00",
+        "reason": "authentication_required"
+      },
+      {
+        "method": "GET",
+        "route": "/wishPhoto",
+        "httpStatus": 401,
+        "cacheControl": "private, no-store",
+        "checkedAt": "2026-10-10T00:44:06.061021+00:00",
+        "reason": "authentication_required"
+      }
+    ],
+    "newPrivateRoutesVerified": 7,
+    "authenticatedProductFlowsVerified": false,
+    "legacyPrivateRoutesRetested": false,
+    "legacyEvidenceReference": "release-648e262.json"
+  },
+  "sourceProvenance": {
+    "method": "Railway CLI upload of Backend with --path-as-root from a clean detached Git worktree at the exact source commit; deployment metadata records the full source commit and Backend tree.",
+    "command": [
+      "rtk",
+      "railway",
+      "up",
+      "Backend",
+      "--path-as-root",
+      "--project",
+      "ae2e0081-67d5-4744-a795-145ea20e6177",
+      "--service",
+      "53774cc6-9364-4a0c-9e30-7ef697b84de2",
+      "--environment",
+      "a0e005fa-8213-4488-97d6-cab8e99671e0",
+      "--message",
+      "PairNotes Antojos 09d39150c1cf647cc11b6e2e1fe7168479051a99 backend-tree c8cf1a1d394d5928a56d78e54b4246e8b1b12561",
+      "--detach",
+      "--json"
+    ],
+    "worktreeClean": true,
+    "backendSourceSHA256Definition": "SHA256 of each tracked Backend path (Git ls-tree order), NUL, file bytes, NUL; includes tracked files excluded from the Docker runtime image.",
+    "deploymentMetadataMatchesSource": true,
+    "runtimeSourceIndependentlyVerified": false,
+    "limitation": "Source attribution is based on the clean uploaded checkout and Railway deployment metadata. The health endpoint reports availability without a source SHA; runtime files were not inspected."
+  },
+  "scope": {
+    "personalDataAccessed": false,
+    "manualMessagesOrNotificationsSent": false,
+    "serviceVariablesChanged": false,
+    "accountsOrSessionsCreated": false,
+    "checksWereUnauthenticated": true
+  },
+  "limitations": [
+    "Anonymous 401 checks verify denial without credentials, not authenticated wishes with real accounts.",
+    "The backend CI job passed while the overall CI run and iOS tests were still in progress at verification.",
+    "HTTP checks and deployment status do not establish physical-device validation or TestFlight processing state."
+  ]
+}

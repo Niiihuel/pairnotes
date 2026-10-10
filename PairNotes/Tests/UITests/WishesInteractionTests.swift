@@ -151,7 +151,17 @@ final class WishesInteractionTests: XCTestCase {
     private func reveal(_ target: XCUIElement, app: XCUIApplication) {
         for _ in 0..<8 {
             if target.exists && target.isHittable { return }
-            app.windows.firstMatch.swipeUp()
+            let window = app.windows.firstMatch
+            let frame = window.frame
+            let keyboard = app.keyboards.firstMatch
+            let startY = min(frame.maxY - 90, keyboard.exists ? keyboard.frame.minY - 30 : frame.maxY - 90)
+            let endY = frame.minY + 140
+            guard startY - endY > 100 else { break }
+            // Keep the whole drag inside the form rather than starting on the keyboard.
+            let origin = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+            let start = origin.withOffset(CGVector(dx: 0, dy: startY - frame.minY))
+            let end = origin.withOffset(CGVector(dx: 0, dy: endY - frame.minY))
+            start.press(forDuration: 0.05, thenDragTo: end)
         }
         XCTAssertTrue(target.exists && target.isHittable, "Unreachable control: \(target.identifier)")
     }
