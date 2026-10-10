@@ -355,19 +355,22 @@ struct WishPhotoView: View {
     private var key: String { "\(source.currentScope()):\(wish.id):\(wish.photo?.id ?? "none")" }
 
     var body: some View {
-        ZStack {
-            theme.accent.opacity(0.1)
-            if loadedKey == key, let image {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                VStack(spacing: 10) {
-                    Image(systemName: wish.category.symbol).font(.system(size: 38, weight: .light)).foregroundStyle(theme.accent)
-                    if failed && allowsRetry {
-                        Button("Reintentar foto") { retry += 1 }.font(.caption).buttonStyle(.bordered)
-                    }
-                }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }.privacySensitive().accessibilityLabel(wish.photo == nil ? wish.category.title : "Foto de \(wish.title)")
+        GeometryReader { geometry in
+            ZStack {
+                theme.accent.opacity(0.1)
+                if loadedKey == key, let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                } else {
+                    VStack(spacing: 10) {
+                        Image(systemName: wish.category.symbol).font(.system(size: 38, weight: .light)).foregroundStyle(theme.accent)
+                        if failed && allowsRetry {
+                            Button("Reintentar foto") { retry += 1 }.font(.caption).buttonStyle(.bordered)
+                        }
+                    }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }.frame(width: geometry.size.width, height: geometry.size.height)
+        }.clipped().privacySensitive().accessibilityLabel(wish.photo == nil ? wish.category.title : "Foto de \(wish.title)")
             .task(id: "\(key):\(retry)") {
                 let captured = key; image = nil; loadedKey = nil; failed = false
                 guard wish.photo != nil else { return }
@@ -679,15 +682,18 @@ struct WishEditorView: View {
 
     private var photoSection: some View {
         Section {
-            Group {
-                if let photoData, let image = UIImage(data: photoData), draft.photoAction == "replace" {
-                    Image(uiImage: image).resizable().scaledToFill()
-                } else if let base = draft.base, base.photo != nil, draft.photoAction != "remove" {
-                    WishPhotoView(wish: base, source: source, allowsRetry: true)
-                } else {
-                    ZStack { theme.accent.opacity(0.1); Label("Una foto para inspirarse", systemImage: "photo").foregroundStyle(theme.accent) }
-                }
-            }.frame(height: 190).frame(maxWidth: .infinity).clipped().clipShape(RoundedRectangle(cornerRadius: 18))
+            GeometryReader { geometry in
+                Group {
+                    if let photoData, let image = UIImage(data: photoData), draft.photoAction == "replace" {
+                        Image(uiImage: image).resizable().scaledToFill()
+                            .frame(width: geometry.size.width, height: geometry.size.height).clipped()
+                    } else if let base = draft.base, base.photo != nil, draft.photoAction != "remove" {
+                        WishPhotoView(wish: base, source: source, allowsRetry: true)
+                    } else {
+                        ZStack { theme.accent.opacity(0.1); Label("Una foto para inspirarse", systemImage: "photo").foregroundStyle(theme.accent) }
+                    }
+                }.frame(width: geometry.size.width, height: geometry.size.height)
+            }.frame(height: 190).clipShape(RoundedRectangle(cornerRadius: 18))
             PhotosPicker(selection: $photoSelection, matching: .images) {
                 Label(photoData != nil || draft.base?.photo != nil ? "Cambiar foto" : "Elegir foto", systemImage: "photo.on.rectangle")
                     .frame(minHeight: 44)

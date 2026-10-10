@@ -53,9 +53,11 @@ final class WishesInteractionTests: XCTestCase {
         defer { diagnostics(app, name: "wishes-travel-lifecycle") }
         let travel = app.buttons[cardID(1)]
         XCTAssertTrue(travel.waitForExistence(timeout: 15))
+        assertHorizontalBounds(travel, app: app)
         attach(app, name: "wishes-category-grid-light")
         travel.tap()
         XCTAssertTrue(app.staticTexts["wish.detail.title"].waitForExistence(timeout: 5))
+        assertHorizontalBounds(app.staticTexts["wish.detail.title"], app: app, inset: 15)
         XCTAssertTrue(app.staticTexts["wish.detail.price"].label.contains("MXN"))
         attach(app, name: "wishes-travel-detail-light")
         app.buttons["wish.edit"].tap()
@@ -96,13 +98,16 @@ final class WishesInteractionTests: XCTestCase {
         defer { diagnostics(app, name: "wishes-gift-and-recipe") }
         let gift = app.buttons[cardID(2)]
         XCTAssertTrue(gift.waitForExistence(timeout: 15))
-        reveal(gift, app: app); gift.tap()
+        reveal(gift, app: app)
+        assertHorizontalBounds(gift, app: app)
+        gift.tap()
         XCTAssertTrue(app.staticTexts["wish.detail.price"].waitForExistence(timeout: 5))
+        assertHorizontalBounds(app.staticTexts["wish.detail.title"], app: app, inset: 15)
         XCTAssertTrue(app.staticTexts["wish.detail.price"].label.contains("USD"))
         attach(app, name: "wishes-gift-detail-dark")
         let link = app.buttons["wish.detail.link"]
         reveal(link, app: app); link.tap()
-        let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["Listo", "Done"])).firstMatch
+        let done = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label IN %@", "Close", ["Close", "Listo", "Done"])).firstMatch
         XCTAssertTrue(done.waitForExistence(timeout: 10), "The publication opens inside the native Safari sheet")
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
         attach(app, name: "wishes-publication-native-browser")
@@ -148,13 +153,19 @@ final class WishesInteractionTests: XCTestCase {
     private func element(_ id: String, app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
+    private func assertHorizontalBounds(_ target: XCUIElement, app: XCUIApplication, inset: CGFloat = 0) {
+        let bounds = app.windows.firstMatch.frame
+        XCTAssertGreaterThanOrEqual(target.frame.minX, bounds.minX + inset)
+        XCTAssertLessThanOrEqual(target.frame.maxX, bounds.maxX - inset)
+    }
     private func reveal(_ target: XCUIElement, app: XCUIApplication) {
         for _ in 0..<8 {
             if target.exists && target.isHittable { return }
             let window = app.windows.firstMatch
             let frame = window.frame
             let keyboard = app.keyboards.firstMatch
-            let startY = min(frame.maxY - 90, keyboard.exists ? keyboard.frame.minY - 30 : frame.maxY - 90)
+            // XCTest's keyboard frame omits the predictive bar above the keys.
+            let startY = min(frame.maxY - 90, keyboard.exists ? keyboard.frame.minY - 90 : frame.maxY - 90)
             let endY = frame.minY + 140
             guard startY - endY > 100 else { break }
             // Keep the whole drag inside the form rather than starting on the keyboard.

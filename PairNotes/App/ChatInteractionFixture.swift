@@ -264,14 +264,18 @@ private final class FixtureAudioProbe: ObservableObject {
         defer { try? FileManager.default.removeItem(at: url) }
         try data.write(to: url)
         let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatInt16, interleaved: true)
+        defer { file.close() }
         guard file.length > 0, let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 1) else {
             throw CocoaError(.fileReadCorruptFile)
         }
         try file.read(into: buffer, frameCount: 1)
-        guard let channel = buffer.int16ChannelData else { throw CocoaError(.fileReadCorruptFile) }
+        guard buffer.frameLength == 1, let channel = buffer.int16ChannelData else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
         let first = channel[0][0]
         file.framePosition = file.length - 1
         try file.read(into: buffer, frameCount: 1)
+        guard buffer.frameLength == 1 else { throw CocoaError(.fileReadCorruptFile) }
         return (Int(file.length), first, channel[0][0])
     }
 }
@@ -287,6 +291,7 @@ private final class FixtureAudioRecorder: VoiceRecordingDevice {
     init(url: URL, settings: [String: Any], sample: Int16) throws {
         self.url = url
         let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatInt16, interleaved: true)
+        defer { file.close() }
         guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 32_000),
               let channel = buffer.int16ChannelData else { throw CocoaError(.fileWriteUnknown) }
         buffer.frameLength = 32_000

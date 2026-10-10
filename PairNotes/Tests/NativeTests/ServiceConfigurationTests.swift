@@ -48,6 +48,7 @@ final class ServiceConfigurationTests: XCTestCase {
         for index in 0..<16000 { buffer.int16ChannelData![0][index] = Int16(sin(Double(index) / 20) * Double(index % 1600) * 10) }
         do {
             let file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
+            defer { file.close() }
             try file.write(from: buffer)
         }
         let data = try Data(contentsOf: url)
@@ -80,6 +81,7 @@ final class ServiceConfigurationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: sessionURL) }
         do {
             let file = try AVAudioFile(forWriting: sessionURL, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
+            defer { file.close() }
             for _ in 0..<8 { try file.write(from: buffer) }
         }
         let sessionData = try Data(contentsOf: sessionURL)
@@ -160,6 +162,8 @@ final class ServiceConfigurationTests: XCTestCase {
     func testPausedVoiceCanBeReviewedAndResumedWithoutReplacingEarlierSamples() async throws {
         let first = try voicePCMData(frames: 16_000, sample: 1234)
         let second = try voicePCMData(frames: 32_000, sample: -2345)
+        XCTAssertEqual(try voicePCMSamples(first), Array(repeating: Int16(1234), count: 16_000))
+        XCTAssertEqual(try voicePCMSamples(second), Array(repeating: Int16(-2345), count: 32_000))
         var devices: [VoiceRecorderFixture] = []
         var snapshots: [Data] = []
         let controller = VoiceNoteController(requestPermission: { true }, makeRecorder: { url, _ in
@@ -180,6 +184,7 @@ final class ServiceConfigurationTests: XCTestCase {
         XCTAssertFalse(controller.isUpdatingDisplay)
         XCTAssertEqual(snapshots.count, 1)
         let reviewed = try XCTUnwrap(controller.recordedData)
+        XCTAssertEqual(try voicePCMSamples(reviewed), Array(repeating: Int16(1234), count: 16_000))
         controller.prepare(reviewed)
         controller.seek(to: 0.5)
         controller.pause()
@@ -261,7 +266,10 @@ final class ServiceConfigurationTests: XCTestCase {
         controller.pauseRecording()
         let data = try XCTUnwrap(controller.recordedData)
         XCTAssertEqual(try AVAudioPlayer(data: data).duration, 60, accuracy: 0.001)
-        XCTAssertEqual(try voicePCMSamples(data).count, 60 * 16_000)
+        let samples = try voicePCMSamples(data)
+        XCTAssertEqual(samples.count, 60 * 16_000)
+        XCTAssertTrue(samples.prefix(59 * 16_000).allSatisfy { $0 == 1000 })
+        XCTAssertTrue(samples.dropFirst(59 * 16_000).allSatisfy { $0 == -1000 })
         XCTAssertFalse(controller.recordingPaused)
         XCTAssertFalse(controller.canResumeRecording)
         XCTAssertFalse(controller.isUpdatingDisplay)
@@ -542,6 +550,7 @@ private func voicePCMData(frames: Int, sample: Int16) throws -> Data {
     for index in 0..<frames { buffer.int16ChannelData![0][index] = sample }
     do {
         let file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
+        defer { file.close() }
         try file.write(from: buffer)
     }
     return try Data(contentsOf: url)
@@ -552,8 +561,18 @@ private func voicePCMSamples(_ data: Data) throws -> [Int16] {
     defer { try? FileManager.default.removeItem(at: url) }
     try data.write(to: url)
     let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatInt16, interleaved: true)
-    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
-    try file.read(into: buffer)
-    let samples = try XCTUnwrap(buffer.int16ChannelData?[0])
-    return Array(UnsafeBufferPointer(start: samples, count: Int(buffer.frameLength)))
+    defer { file.close() }
+    let expectedFrames = Int(file.length)
+    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4096))
+    var result: [Int16] = []
+    result.reserveCapacity(expectedFrames)
+    // A read attempts to fill the buffer; a successful short read is not EOF.
+    // Require every frame advertised by the finalized file, including its tail.
+    while result.count < expectedFrames {
+        try file.read(into: buffer, frameCount: AVAudioFrameCount(min(4096, expectedFrames - result.count)))
+        guard buffer.frameLength > 0 else { throw CocoaError(.fileReadCorruptFile) }
+        let samples = try XCTUnwrap(buffer.int16ChannelData?[0])
+        result.append(contentsOf: UnsafeBufferPointer(start: samples, count: Int(buffer.frameLength)))
+    }
+    return result
 }

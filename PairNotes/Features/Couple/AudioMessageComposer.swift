@@ -169,7 +169,9 @@ struct AudioMessageComposer: View {
                 Spacer(minLength: 0)
                 Image(systemName: "lock.fill").font(.caption).foregroundStyle(.secondary).frame(width: 44, height: 44)
             }
-        }.accessibilityIdentifier("chat.audio.locked")
+        }
+        // SwiftUI propagates an identifier on this container to its children,
+        // overriding the individual pause and discard controls in accessibility.
     }
 
     private var liveWaveform: some View {
@@ -217,7 +219,6 @@ struct AudioMessageComposer: View {
                     .accessibilityLabel("Conservar borrador y cerrar").disabled(busy)
             }
         }
-        .accessibilityIdentifier("chat.audio.review")
         .task(id: data) {
             guard !Task.isCancelled, !voice.recording else { return }
             voice.prepare(data)

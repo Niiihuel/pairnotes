@@ -49,7 +49,7 @@ private enum VoiceRecordingTake {
     static func joined(_ urls: [URL]) throws -> Data {
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
         defer { try? FileManager.default.removeItem(at: outputURL) }
-        // Releasing AVAudioFile closes and finalizes the output before reading its bytes.
+        // write closes the file explicitly before its header and final PCM block are read.
         try write(urls, to: outputURL)
         let data = try Data(contentsOf: outputURL)
         guard data.count > 44, data.count <= 2_000_000 else { throw CocoaError(.fileReadCorruptFile) }
@@ -59,6 +59,9 @@ private enum VoiceRecordingTake {
     private static func write(_ urls: [URL], to outputURL: URL) throws {
         let output = try AVAudioFile(forWriting: outputURL, settings: settings,
                                      commonFormat: .pcmFormatInt16, interleaved: true)
+        // ARC can keep an Objective-C file alive past this scope. Flush it before
+        // joined reads the bytes for review or upload, including partial blocks.
+        defer { output.close() }
         guard let buffer = AVAudioPCMBuffer(pcmFormat: output.processingFormat, frameCapacity: 4096) else {
             throw CocoaError(.fileReadCorruptFile)
         }
@@ -67,7 +70,8 @@ private enum VoiceRecordingTake {
             let input = try AVAudioFile(forReading: url, commonFormat: .pcmFormatInt16, interleaved: true)
             guard input.processingFormat == output.processingFormat else { throw CocoaError(.fileReadCorruptFile) }
             while input.framePosition < input.length && remaining > 0 {
-                try input.read(into: buffer, frameCount: AVAudioFrameCount(min(4096, remaining)))
+                let frames = min(4096, remaining, input.length - input.framePosition)
+                try input.read(into: buffer, frameCount: AVAudioFrameCount(frames))
                 guard buffer.frameLength > 0 else { throw CocoaError(.fileReadCorruptFile) }
                 try output.write(from: buffer)
                 remaining -= AVAudioFramePosition(buffer.frameLength)
