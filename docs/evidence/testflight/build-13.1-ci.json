@@ -1,0 +1,123 @@
+{
+  "conclusion": "success",
+  "headSha": "949308978b8f412a0de2d73504bbd49817a5ca79",
+  "status": "completed",
+  "url": "https://github.com/Niiihuel/pairnotes/actions/runs/38019177102",
+  "runID": 38019177102,
+  "runAttempt": 1,
+  "verifiedAt": "2026-10-10T03:39:10.048114+00:00",
+  "testCounts": {
+    "backendCasesAndSubcases": 121,
+    "portableCoreTests": 90,
+    "toolingTests": 21,
+    "nativeTests": 132,
+    "uiTests": 14,
+    "total": 378,
+    "passed": 378,
+    "failures": 0,
+    "skipped": 0
+  },
+  "compilationSDK": "26.0",
+  "testSimulatorOS": "26.2",
+  "testSimulatorDevice": "iPhone 16e",
+  "minimumSDKBuild": "success",
+  "physicalDeviceTestsExecuted": false,
+  "regressionCoverage": {
+    "audio": "Native and simulator UI tests pass for hold/release, cancel/lock, review/play/pause, same-take continuation, exact PCM sample preservation, cumulative 60-second limit, interruption/permission handling and preservation of the text draft. UI delivery uses a fixture callback.",
+    "chatPositionKeyboardReactions": "Native layout and simulator UI tests pass for keeping the latest-message button hidden at the end with keyboard/incoming messages, preserving older reading and drafts, removing the Done toolbar, compact reactions with confirmed selection, and separate Copy.",
+    "latestNativeEdits": "Real PaperKit/persistence regressions pass for explicit live capture before its change callback, capture during an older in-flight autosave, failure without returning a stale archive and retry. Finger drawing/save/reopen also passes.",
+    "wishes": "Core/native tests and all three Antojos UI flows pass: explicit currency per item, localized decimal/draft recovery, travel budget/savings/date/fulfill/delete, native Safari presentation/return and recipe-draft preservation. Native tests cover category fields, scope, pending-photo recovery and layouts. Backend coverage uses isolated real SQL/S3 and HTTP."
+  },
+  "validationLimits": [
+    "Audio fixtures use deterministic PCM and synthetic delivery with real player transitions; no physical microphone, Bluetooth, actual permission prompt, acoustic quality or recipient-device delivery was tested.",
+    "Antojos UI uses production screens with an in-memory source and synthetic photos. Backend integration tests use isolated PostgreSQL/S3 and HTTP, not authenticated production accounts.",
+    "PaperKit tests use real encoding/rendering and persistence with controlled callbacks; they do not execute an authenticated live send.",
+    "Simulator gestures and screenshots do not establish physical-device behavior, performance, sensors or notifications. Safari coverage establishes native browser presentation/return, not availability of every third-party publication.",
+    "This CI evidence does not establish Archive Release, code signing, Apple upload/processing or TestFlight availability; those require separate distribution evidence."
+  ],
+  "evidence": {
+    "metadataPath": "artifacts/ci-38019177102/run.json",
+    "metadataSHA256": "26ce4ab8375d8351124e216ff9f2c9d6258ce91f07fe5df8de0ad82cf57b123b",
+    "artifactsMetadataPath": "artifacts/ci-38019177102/artifacts.json",
+    "jobs": [
+      {
+        "id": 114116126457,
+        "name": "API, identity and private storage tests",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/Niiihuel/pairnotes/actions/runs/38019177102/job/114116126457"
+      },
+      {
+        "id": 114116126569,
+        "name": "Portable tests (Linux)",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/Niiihuel/pairnotes/actions/runs/38019177102/job/114116126569"
+      },
+      {
+        "id": 114116289165,
+        "name": "iOS 26 build and native tests",
+        "status": "completed",
+        "conclusion": "success",
+        "url": "https://github.com/Niiihuel/pairnotes/actions/runs/38019177102/job/114116289165"
+      }
+    ],
+    "logs": [
+      {
+        "path": "artifacts/ci-38019177102/backend-tests-1/tests.log",
+        "sha256": "9f2524e99498ff062fbf2a1f4e88d1aa0ae99c47e3ca5ed90a585b02367ae343",
+        "summaryLines": [
+          786,
+          788,
+          789,
+          790,
+          791
+        ]
+      },
+      {
+        "path": "artifacts/ci-38019177102/linux-tests-1/swift-tests.log",
+        "sha256": "3c4b802efbb7533a1bdb9b01cbc6d58ce4330f71ea0b44e709e298673ba776d0",
+        "summaryLines": [
+          299,
+          301
+        ]
+      },
+      {
+        "path": "artifacts/ci-38019177102/linux-tests-1/ci-tests.log",
+        "sha256": "57d3d1ed31b2ac57ad9feca71b8b66ed58eb28a5a261d6010182987705daaa8e",
+        "summaryLines": [
+          263,
+          265
+        ]
+      },
+      {
+        "path": "artifacts/ci-38019177102/full-job.log",
+        "sha256": "177d19316ce483b3457668c1d26e330a16898166a8a400fc24885ee590147c04",
+        "summaryLines": [
+          18590,
+          18592,
+          21023,
+          21025
+        ]
+      }
+    ],
+    "artifacts": [
+      {
+        "id": 11658132484,
+        "name": "paperkit-renders-1",
+        "digest": "sha256:e061a5d40eb97cf3462dcc6489dc009368805a38ad8affd2b04ccdde43ab0133"
+      },
+      {
+        "id": 11657587686,
+        "name": "backend-tests-1",
+        "digest": "sha256:74da4ae0c7b3d1d7edbe667eb44d1b9ad66618614bfa2bc6f3c4935d0a8ab80a"
+      },
+      {
+        "id": 11657307739,
+        "name": "linux-tests-1",
+        "digest": "sha256:c42de6bad75ee7479174a9c03308b63cde80df4ae3857af00c2bc50e2099efcc"
+      }
+    ],
+    "largeIOSEvidenceDownloaded": false
+  }
+}

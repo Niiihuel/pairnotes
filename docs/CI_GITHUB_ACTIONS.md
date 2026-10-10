@@ -2,6 +2,18 @@
 
 El workflow `PairNotes CI` se activa al subir cambios a `main`, abrir/actualizar un pull request o ejecutar **Actions → PairNotes CI → Run workflow**. No requiere secretos Apple: compila para simulador sin firma. El corte vigente reemplaza Firebase por Railway y agrega pruebas del backend y de servicios/widget/editor; sus resultados están en [VALIDACION_RAILWAY.md](VALIDACION_RAILWAY.md).
 
+## Entrega del 10 de octubre de 2026: Antojos, audio y posición del chat
+
+La [CI 38019177102](https://github.com/Niiihuel/pairnotes/actions/runs/38019177102), fuente `949308978b8f412a0de2d73504bbd49817a5ca79`, aprobó **378 comprobaciones sin fallos ni omisiones**: 121 pruebas/subpruebas de backend, 90 de Core, 21 de tooling, 132 nativas y 14 UI. El intento final no repitió tests. App, widget y tests compilaron con SDK 26.0; las pruebas Apple corrieron en iPhone 16e simulado con iOS 26.2. [Conteos, cobertura y procedencia](evidence/testflight/build-13.1-ci.json).
+
+Antojos comparte foto, categoría y precio opcional desde Inicio. Cada elemento elige su moneda explícitamente. Las pruebas recorren selección MXN/ARS/USD/BRL, recuperación del borrador, presupuesto y ahorro con resta decimal exacta, fecha, cumplido y eliminación. El recorrido de regalos abre y cierra dos veces el navegador nativo conservando el detalle; recetas conserva ingredientes y preparación al cerrar y reabrir. Los tests nativos cubren también el aislamiento por cuenta y la recuperación de una foto pendiente.
+
+El audio permite mantener/soltar, cancelar hacia la izquierda, bloquear hacia arriba, pausar, escuchar y continuar la misma toma. La prueba combina dos segmentos y verifica sus 64.000 muestras, reproducción real y borrador de texto conservado. El botón de volver al final permanece oculto cuando corresponde, incluso al cambiar teclado, compositor o mensajes. Siguen aprobadas las regresiones de teclado, reacciones y captura PaperKit antes del envío. Las [ocho capturas originales revisadas](evidence/testflight/build-13.1-renders.json) registran Antojos y audio en claro/oscuro y el chat al final. Usan datos, micrófono y entrega controlados; no acreditan grabación física ni envío autenticado entre dos iPhones.
+
+La [distribución 38021204130](https://github.com/Niiihuel/pairnotes/actions/runs/38021204130), número 13 e intento 1, exigió la CI aprobada del mismo commit, firmó con Xcode 26.2 y subió **`1.0 (13.1)`**. Se verificaron app/widget, perfiles, entitlements, hash de la IPA y exclusión de los fixtures Debug de chat, audio y Antojos. IPA, símbolos, recibo y logs quedan respaldados fuera de Git en `~/.local/share/pairnotes/builds/1.0-13.1/`.
+
+App Store Connect confirmó a las `2026-10-10T03:44:48.742534Z` procesamiento `VALID`, estado `IN_BETA_TESTING`, build no vencida y `usesNonExemptEncryption=false`. El UUID coincide con el recibo de subida. Sólo está asociada al grupo interno `amorchi`, con tres cuentas, cero testers individuales y sin enlace público. [Evidencia de disponibilidad](evidence/testflight/build-13.1.json). El [backend de Antojos](evidence/railway/release-09d3915.json) ya está desplegado en Railway: árbol `c8cf1a1d394d5928a56d78e54b4246e8b1b12561`, idéntico al de la fuente de esta beta. Las pruebas físicas en dos iPhones siguen pendientes.
+
 ## Entrega del 9 de octubre de 2026: últimos cambios del dibujo antes de enviar
 
 La [CI 38002766192](https://github.com/Niiihuel/pairnotes/actions/runs/38002766192), commit `77d3065cb3f70d8f7fcff82e7741020806eaf641`, aprobó 110 pruebas/subpruebas de backend, 82 de Core, 21 de tooling, 107 nativas y 8 UI: **328 en total, cero fallos**. Compiló app, widget y tests con SDK iOS 26.0 y ejecutó las pruebas Apple en simulador iOS 26.2. [Resumen verificable](evidence/testflight/build-12.2-ci.json).
