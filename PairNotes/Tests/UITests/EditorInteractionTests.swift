@@ -5,6 +5,95 @@ import UIKit
 /// Native model/render tests cannot establish that UIKit receives these touches.
 final class EditorInteractionTests: XCTestCase {
     @MainActor
+    func testChatAudioHoldReleaseSendsOnceAndSlidingLeftCancels() {
+        continueAfterFailure = false
+        let app = launchAudioFixture(dark: false)
+        defer { attachAudioDiagnostics(in: app, name: "chat-audio-hold-and-cancel") }
+        let field = app.descendants(matching: .any).matching(identifier: "chat.message").firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 15))
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        let mic = app.buttons["chat.record"]
+        waitUntilHittable(mic)
+        mic.press(forDuration: 0.8)
+        waitForAudioState(in: app, containing: ["sent=1;", "starts=1;", "sentFrames=32000;", "phase=idle;", "error=none;"])
+        XCTAssertTrue(field.exists, "Sending an audio returns to the text composer")
+        XCTAssertFalse(app.buttons["chat.audio.send"].exists)
+
+        waitUntilHittable(mic)
+        let start = mic.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.5, thenDragTo: start.withOffset(CGVector(dx: -140, dy: 0)))
+        waitForAudioState(in: app, containing: ["sent=1;", "starts=2;", "phase=idle;"])
+        XCTAssertTrue(field.exists, "Sliding left discards the recording and returns to the text composer")
+        XCTAssertFalse(app.buttons["chat.audio.send"].exists)
+
+        mic.tap()
+        XCTAssertTrue(app.buttons["chat.audio.pause"].waitForExistence(timeout: 5))
+        assertCompactAudioComposer(in: app)
+        attach(app.screenshot(), name: "chat-audio-locked-light")
+        app.buttons["chat.audio.pause"].tap()
+        XCTAssertTrue(app.buttons["chat.audio.preview"].waitForExistence(timeout: 5))
+        attach(app.screenshot(), name: "chat-audio-review-light")
+        app.buttons["chat.audio.discard"].tap()
+        waitForAudioState(in: app, containing: ["sent=1;", "phase=idle;"])
+    }
+
+    @MainActor
+    func testChatAudioLockCanReviewResumeSameTakeAndKeepTextDraftAfterDiscard() {
+        continueAfterFailure = false
+        let app = launchAudioFixture(dark: true)
+        defer { attachAudioDiagnostics(in: app, name: "chat-audio-lock-review-resume") }
+        let mic = app.buttons["chat.record"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 15))
+        waitUntilHittable(mic)
+        let initial = mic.frame
+        let start = mic.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.5, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -120)))
+        let pause = app.buttons["chat.audio.pause"]
+        XCTAssertTrue(pause.waitForExistence(timeout: 5))
+        waitForAudioState(in: app, containing: ["sent=0;", "starts=1;", "phase=locked;"])
+        let send = app.buttons["chat.audio.send"]
+        XCTAssertEqual(send.frame.midX, initial.midX, accuracy: 1)
+        XCTAssertEqual(send.frame.midY, initial.midY, accuracy: 1,
+                       "Expanding the recorder must keep the active native microphone at the same anchor")
+        XCTAssertGreaterThanOrEqual(send.frame.width, 44 - 0.01)
+        XCTAssertGreaterThanOrEqual(send.frame.height, 44 - 0.01)
+        assertCompactAudioComposer(in: app)
+        attach(app.screenshot(), name: "chat-audio-locked-dark")
+
+        pause.tap()
+        waitForAudioState(in: app, containing: ["sent=0;", "reviewedFrames=32000;", "phase=review;"])
+        let preview = app.buttons["chat.audio.preview"]
+        waitUntilEnabled(preview)
+        preview.tap()
+        let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Pausar audio"), object: preview)
+        XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 5), .completed)
+        app.buttons["chat.audio.resume"].tap()
+        XCTAssertTrue(pause.waitForExistence(timeout: 5))
+        waitForAudioState(in: app, containing: ["sent=0;", "starts=2;", "phase=locked;"])
+        pause.tap()
+        waitForAudioState(in: app, containing: ["reviewedFrames=64000;", "phase=review;"])
+        assertCompactAudioComposer(in: app)
+        attach(app.screenshot(), name: "chat-audio-review-resumed-dark")
+        send.tap()
+        waitForAudioState(in: app, containing: ["sent=1;", "sentFrames=64000;", "first=8000;", "last=-8000;", "phase=idle;"])
+
+        let field = app.descendants(matching: .any).matching(identifier: "chat.message").firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("Mi borrador sigue acá")
+        app.buttons["chat.attach"].tap()
+        app.buttons["Audio"].tap()
+        XCTAssertTrue(pause.waitForExistence(timeout: 5))
+        pause.tap()
+        XCTAssertTrue(app.buttons["chat.audio.discard"].waitForExistence(timeout: 5))
+        app.buttons["chat.audio.discard"].tap()
+        waitForAudioState(in: app, containing: ["sent=1;", "starts=3;", "phase=idle;"])
+        XCTAssertEqual(field.value as? String, "Mi borrador sigue acá")
+        attach(app.screenshot(), name: "chat-audio-discard-keeps-text-draft")
+    }
+
+    @MainActor
     func testGuestChatOpensDrawingLibraryAndKeepsAccountSettingsSeparate() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -181,6 +270,42 @@ final class EditorInteractionTests: XCTestCase {
     private func waitUntilEnabled(_ element: XCUIElement) {
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: element)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+    }
+
+    @MainActor
+    private func launchAudioFixture(dark: Bool) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_AR",
+            "-pairnotes-chat-interaction-fixture", "-pairnotes-chat-audio-enabled", "-pairnotes-chat-short-history"]
+        if dark { app.launchArguments.append("-pairnotes-chat-audio-dark") }
+        app.launch()
+        return app
+    }
+
+    private func waitForAudioState(in app: XCUIApplication, containing fragments: [String]) {
+        let state = app.staticTexts["fixture.audio.state"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            state.exists && fragments.allSatisfy { state.label.contains($0) }
+        }, object: nil)
+        let result = XCTWaiter.wait(for: [ready], timeout: 10)
+        if result != .completed { attachAudioDiagnostics(in: app, name: "chat-audio-state-timeout") }
+        XCTAssertEqual(result, .completed, "Expected \(fragments.joined(separator: ", ")), got \(state.exists ? state.label : "missing state")")
+    }
+
+    private func assertCompactAudioComposer(in app: XCUIApplication) {
+        let state = app.staticTexts["fixture.audio.state"].label
+        let height = state.components(separatedBy: "; ").first { $0.hasPrefix("height=") }
+            .flatMap { Int($0.dropFirst("height=".count)) }
+        XCTAssertNotNil(height)
+        XCTAssertGreaterThan(height ?? 0, 44)
+        XCTAssertLessThan(height ?? Int.max, 180, "The recording and review controls stay inside a compact chat composer")
+    }
+
+    private func attachAudioDiagnostics(in app: XCUIApplication, name: String) {
+        attach(app.screenshot(), name: name)
+        let attachment = XCTAttachment(string: app.debugDescription)
+        attachment.name = name + "-hierarchy"; attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func waitUntilHittable(_ element: XCUIElement) {

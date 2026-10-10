@@ -36,18 +36,17 @@ struct ChatConversationScrollView<Content: View>: View {
             }
             .onScrollGeometryChange(for: ChatScrollMetrics.self) { geometry in
                 ChatScrollMetrics(contentHeight: geometry.contentSize.height,
-                                  viewportHeight: geometry.visibleRect.height,
+                                  viewportHeight: geometry.containerSize.height,
                                   visibleBottom: geometry.visibleRect.maxY,
                                   bottomInset: geometry.contentInsets.bottom)
             } action: { old, new in
-                guard new.isValid else { return }
-                let keepLatestVisible = atBottom && !userScrolling && old.isValid &&
-                    (old.contentHeight != new.contentHeight || old.viewportHeight != new.viewportHeight ||
-                     old.bottomInset != new.bottomInset)
-                atBottom = new.isNearBottom
-                // Opening the keyboard or loading an image should keep the last
-                // message visible only when the reader was already at the end.
-                if keepLatestVisible { scroll(proxy, animated: false) }
+                let update = ChatScrollUpdate(previous: old, current: new,
+                                              wasAtBottom: atBottom, userScrolling: userScrolling)
+                atBottom = update.atBottom
+                // Keep following the end throughout keyboard and lazy-row
+                // layout changes. A temporary gap must not display the button
+                // or cancel the scroll that is already bringing the end back.
+                if update.shouldScroll { scroll(proxy, animated: false) }
             }
             .overlay(alignment: .bottomTrailing) {
                 if hasMessages, !atBottom {
@@ -76,6 +75,7 @@ struct ChatConversationScrollView<Content: View>: View {
     }
 
     private func scroll(_ proxy: ScrollViewProxy, animated: Bool) {
+        atBottom = true
         withAnimation(animated && !reduceMotion ? .easeOut(duration: 0.22) : nil) {
             proxy.scrollTo(Target.latest, anchor: .bottom)
         }
@@ -95,8 +95,29 @@ struct ChatScrollMetrics: Equatable {
         self.bottomInset = bottomInset
         isValid = contentHeight.isFinite && viewportHeight.isFinite && visibleBottom.isFinite && bottomInset.isFinite &&
             contentHeight >= 0 && viewportHeight > 0
-        // visibleRect already accounts for content insets and keyboard-safe
-        // layout. Adding the bottom inset again leaves a false gap at the end.
-        isNearBottom = isValid && contentHeight - visibleBottom <= 60
+        // SwiftUI's visibleRect includes content underneath safe-area insets.
+        // Exclude the composer, tab bar and keyboard from its lower edge;
+        // containerSize is the usable viewport when the history is short.
+        let usableBottom = visibleBottom - bottomInset
+        isNearBottom = isValid && (contentHeight <= viewportHeight || contentHeight - usableBottom <= 60)
+    }
+}
+
+struct ChatScrollUpdate {
+    let atBottom: Bool
+    let shouldScroll: Bool
+
+    init(previous: ChatScrollMetrics, current: ChatScrollMetrics, wasAtBottom: Bool, userScrolling: Bool) {
+        guard current.isValid else {
+            atBottom = wasAtBottom
+            shouldScroll = false
+            return
+        }
+        let followingLatest = wasAtBottom && !userScrolling
+        atBottom = followingLatest || current.isNearBottom
+        shouldScroll = followingLatest && (!previous.isValid ||
+            previous.contentHeight != current.contentHeight ||
+            previous.viewportHeight != current.viewportHeight ||
+            previous.bottomInset != current.bottomInset)
     }
 }

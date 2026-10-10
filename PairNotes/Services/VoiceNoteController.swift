@@ -16,6 +16,66 @@ struct VoiceMeterCadence {
     }
 }
 
+/// The recorder boundary lets lifecycle tests use real PCM files without microphone permission.
+@MainActor
+protocol VoiceRecordingDevice: AnyObject {
+    var url: URL { get }
+    var currentTime: TimeInterval { get }
+    var delegate: (any AVAudioRecorderDelegate)? { get set }
+    var isMeteringEnabled: Bool { get set }
+    func record(forDuration duration: TimeInterval) -> Bool
+    func stop()
+    func updateMeters()
+    func averagePower(forChannel channelNumber: Int) -> Float
+}
+
+extension AVAudioRecorder: VoiceRecordingDevice {}
+
+/// Closed PCM segments are joined before review, so playback never reads an unfinished WAV header.
+private enum VoiceRecordingTake {
+    static let sampleRate = 16_000.0
+    static let maximumDuration: TimeInterval = 60
+    static let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: sampleRate, AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
+
+    static func duration(of url: URL) throws -> TimeInterval {
+        let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatInt16, interleaved: true)
+        guard file.processingFormat.sampleRate == sampleRate, file.processingFormat.channelCount == 1,
+              file.length > 0 else { throw CocoaError(.fileReadCorruptFile) }
+        return Double(file.length) / sampleRate
+    }
+
+    static func joined(_ urls: [URL]) throws -> Data {
+        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        // Releasing AVAudioFile closes and finalizes the output before reading its bytes.
+        try write(urls, to: outputURL)
+        let data = try Data(contentsOf: outputURL)
+        guard data.count > 44, data.count <= 2_000_000 else { throw CocoaError(.fileReadCorruptFile) }
+        return data
+    }
+
+    private static func write(_ urls: [URL], to outputURL: URL) throws {
+        let output = try AVAudioFile(forWriting: outputURL, settings: settings,
+                                     commonFormat: .pcmFormatInt16, interleaved: true)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: output.processingFormat, frameCapacity: 4096) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        var remaining = AVAudioFramePosition(sampleRate * maximumDuration)
+        for url in urls {
+            let input = try AVAudioFile(forReading: url, commonFormat: .pcmFormatInt16, interleaved: true)
+            guard input.processingFormat == output.processingFormat else { throw CocoaError(.fileReadCorruptFile) }
+            while input.framePosition < input.length && remaining > 0 {
+                try input.read(into: buffer, frameCount: AVAudioFrameCount(min(4096, remaining)))
+                guard buffer.frameLength > 0 else { throw CocoaError(.fileReadCorruptFile) }
+                try output.write(from: buffer)
+                remaining -= AVAudioFramePosition(buffer.frameLength)
+            }
+        }
+    }
+}
+
 @MainActor
 private final class VoiceDisplayLinkTarget: NSObject {
     weak var controller: VoiceNoteController?
@@ -37,6 +97,7 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
     @Published private(set) var levels = Array(repeating: 0.05, count: 32)
     private var playbackData: Data?
     @Published private(set) var recording = false
+    @Published private(set) var recordingPaused = false
     @Published private(set) var playing = false
     @Published private(set) var requestingPermission = false
     @Published private(set) var needsMicrophoneSettings = false
@@ -45,7 +106,15 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
     @Published private(set) var recordedData: Data?
     @Published var error: String?
     var didRecord: ((Data) -> Void)?
-    private var recorder: AVAudioRecorder?
+    private var recorder: (any VoiceRecordingDevice)?
+    private var segments: [URL] = []
+    private var capturedDuration: TimeInterval = 0
+    private let requestPermission: () async -> Bool
+    private let makeRecorder: (URL, [String: Any]) throws -> any VoiceRecordingDevice
+    private let managesAudioSession: Bool
+    var canResumeRecording: Bool {
+        recordingPaused && capturedDuration < VoiceRecordingTake.maximumDuration && !requestingPermission
+    }
     private var player: AVAudioPlayer?
     private let display = VoiceDisplayLinkLifetime()
     private var meterCadence = VoiceMeterCadence()
@@ -54,7 +123,13 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
     private var observers = Set<AnyCancellable>()
     private static weak var sessionOwner: VoiceNoteController?
 
-    override init() {
+    init(requestPermission: @escaping () async -> Bool = { await AVAudioApplication.requestRecordPermission() },
+         makeRecorder: @escaping (URL, [String: Any]) throws -> any VoiceRecordingDevice = {
+             try AVAudioRecorder(url: $0, settings: $1)
+         }, managesAudioSession: Bool = true) {
+        self.requestPermission = requestPermission
+        self.makeRecorder = makeRecorder
+        self.managesAudioSession = managesAudioSession
         super.init()
         NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)
             .sink { [weak self] notification in
@@ -92,12 +167,27 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
     }
 
     func record() async {
-        guard !recording, !requestingPermission else { return }
-        // Keep the previous reviewed take ready if permission or the new recording fails.
+        guard !recording, !recordingPaused, !requestingPermission else { return }
+        await beginRecording(resuming: false)
+    }
+
+    /// Finalize this segment for immediate review while retaining the take for explicit continuation.
+    func pauseRecording() {
+        guard recording else { return }
+        captureSegment(keepingTake: true)
+    }
+
+    func resumeRecording() async {
+        guard canResumeRecording else { return }
+        await beginRecording(resuming: true)
+    }
+
+    private func beginRecording(resuming: Bool) async {
+        // Keep the reviewed take ready if permission or a continuation fails.
         pause(); generation += 1
         let request = generation
         requestingPermission = true; needsMicrophoneSettings = false; error = nil
-        let granted = await AVAudioApplication.requestRecordPermission()
+        let granted = await requestPermission()
         guard request == generation else { return }
         requestingPermission = false
         guard !Task.isCancelled else { return }
@@ -105,53 +195,95 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
         do {
             try activate(category: .record, mode: .default, options: [.allowBluetoothHFP])
             let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
-            let value = try AVAudioRecorder(url: url, settings: [AVFormatIDKey: kAudioFormatLinearPCM,
-                AVSampleRateKey: 16000.0, AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
-                AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false])
+            let value = try makeRecorder(url, VoiceRecordingTake.settings)
             value.delegate = self
             value.isMeteringEnabled = true
-            levels = Array(repeating: 0.05, count: 32)
             recorder = value
-            guard value.record(forDuration: 60) else { throw CocoaError(.fileWriteUnknown) }
-            elapsed = 0; duration = 0; recording = true
+            let remaining = VoiceRecordingTake.maximumDuration - capturedDuration
+            guard remaining > 0, value.record(forDuration: remaining) else { throw CocoaError(.fileWriteUnknown) }
+            if !resuming { levels = Array(repeating: 0.05, count: 32) }
+            elapsed = capturedDuration; duration = capturedDuration
+            recordingPaused = false; recording = true
             startClock()
-        } catch { cancelRecording(); self.error = "No se pudo iniciar la grabación." }
+        } catch {
+            discardActiveSegment()
+            recording = false; recordingPaused = resuming && !segments.isEmpty
+            stopClock(); deactivate()
+            self.error = resuming ? "No se pudo continuar la grabación. Tu audio se conserva." : "No se pudo iniciar la grabación."
+        }
     }
+
     func finishRecording() {
+        generation += 1; requestingPermission = false
+        if recording { captureSegment(keepingTake: false) }
+        else if recordingPaused {
+            recordingPaused = false
+            discardSegments()
+            pause()
+        }
+    }
+
+    private func captureSegment(keepingTake: Bool) {
         guard let recorder else { return }
         recorder.delegate = nil; recorder.stop()
         let url = recorder.url
         self.recorder = nil; recording = false; stopClock()
-        defer { try? FileManager.default.removeItem(at: url); deactivate() }
+        defer { deactivate() }
         do {
-            let data = try Data(contentsOf: url)
-            guard data.count > 44, data.count <= 2_000_000 else { throw CocoaError(.fileReadCorruptFile) }
+            let segmentDuration = try VoiceRecordingTake.duration(of: url)
+            // Never replace a good earlier segment until the complete new take is readable.
+            let data = try VoiceRecordingTake.joined(segments + [url])
             let recordedDuration = try AVAudioPlayer(data: data).duration
-            guard recordedDuration.isFinite, recordedDuration > 0, recordedDuration <= 60 else { throw CocoaError(.fileReadCorruptFile) }
-            duration = recordedDuration
-            elapsed = 0
-            recordedData = data; didRecord?(data)
+            guard recordedDuration.isFinite, recordedDuration > 0,
+                  recordedDuration <= VoiceRecordingTake.maximumDuration else { throw CocoaError(.fileReadCorruptFile) }
+            segments.append(url)
+            capturedDuration = min(VoiceRecordingTake.maximumDuration, capturedDuration + segmentDuration)
+            duration = recordedDuration; elapsed = 0
+            recordingPaused = keepingTake && capturedDuration < VoiceRecordingTake.maximumDuration
+            recordedData = data
+            if !recordingPaused { discardSegments() }
+            didRecord?(data)
         } catch {
-            elapsed = player?.currentTime ?? 0; duration = player?.duration ?? 0
-            self.error = "No se pudo conservar la grabación. Volvé a intentar."
+            try? FileManager.default.removeItem(at: url)
+            recordingPaused = keepingTake && !segments.isEmpty
+            let reviewedDuration = capturedDuration
+            if !recordingPaused { discardSegments() }
+            elapsed = player?.currentTime ?? 0; duration = player?.duration ?? reviewedDuration
+            self.error = "No se pudo conservar la grabación. Revisá el audio antes de enviar."
         }
     }
+
     /// Cancelling a new take keeps the previous reviewed recording intact.
     func cancelRecording() {
         generation += 1; requestingPermission = false
-        if let recorder {
-            recorder.delegate = nil; recorder.stop()
-            try? FileManager.default.removeItem(at: recorder.url)
-        }
-        recorder = nil; recording = false
+        discardActiveSegment(); discardSegments()
+        recording = false; recordingPaused = false
         stopClock()
         elapsed = player?.currentTime ?? 0; duration = player?.duration ?? 0
         levels = Array(repeating: 0.05, count: 32)
         deactivate()
     }
+
+    private func discardActiveSegment() {
+        if let recorder {
+            recorder.delegate = nil; recorder.stop()
+            try? FileManager.default.removeItem(at: recorder.url)
+        }
+        recorder = nil
+    }
+
+    private func discardSegments() {
+        for url in segments { try? FileManager.default.removeItem(at: url) }
+        segments = []; capturedDuration = 0
+    }
     func prepare(_ data: Data) {
         guard playbackData != data else { return }
-        stopAll(); needsMicrophoneSettings = false; error = nil
+        if recordingPaused && recordedData == data {
+            // Reviewing a paused take must not consume its ability to resume.
+            player?.stop(); player?.delegate = nil; player = nil; playbackData = nil; playing = false
+            stopClock()
+        } else { stopAll() }
+        needsMicrophoneSettings = false; error = nil
         do {
             let value = try AVAudioPlayer(data: data)
             guard value.duration.isFinite, value.duration > 0, value.prepareToPlay() else { throw CocoaError(.fileReadCorruptFile) }
@@ -180,19 +312,20 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
         elapsed = player.currentTime
     }
     func suspend() {
-        if recording { finishRecording() }
+        if recording || recordingPaused { finishRecording() }
         else if requestingPermission { cancelRecording() }
         else { pause() }
     }
     func stopAll() {
         generation += 1; requestingPermission = false
-        if recorder != nil { finishRecording() }
+        if recorder != nil || recordingPaused { finishRecording() }
         player?.stop(); player?.delegate = nil; player = nil; playbackData = nil; playing = false
         elapsed = 0; duration = 0
         stopClock(); deactivate()
     }
     private func activate(category: AVAudioSession.Category, mode: AVAudioSession.Mode,
                           options: AVAudioSession.CategoryOptions = []) throws {
+        guard managesAudioSession else { return }
         if let owner = Self.sessionOwner, owner !== self { owner.suspend() }
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(category, mode: mode, options: options)
@@ -231,7 +364,7 @@ final class VoiceNoteController: NSObject, ObservableObject, AVAudioRecorderDele
     fileprivate func updateDisplay(_ link: CADisplayLink) {
         guard recording || playing else { stopClock(); return }
         // Audio time remains authoritative; missed frames never change duration or playback speed.
-        elapsed = recorder?.currentTime ?? player?.currentTime ?? 0
+        elapsed = recording ? capturedDuration + (recorder?.currentTime ?? 0) : player?.currentTime ?? 0
         if let recorder, meterCadence.shouldSample(at: link.targetTimestamp) {
             recorder.updateMeters()
             let level = min(1, max(0.05, pow(10, Double(recorder.averagePower(forChannel: 0)) / 40)))

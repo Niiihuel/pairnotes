@@ -19,8 +19,8 @@ struct CoupleChatView: View {
     @StateObject private var history = CoupleChatHistory()
     @StateObject private var reactions = ChatReactionStore()
     @State private var composingLetter = false
-    @State private var recordingAudio = false
-    @State private var startAudioRecording = false
+    @StateObject private var audioInteraction = ChatAudioInteraction()
+    private var recordingAudio: Bool { audioInteraction.isPresented }
     @State private var selectedLetter: TimeCapsuleLetter?
     @State private var modalOwner = UUID()
     @State private var audioOwner = UUID()
@@ -114,18 +114,15 @@ struct CoupleChatView: View {
             if linked {
                 VStack(spacing: 0) {
                     Divider()
-                    if recordingAudio {
-                        AudioMessageComposer(services: services,
-                                             onSent: { sent(.letter($0)); recordingAudio = false },
-                                             onCancel: { recordingAudio = false }, startsRecording: startAudioRecording)
-                            .id(scope).padding(.horizontal, 12).padding(.vertical, 8)
-                    } else {
-                        ChatMessageComposer(services: services, createPhoto: createPhoto, takePhoto: takePhoto,
-                            createDrawing: createDrawing, showDrafts: showDrafts,
-                            createLetter: presentLetterComposer, recordAudio: beginAudioRecording,
-                            keyboardDismissalRequest: keyboardDismissalRequest, onSent: sent)
-                            .id(scope)
-                    }
+                    ChatMessageComposer(services: services, createPhoto: createPhoto, takePhoto: takePhoto,
+                        createDrawing: createDrawing, showDrafts: showDrafts,
+                        createLetter: presentLetterComposer, recordAudio: beginAudioRecording,
+                        audioInteraction: audioInteraction,
+                        keyboardDismissalRequest: keyboardDismissalRequest, onSent: sent) {
+                            AudioMessageComposer(services: services,
+                                onSent: { sent(.letter($0)); audioInteraction.reset() },
+                                onCancel: { audioInteraction.reset() }, interaction: audioInteraction)
+                        }.id(scope)
                 }.background(services.personalization.theme.canvas)
             }
         }
@@ -137,7 +134,7 @@ struct CoupleChatView: View {
             LetterDetailView(services: services, original: letter)
         }
         .task(id: scope) {
-            history.reset(); reactions.reset(); routeError = nil; recordingAudio = false
+            history.reset(); reactions.reset(); routeError = nil; audioInteraction.reset()
             await refresh(); await handle(request)
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(15)) } catch { return }
@@ -166,18 +163,18 @@ struct CoupleChatView: View {
             }
         }
         .onChange(of: modalControl.dismissalVersion) { _, _ in
-            composingLetter = false; selectedLetter = nil; recordingAudio = false
+            composingLetter = false; selectedLetter = nil; audioInteraction.reset()
         }
         .onChange(of: recordingAudio) { _, active in
             if active { modalControl.onPresented(audioOwner) }
             else { modalControl.onDismissed(audioOwner) }
         }
         .onDisappear {
-            if recordingAudio { recordingAudio = false; modalControl.onDismissed(audioOwner) }
+            if recordingAudio { audioInteraction.reset(); modalControl.onDismissed(audioOwner) }
         }
         .onChange(of: scope) { _, _ in
             dismissKeyboard(); atBottom = true
-            composingLetter = false; selectedLetter = nil; recordingAudio = false
+            composingLetter = false; selectedLetter = nil; audioInteraction.reset()
             history.reset(); reactions.reset()
         }
     }
@@ -330,7 +327,6 @@ struct CoupleChatView: View {
     private func beginAudioRecording() {
         dismissKeyboard()
         modalControl.onPresented(audioOwner)
-        startAudioRecording = true; recordingAudio = true
     }
     private func present(_ letter: TimeCapsuleLetter) {
         dismissKeyboard()
@@ -359,8 +355,7 @@ struct CoupleChatView: View {
             }
         } else if destination == .voices {
             modalControl.onPresented(audioOwner)
-            startAudioRecording = false
-            recordingAudio = true
+            audioInteraction.open(startRecording: false)
         }
         if request == destination { request = nil }
     }

@@ -1,7 +1,8 @@
 import PairNotesCore
 import SwiftUI
+import UIKit
 
-struct ChatMessageComposer: View {
+struct ChatMessageComposer<AudioContent: View>: View {
     @ObservedObject var services: AppServices
     let createPhoto: () -> Void
     let takePhoto: () -> Void
@@ -9,6 +10,8 @@ struct ChatMessageComposer: View {
     let showDrafts: () -> Void
     let createLetter: () -> Void
     let recordAudio: () -> Void
+    @ObservedObject var audioInteraction: ChatAudioInteraction
+    @ViewBuilder let audioContent: () -> AudioContent
     let keyboardDismissalRequest: UInt64
     let onSent: (CoupleConversationItem) -> Void
     private let storage: MemoryCompositionStorage
@@ -30,12 +33,14 @@ struct ChatMessageComposer: View {
     init(services: AppServices, createPhoto: @escaping () -> Void, takePhoto: @escaping () -> Void,
          createDrawing: @escaping () -> Void, showDrafts: @escaping () -> Void,
          createLetter: @escaping () -> Void, recordAudio: @escaping () -> Void,
-         keyboardDismissalRequest: UInt64 = 0,
-         onSent: @escaping (CoupleConversationItem) -> Void) {
+         audioInteraction: ChatAudioInteraction, keyboardDismissalRequest: UInt64 = 0,
+         onSent: @escaping (CoupleConversationItem) -> Void,
+         @ViewBuilder audioContent: @escaping () -> AudioContent) {
         self.services = services; self.createPhoto = createPhoto; self.takePhoto = takePhoto
         self.createDrawing = createDrawing; self.showDrafts = showDrafts
         self.createLetter = createLetter; self.recordAudio = recordAudio; self.onSent = onSent
         self.keyboardDismissalRequest = keyboardDismissalRequest
+        self.audioInteraction = audioInteraction; self.audioContent = audioContent
         let storage = MemoryCompositionStorage(key: services.privateImageKey("message-draft"))
         self.storage = storage
         var recovered: Draft = storage.loadValue() ?? Draft(text: "", id: UUID())
@@ -54,11 +59,11 @@ struct ChatMessageComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            if let error {
+            if let error, !audioInteraction.isPresented {
                 Text(error).font(.footnote).foregroundStyle(.secondary)
                     .accessibilityIdentifier("chat.send-error")
             }
-            if let date = draft.opensAt {
+            if let date = draft.opensAt, !audioInteraction.isPresented {
                 HStack {
                     Label("Se abre \(date.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
                         .font(.caption).foregroundStyle(.secondary)
@@ -66,10 +71,13 @@ struct ChatMessageComposer: View {
                 }
             }
             HStack(alignment: .bottom, spacing: 4) {
+                if audioInteraction.isPresented {
+                    audioContent().frame(maxWidth: .infinity)
+                } else {
                 Menu {
                     Button("Foto de la fototeca", systemImage: "photo", action: createPhoto)
                     Button("Sacar foto", systemImage: "camera", action: takePhoto)
-                    Button("Audio", systemImage: "mic", action: recordAudio)
+                    Button("Audio", systemImage: "mic") { focused = false; recordAudio(); audioInteraction.open(startRecording: true) }
                     Button("Dibujo", systemImage: "pencil.tip.crop.circle", action: createDrawing)
                     Button("Carta", systemImage: "envelope", action: createLetter)
                     Button("Mis borradores", systemImage: "square.stack", action: showDrafts)
@@ -91,22 +99,39 @@ struct ChatMessageComposer: View {
                     MessageOpeningControl(opensAt: $draft.opensAt, compact: true, onPresent: { focused = false })
                         .disabled(sending || draft.submittedText != nil)
                 }
-                Button {
-                    if clean.isEmpty { focused = false; recordAudio() } else { send() }
-                } label: {
-                    Group {
-                        if sending { ProgressView() }
-                        else { Image(systemName: clean.isEmpty ? "mic.fill" : "arrow.up").font(.title3.weight(.semibold)) }
-                    }.frame(width: 44, height: 44)
-                        .foregroundStyle(clean.isEmpty ? services.personalization.theme.accent :
-                                            colorScheme == .dark ? Color.black : Color.white)
-                        .background(clean.isEmpty ? Color.clear : services.personalization.theme.accent, in: Circle())
                 }
-                .disabled(sending || (!clean.isEmpty && !canSend))
-                .accessibilityLabel(clean.isEmpty ? "Grabar audio" : draft.submittedText == nil ? "Enviar mensaje" : "Reintentar envío")
-                .accessibilityIdentifier(clean.isEmpty ? "chat.record" : "chat.send")
+                // Keep this UIKit control mounted for the entire press/drag,
+                // even while the rest of the composer changes into the recorder.
+                if clean.isEmpty || audioInteraction.isPresented {
+                    ChatAudioRecordButton(interaction: audioInteraction,
+                        tint: UIColor(services.personalization.theme.accent),
+                        onBegin: { focused = false; recordAudio() })
+                        .frame(width: 44, height: 44)
+                        .overlay(alignment: .bottom) {
+                            if audioInteraction.phase == .holding {
+                                VStack(spacing: 10) {
+                                    Image(systemName: "lock.fill")
+                                    Image(systemName: "chevron.up")
+                                }.font(.subheadline).frame(width: 40, height: 76)
+                                    .background(services.personalization.theme.card, in: Capsule())
+                                    .offset(y: -58).allowsHitTesting(false).accessibilityHidden(true)
+                            }
+                        }
+                } else {
+                    Button(action: send) {
+                        Group {
+                            if sending { ProgressView() }
+                            else { Image(systemName: "arrow.up").font(.title3.weight(.semibold)) }
+                        }.frame(width: 44, height: 44)
+                            .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                            .background(services.personalization.theme.accent, in: Circle())
+                    }
+                    .disabled(!canSend)
+                    .accessibilityLabel(draft.submittedText == nil ? "Enviar mensaje" : "Reintentar envío")
+                    .accessibilityIdentifier("chat.send")
+                }
             }
-            if draft.text.utf16.count > 450 {
+            if draft.text.utf16.count > 450, !audioInteraction.isPresented {
                 Text("\(draft.text.utf16.count)/500").font(.caption2)
                     .foregroundStyle(draft.text.utf16.count > 500 ? .red : .secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)

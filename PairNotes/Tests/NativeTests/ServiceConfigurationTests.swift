@@ -156,6 +156,181 @@ final class ServiceConfigurationTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testPausedVoiceCanBeReviewedAndResumedWithoutReplacingEarlierSamples() async throws {
+        let first = try voicePCMData(frames: 16_000, sample: 1234)
+        let second = try voicePCMData(frames: 32_000, sample: -2345)
+        var devices: [VoiceRecorderFixture] = []
+        var snapshots: [Data] = []
+        let controller = VoiceNoteController(requestPermission: { true }, makeRecorder: { url, _ in
+            let device = VoiceRecorderFixture(url: url, data: devices.isEmpty ? first : second)
+            devices.append(device)
+            return device
+        }, managesAudioSession: false)
+        defer { controller.stopAll() }
+        controller.didRecord = { snapshots.append($0) }
+
+        await controller.record()
+        XCTAssertTrue(controller.recording)
+        XCTAssertFalse(controller.recordingPaused)
+        controller.pauseRecording()
+        XCTAssertFalse(controller.recording)
+        XCTAssertTrue(controller.recordingPaused)
+        XCTAssertTrue(controller.canResumeRecording)
+        XCTAssertFalse(controller.isUpdatingDisplay)
+        XCTAssertEqual(snapshots.count, 1)
+        let reviewed = try XCTUnwrap(controller.recordedData)
+        controller.prepare(reviewed)
+        controller.seek(to: 0.5)
+        controller.pause()
+        XCTAssertTrue(controller.canResumeRecording, "Reviewing a paused WAV must keep its continuation")
+
+        await controller.resumeRecording()
+        XCTAssertTrue(controller.recording)
+        XCTAssertFalse(controller.recordingPaused)
+        XCTAssertEqual(controller.elapsed, 1, accuracy: 0.001)
+        XCTAssertEqual(devices[1].limit, 59, accuracy: 0.001)
+        controller.pauseRecording()
+        XCTAssertEqual(controller.duration, 3, accuracy: 0.001)
+        XCTAssertEqual(snapshots.count, 2)
+        let samples = try voicePCMSamples(XCTUnwrap(controller.recordedData))
+        XCTAssertEqual(samples.count, 48_000)
+        XCTAssertTrue(samples.prefix(16_000).allSatisfy { $0 == 1234 })
+        XCTAssertTrue(samples.dropFirst(16_000).allSatisfy { $0 == -2345 })
+        controller.finishRecording()
+        XCTAssertFalse(controller.recordingPaused)
+        XCTAssertFalse(controller.canResumeRecording)
+        XCTAssertEqual(controller.recordedData, snapshots.last)
+        XCTAssertEqual(snapshots.count, 2, "Finalizing an already reviewed take must not duplicate the draft callback")
+        XCTAssertTrue(devices.allSatisfy { !FileManager.default.fileExists(atPath: $0.url.path) })
+    }
+
+    @MainActor
+    func testVoiceContinuationFailuresKeepTheReviewedTakeAndAllowRetry() async throws {
+        let first = try voicePCMData(frames: 16_000, sample: 2400)
+        var devices: [VoiceRecorderFixture] = []
+        let controller = VoiceNoteController(requestPermission: { true }, makeRecorder: { url, _ in
+            let index = devices.count
+            let device = VoiceRecorderFixture(url: url, data: index == 2 ? Data("corrupt".utf8) : first,
+                                              starts: index != 1)
+            devices.append(device)
+            return device
+        }, managesAudioSession: false)
+        defer { controller.stopAll() }
+        await controller.record()
+        controller.pauseRecording()
+        let reviewed = try XCTUnwrap(controller.recordedData)
+        controller.prepare(reviewed)
+
+        await controller.resumeRecording()
+        XCTAssertFalse(controller.recording)
+        XCTAssertTrue(controller.canResumeRecording)
+        XCTAssertEqual(controller.recordedData, reviewed)
+        XCTAssertNotNil(controller.error)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: devices[1].url.path))
+
+        await controller.resumeRecording()
+        XCTAssertTrue(controller.recording)
+        controller.pauseRecording()
+        XCTAssertTrue(controller.canResumeRecording)
+        XCTAssertEqual(controller.recordedData, reviewed, "An unreadable new segment must never replace the good prefix")
+        XCTAssertNotNil(controller.error)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: devices[2].url.path))
+        controller.cancelRecording()
+        XCTAssertFalse(controller.recordingPaused)
+        XCTAssertFalse(controller.isUpdatingDisplay)
+        XCTAssertEqual(controller.recordedData, reviewed)
+        XCTAssertTrue(devices.allSatisfy { !FileManager.default.fileExists(atPath: $0.url.path) })
+    }
+
+    @MainActor
+    func testVoiceLimitAppliesToTheWholeTakeAcrossPauses() async throws {
+        let first = try voicePCMData(frames: 59 * 16_000, sample: 1000)
+        let second = try voicePCMData(frames: 2 * 16_000, sample: -1000)
+        var devices: [VoiceRecorderFixture] = []
+        let controller = VoiceNoteController(requestPermission: { true }, makeRecorder: { url, _ in
+            let device = VoiceRecorderFixture(url: url, data: devices.isEmpty ? first : second)
+            devices.append(device)
+            return device
+        }, managesAudioSession: false)
+        defer { controller.stopAll() }
+        await controller.record()
+        controller.pauseRecording()
+        await controller.resumeRecording()
+        XCTAssertEqual(devices[1].limit, 1, accuracy: 0.001)
+        controller.pauseRecording()
+        let data = try XCTUnwrap(controller.recordedData)
+        XCTAssertEqual(try AVAudioPlayer(data: data).duration, 60, accuracy: 0.001)
+        XCTAssertEqual(try voicePCMSamples(data).count, 60 * 16_000)
+        XCTAssertFalse(controller.recordingPaused)
+        XCTAssertFalse(controller.canResumeRecording)
+        XCTAssertFalse(controller.isUpdatingDisplay)
+        XCTAssertTrue(devices.allSatisfy { !FileManager.default.fileExists(atPath: $0.url.path) })
+        await controller.resumeRecording()
+        XCTAssertEqual(devices.count, 2, "The duration limit must prevent opening another segment")
+    }
+
+    @MainActor
+    func testCancellingPausedVoiceWhilePermissionIsPendingCannotStartAMicrophoneLater() async throws {
+        let data = try voicePCMData(frames: 16_000, sample: 1200)
+        var requests = 0
+        var permission: CheckedContinuation<Bool, Never>?
+        var devices: [VoiceRecorderFixture] = []
+        let controller = VoiceNoteController(requestPermission: {
+            requests += 1
+            if requests == 1 { return true }
+            return await withCheckedContinuation { permission = $0 }
+        }, makeRecorder: { url, _ in
+            let device = VoiceRecorderFixture(url: url, data: data)
+            devices.append(device)
+            return device
+        }, managesAudioSession: false)
+        defer { controller.stopAll() }
+        await controller.record()
+        controller.pauseRecording()
+        let reviewed = controller.recordedData
+        let resuming = Task { await controller.resumeRecording() }
+        let deadline = Date().addingTimeInterval(1)
+        while permission == nil && Date() < deadline { await Task.yield() }
+        XCTAssertTrue(controller.requestingPermission)
+        controller.cancelRecording()
+        permission?.resume(returning: true)
+        await resuming.value
+        XCTAssertFalse(controller.recording)
+        XCTAssertFalse(controller.recordingPaused)
+        XCTAssertFalse(controller.requestingPermission)
+        XCTAssertEqual(devices.count, 1)
+        XCTAssertEqual(controller.recordedData, reviewed)
+        XCTAssertTrue(devices.allSatisfy { !FileManager.default.fileExists(atPath: $0.url.path) })
+    }
+
+    @MainActor
+    func testVoiceBackgroundCaptureKeepsAllSegmentsWithoutResuming() async throws {
+        let segment = try voicePCMData(frames: 16_000, sample: 1500)
+        var devices: [VoiceRecorderFixture] = []
+        var snapshots: [Data] = []
+        let controller = VoiceNoteController(requestPermission: { true }, makeRecorder: { url, _ in
+            let device = VoiceRecorderFixture(url: url, data: segment)
+            devices.append(device)
+            return device
+        }, managesAudioSession: false)
+        defer { controller.stopAll() }
+        controller.didRecord = { snapshots.append($0) }
+        await controller.record()
+        controller.pauseRecording()
+        await controller.resumeRecording()
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        let deadline = Date().addingTimeInterval(1)
+        while controller.recording && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(controller.recording)
+        XCTAssertFalse(controller.recordingPaused)
+        XCTAssertFalse(controller.isUpdatingDisplay)
+        XCTAssertFalse(controller.playing)
+        XCTAssertEqual(snapshots.count, 2)
+        XCTAssertEqual(try AVAudioPlayer(data: XCTUnwrap(controller.recordedData)).duration, 2, accuracy: 0.001)
+        XCTAssertTrue(devices.allSatisfy { !FileManager.default.fileExists(atPath: $0.url.path) })
+    }
+
     func testMissingOrInsecureConfigurationNeverSelectsDemoBackend() {
         for url in ["", "$(PAIRNOTES_API_BASE_URL)", "http://127.0.0.1:3000", "https://localhost/",
                     "https://user:secret@example.test", "https://example.test/?token=secret", "https://example.test/#fragment"] {
@@ -337,4 +512,48 @@ private actor SessionTransportFixture: HTTPTransport {
     }
     func releaseRefresh() { releaseWaiter?.resume(); releaseWaiter = nil }
     func stats() -> (refreshes: Int, requests: Int, authorization: [String]) { (refreshes, requests, authorization) }
+}
+
+/// Files contain deterministic, real PCM samples; no microphone or permission dialog is used.
+@MainActor
+private final class VoiceRecorderFixture: VoiceRecordingDevice {
+    let url: URL
+    private let data: Data
+    private let starts: Bool
+    weak var delegate: (any AVAudioRecorderDelegate)?
+    var isMeteringEnabled = false
+    var currentTime: TimeInterval = 0
+    private(set) var limit: TimeInterval = 0
+    init(url: URL, data: Data, starts: Bool = true) {
+        self.url = url; self.data = data; self.starts = starts
+    }
+    func record(forDuration duration: TimeInterval) -> Bool { limit = duration; return starts }
+    func stop() { try? data.write(to: url) }
+    func updateMeters() {}
+    func averagePower(forChannel channelNumber: Int) -> Float { -20 }
+}
+
+private func voicePCMData(frames: Int, sample: Int16) throws -> Data {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let format = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true))
+    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)))
+    buffer.frameLength = AVAudioFrameCount(frames)
+    for index in 0..<frames { buffer.int16ChannelData![0][index] = sample }
+    do {
+        let file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true)
+        try file.write(from: buffer)
+    }
+    return try Data(contentsOf: url)
+}
+
+private func voicePCMSamples(_ data: Data) throws -> [Int16] {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try data.write(to: url)
+    let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatInt16, interleaved: true)
+    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
+    try file.read(into: buffer)
+    let samples = try XCTUnwrap(buffer.int16ChannelData?[0])
+    return Array(UnsafeBufferPointer(start: samples, count: Int(buffer.frameLength)))
 }

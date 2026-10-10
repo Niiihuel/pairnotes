@@ -8,6 +8,157 @@ import XCTest
 
 final class MessageCompositionTests: XCTestCase {
     @MainActor
+    func testAudioHoldCancelsOnceAndLateMovementOrReleaseCannotSend() throws {
+        let interaction = ChatAudioInteraction()
+        interaction.beginHold()
+        XCTAssertEqual(interaction.phase, .holding)
+        XCTAssertEqual(interaction.command?.command, .start)
+        interaction.moveHold(translation: CGSize(width: -90, height: -20))
+        let cancelled = try XCTUnwrap(interaction.command)
+        XCTAssertEqual(cancelled.command, .cancel)
+        XCTAssertTrue(interaction.isPresented, "The recording owner stays mounted to finish cancellation")
+        interaction.moveHold(translation: CGSize(width: 0, height: -100))
+        interaction.beginHold()
+        interaction.tap()
+        interaction.endHold(cancelled: false)
+        XCTAssertEqual(interaction.command, cancelled)
+        XCTAssertEqual(interaction.phase, .review)
+        interaction.reset()
+        interaction.beginHold()
+        XCTAssertEqual(interaction.command?.command, .start, "A new deliberate gesture can record again")
+    }
+
+    @MainActor
+    func testAudioHoldLocksUpwardAndReleaseWaitsForExplicitSend() throws {
+        let interaction = ChatAudioInteraction()
+        interaction.beginHold()
+        let started = try XCTUnwrap(interaction.command)
+        interaction.moveHold(translation: CGSize(width: -10, height: -80))
+        XCTAssertEqual(interaction.phase, .locked)
+        interaction.moveHold(translation: CGSize(width: -150, height: 0))
+        interaction.endHold(cancelled: false)
+        XCTAssertEqual(interaction.phase, .locked)
+        XCTAssertEqual(interaction.command, started, "Releasing a locked recording must not send or cancel")
+        interaction.canSend = true
+        interaction.tap()
+        XCTAssertEqual(interaction.command?.command, .finishAndSend)
+        XCTAssertNotEqual(interaction.command?.id, started.id)
+    }
+
+    @MainActor
+    func testAudioHoldReleaseFinishesOnceWhilePermissionIsPending() throws {
+        let interaction = ChatAudioInteraction()
+        interaction.beginHold()
+        interaction.requestingPermission = true
+        interaction.endHold(cancelled: false)
+        let finished = try XCTUnwrap(interaction.command)
+        XCTAssertEqual(finished.command, .finishAndSend, "The recorder must receive release even during a permission prompt")
+        XCTAssertEqual(interaction.phase, .review)
+        interaction.endHold(cancelled: false)
+        interaction.moveHold(translation: CGSize(width: -100, height: 0))
+        XCTAssertEqual(interaction.command, finished)
+    }
+
+    @MainActor
+    func testInterruptedAudioHoldPausesForReviewWithoutSending() {
+        let interaction = ChatAudioInteraction()
+        interaction.beginHold()
+        interaction.endHold(cancelled: true)
+        XCTAssertEqual(interaction.phase, .review)
+        XCTAssertEqual(interaction.command?.command, .pause)
+        interaction.canSend = true
+        interaction.tap()
+        XCTAssertEqual(interaction.command?.command, .finishAndSend)
+    }
+
+    @MainActor
+    func testAudioTapSupportsHandsFreeRecordingAndOpeningAnExistingDraft() {
+        let interaction = ChatAudioInteraction()
+        interaction.tap()
+        XCTAssertEqual(interaction.phase, .locked)
+        XCTAssertEqual(interaction.command?.command, .start)
+        interaction.busy = true
+        let started = interaction.command
+        interaction.tap()
+        XCTAssertEqual(interaction.command, started, "An upload must not receive duplicate send requests")
+        interaction.busy = false
+        interaction.reset()
+        XCTAssertEqual(interaction.phase, .idle)
+        XCTAssertNil(interaction.command)
+        interaction.open(startRecording: false)
+        XCTAssertEqual(interaction.phase, .review)
+        XCTAssertNil(interaction.command, "Restoring a draft must not overwrite it with a new recording")
+        interaction.lock()
+        XCTAssertEqual(interaction.phase, .locked)
+        XCTAssertNil(interaction.command, "Resuming changes presentation without creating a fresh recording")
+        interaction.open(startRecording: true)
+        XCTAssertEqual(interaction.phase, .locked)
+        XCTAssertEqual(interaction.command?.command, .start)
+    }
+
+    @MainActor
+    func testResetAudioAfterUploadOrPermissionAllowsAnotherRecordingWithoutStaleFlags() {
+        for activeHold in [false, true] {
+            let interaction = ChatAudioInteraction()
+            if activeHold { interaction.beginHold() }
+            else { interaction.open(startRecording: false) }
+            interaction.busy = true
+            interaction.requestingPermission = true
+            interaction.canSend = true
+
+            // Completion/cancellation can unmount the recorder before any later
+            // onChange callback copies its local flags back to this owner.
+            interaction.reset()
+            XCTAssertEqual(interaction.phase, .idle)
+            XCTAssertNil(interaction.command)
+            XCTAssertFalse(interaction.busy)
+            XCTAssertFalse(interaction.requestingPermission)
+            XCTAssertFalse(interaction.canSend)
+            if activeHold {
+                interaction.beginHold()
+                XCTAssertNil(interaction.command, "The cancelled touch remains latched until its final release")
+                interaction.endHold(cancelled: false)
+                XCTAssertNil(interaction.command, "A late release must never send the cancelled recording")
+            }
+            interaction.beginHold()
+            XCTAssertEqual(interaction.phase, .holding)
+            XCTAssertEqual(interaction.command?.command, .start,
+                           "A new gesture must work even though the previous recorder was already unmounted")
+        }
+    }
+
+    @MainActor
+    func testAudioSendTapWaitsForReadyAudioAndNeverInterruptsPermissionOrUpload() {
+        for startsRecording in [true, false] {
+            let interaction = ChatAudioInteraction()
+            interaction.open(startRecording: startsRecording)
+            let phase = interaction.phase
+            let originalCommand = interaction.command
+
+            interaction.tap()
+            XCTAssertEqual(interaction.command, originalCommand, "An empty or unready recording must not receive send")
+            XCTAssertEqual(interaction.phase, phase)
+
+            interaction.canSend = true
+            interaction.busy = true
+            interaction.tap()
+            XCTAssertEqual(interaction.command, originalCommand, "An upload must not receive a duplicate send")
+            XCTAssertEqual(interaction.phase, phase)
+
+            interaction.busy = false
+            interaction.requestingPermission = true
+            interaction.tap()
+            XCTAssertEqual(interaction.command, originalCommand, "Tapping send during permission must not cancel the draft")
+            XCTAssertEqual(interaction.phase, phase)
+
+            interaction.requestingPermission = false
+            interaction.tap()
+            XCTAssertEqual(interaction.command?.command, .finishAndSend)
+            XCTAssertNotEqual(interaction.command?.id, originalCommand?.id)
+        }
+    }
+
+    @MainActor
     func testOpeningPopoverRegistersSynchronouslyAndReleasesAnUnpresentedRequest() throws {
         let events = OpeningPresentationEvents()
         let tracker = MessageOpeningPresentation()

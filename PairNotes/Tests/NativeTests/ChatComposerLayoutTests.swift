@@ -5,6 +5,94 @@ import XCTest
 @testable import PairNotes
 
 final class ChatComposerLayoutTests: XCTestCase {
+    func testLatestPositionExcludesComposerTabBarAndKeyboardInsets() {
+        for bottomInset: CGFloat in [0, 92, 154, 393] {
+            let end = ChatScrollMetrics(contentHeight: 4_396, viewportHeight: 651,
+                                        visibleBottom: 4_396 + bottomInset, bottomInset: bottomInset)
+            let older = ChatScrollMetrics(contentHeight: 4_396, viewportHeight: 651,
+                                          visibleBottom: 4_196 + bottomInset, bottomInset: bottomInset)
+            XCTAssertTrue(end.isNearBottom, "The actual end must never offer a jump to itself")
+            XCTAssertFalse(older.isNearBottom, "Content behind the keyboard is not visible history")
+        }
+        let short = ChatScrollMetrics(contentHeight: 180, viewportHeight: 350,
+                                      visibleBottom: 350, bottomInset: 393)
+        XCTAssertTrue(short.isNearBottom, "A history that fits entirely cannot be scrolled away from its end")
+        let bounce = ChatScrollMetrics(contentHeight: 4_396, viewportHeight: 651,
+                                       visibleBottom: 4_528, bottomInset: 92)
+        XCTAssertTrue(bounce.isNearBottom, "Bouncing past the last message must keep the button hidden")
+    }
+
+    func testAppendingAndLazyRowGrowthKeepFollowingLatestUntilGeometrySettles() {
+        let end = ChatScrollMetrics(contentHeight: 4_396, viewportHeight: 651,
+                                   visibleBottom: 4_488, bottomInset: 92)
+        let appended = ChatScrollMetrics(contentHeight: 4_646, viewportHeight: 651,
+                                        visibleBottom: 4_488, bottomInset: 92)
+        let first = ChatScrollUpdate(previous: end, current: appended, wasAtBottom: true, userScrolling: false)
+        XCTAssertTrue(first.atBottom, "An appended row must not briefly reveal the latest button")
+        XCTAssertTrue(first.shouldScroll)
+        let imageLoaded = ChatScrollMetrics(contentHeight: 4_946, viewportHeight: 651,
+                                           visibleBottom: 4_488, bottomInset: 92)
+        let second = ChatScrollUpdate(previous: appended, current: imageLoaded,
+                                      wasAtBottom: first.atBottom, userScrolling: false)
+        XCTAssertTrue(second.atBottom, "Later lazy-row measurements must preserve follow-latest intent")
+        XCTAssertTrue(second.shouldScroll)
+        let settled = ChatScrollMetrics(contentHeight: 4_946, viewportHeight: 651,
+                                       visibleBottom: 5_038, bottomInset: 92)
+        let finished = ChatScrollUpdate(previous: imageLoaded, current: settled,
+                                        wasAtBottom: second.atBottom, userScrolling: false)
+        XCTAssertTrue(finished.atBottom)
+        XCTAssertFalse(finished.shouldScroll, "Reaching the end must not schedule another scroll")
+    }
+
+    func testKeyboardAndComposerResizeKeepLatestButtonHidden() {
+        let end = ChatScrollMetrics(contentHeight: 4_396, viewportHeight: 651,
+                                   visibleBottom: 4_488, bottomInset: 92)
+        let keyboard = ChatScrollMetrics(contentHeight: 4_396, viewportHeight: 350,
+                                        visibleBottom: 4_488, bottomInset: 393)
+        XCTAssertFalse(keyboard.isNearBottom, "The old offset is temporarily behind the opening keyboard")
+        let opening = ChatScrollUpdate(previous: end, current: keyboard, wasAtBottom: true, userScrolling: false)
+        XCTAssertTrue(opening.atBottom)
+        XCTAssertTrue(opening.shouldScroll)
+        let closing = ChatScrollUpdate(previous: keyboard, current: end,
+                                       wasAtBottom: opening.atBottom, userScrolling: false)
+        XCTAssertTrue(closing.atBottom)
+        XCTAssertTrue(closing.shouldScroll)
+    }
+
+    func testOnlyScrollingAwayLeavesLatestAndNewMessagesPreserveOlderReading() {
+        let end = ChatScrollMetrics(contentHeight: 4_396, viewportHeight: 651,
+                                   visibleBottom: 4_488, bottomInset: 92)
+        let older = ChatScrollMetrics(contentHeight: 4_396, viewportHeight: 651,
+                                     visibleBottom: 4_088, bottomInset: 92)
+        let dragged = ChatScrollUpdate(previous: end, current: older, wasAtBottom: true, userScrolling: true)
+        XCTAssertFalse(dragged.atBottom)
+        XCTAssertFalse(dragged.shouldScroll)
+        let appended = ChatScrollMetrics(contentHeight: 4_646, viewportHeight: 651,
+                                        visibleBottom: 4_088, bottomInset: 92)
+        let incoming = ChatScrollUpdate(previous: older, current: appended,
+                                       wasAtBottom: dragged.atBottom, userScrolling: false)
+        XCTAssertFalse(incoming.atBottom)
+        XCTAssertFalse(incoming.shouldScroll, "Incoming messages must not interrupt reading older messages")
+        let returned = ChatScrollUpdate(previous: older, current: end, wasAtBottom: false, userScrolling: true)
+        XCTAssertTrue(returned.atBottom, "Scrolling back to the end must hide the button again")
+        XCTAssertFalse(returned.shouldScroll)
+    }
+
+    func testUnmeasuredLayoutDoesNotDiscardLatestPosition() {
+        let unmeasured = ChatScrollMetrics(contentHeight: 0, viewportHeight: 0,
+                                          visibleBottom: 0, bottomInset: 0)
+        let waiting = ChatScrollUpdate(previous: unmeasured, current: unmeasured,
+                                      wasAtBottom: true, userScrolling: false)
+        XCTAssertTrue(waiting.atBottom)
+        XCTAssertFalse(waiting.shouldScroll)
+        let measured = ChatScrollMetrics(contentHeight: 4_396, viewportHeight: 651,
+                                        visibleBottom: 844, bottomInset: 92)
+        let initial = ChatScrollUpdate(previous: unmeasured, current: measured,
+                                      wasAtBottom: waiting.atBottom, userScrolling: false)
+        XCTAssertTrue(initial.atBottom)
+        XCTAssertTrue(initial.shouldScroll, "The first usable layout must anchor the last message")
+    }
+
     func testReactionMenuStaysInsidePhoneViewportAtBothHorizontalEdges() {
         for width: CGFloat in [320, 393] {
             let viewport = CGRect(x: 0, y: 59, width: width, height: 700)
@@ -117,7 +205,8 @@ final class ChatComposerLayoutTests: XCTestCase {
                     let action: () -> Void = { XCTFail("Rendering must not invoke an attachment or recording action") }
                     let composer = ChatMessageComposer(services: services, createPhoto: action, takePhoto: action,
                         createDrawing: action, showDrafts: action, createLetter: action, recordAudio: action,
-                        onSent: { _ in XCTFail("Rendering must not send a message") })
+                        audioInteraction: ChatAudioInteraction(),
+                        onSent: { _ in XCTFail("Rendering must not send a message") }) { EmptyView() }
                     let root = VStack(spacing: 0) {
                         Spacer(minLength: 0)
                         composer.onGeometryChange(for: CGSize.self) { $0.size } action: { value in

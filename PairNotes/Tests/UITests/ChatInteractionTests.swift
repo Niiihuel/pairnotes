@@ -81,6 +81,48 @@ final class ChatInteractionTests: XCTestCase {
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: latest)
         XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 5), .completed)
         attach(app.screenshot(), name: "chat-returned-to-latest-message")
+
+        // Appending while already at the end must keep following it, including
+        // the extra layout passes produced by lazy rows and the keyboard.
+        app.buttons["fixture.incoming"].tap()
+        waitUntilHittable(app.staticTexts["fixture.message.31"])
+        waitForLatestButtonToHide(in: app)
+        let field = app.descendants(matching: .any).matching(identifier: "chat.message").firstMatch
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        field.typeText("Mi borrador mientras escribo una respuesta un poco más larga para cambiar la altura del campo.")
+        waitForLatestButtonToHide(in: app)
+        app.buttons["fixture.incoming"].tap()
+        waitUntilHittable(app.staticTexts["fixture.message.32"])
+        waitForLatestButtonToHide(in: app)
+        attach(app.screenshot(), name: "chat-latest-hidden-with-keyboard-and-incoming")
+        tapVisibleHistorySpace(in: app, history: history, composer: field)
+        waitForKeyboardToClose(in: app)
+        waitForLatestButtonToHide(in: app)
+        attach(app.screenshot(), name: "chat-latest-hidden-after-keyboard-closes")
+    }
+
+    @MainActor
+    func testShortConversationNeverOffersJumpToLatest() {
+        continueAfterFailure = false
+        let app = launchFixture(shortHistory: true)
+        defer { attachDiagnostics(in: app, name: "chat-short-history") }
+        let history = app.scrollViews["chat.history"]
+        XCTAssertTrue(history.waitForExistence(timeout: 15))
+        waitUntilHittable(app.staticTexts["fixture.message.1"])
+        waitForLatestButtonToHide(in: app)
+        history.swipeDown()
+        waitForLatestButtonToHide(in: app)
+        let field = app.descendants(matching: .any).matching(identifier: "chat.message").firstMatch
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        waitForLatestButtonToHide(in: app)
+        tapVisibleHistorySpace(in: app, history: history, composer: field)
+        waitForKeyboardToClose(in: app)
+        waitForLatestButtonToHide(in: app)
+        app.buttons["fixture.incoming"].tap()
+        waitUntilHittable(app.staticTexts["fixture.message.2"])
+        waitForLatestButtonToHide(in: app)
     }
 
     @MainActor
@@ -273,12 +315,14 @@ final class ChatInteractionTests: XCTestCase {
     }
 
     @MainActor
-    private func launchFixture(reactions: Bool = false, nativeChildren: Bool = false) -> XCUIApplication {
+    private func launchFixture(reactions: Bool = false, nativeChildren: Bool = false,
+                               shortHistory: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(es)", "-AppleLocale", "es_AR",
                                "-pairnotes-chat-interaction-fixture"]
         if reactions { app.launchArguments.append("-pairnotes-chat-reaction-enabled") }
         if nativeChildren { app.launchArguments.append("-pairnotes-chat-reaction-children") }
+        if shortHistory { app.launchArguments.append("-pairnotes-chat-short-history") }
         app.launch()
         return app
     }
@@ -307,6 +351,12 @@ final class ChatInteractionTests: XCTestCase {
     private func waitUntilHittable(_ element: XCUIElement) {
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: element)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+    }
+
+    private func waitForLatestButtonToHide(in app: XCUIApplication) {
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                              object: app.buttons["chat.latest"])
+        XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 5), .completed)
     }
 
     @MainActor
