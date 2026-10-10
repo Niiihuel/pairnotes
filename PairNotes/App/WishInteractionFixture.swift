@@ -60,7 +60,7 @@ private final class WishFixtureStore: ObservableObject {
                 title: seed.1, category: seed.0, notes: "Un antojo ficticio para compartir juntos.",
                 priceAmount: seed.2, currencyCode: seed.3, photo: photo,
                 createdAt: baseDate.addingTimeInterval(Double(-index)), updatedAt: baseDate.addingTimeInterval(Double(-index)), revision: 1,
-                linkURL: seed.0 == .gifts ? "https://www.apple.com/iphone/" : nil,
+                linkURL: seed.0 == .gifts ? "https://example.com/" : nil,
                 targetDate: seed.0 == .travel ? CoupleDate(rawValue: "2030-06-15") : nil,
                 location: seed.0 == .travel ? "Mar del Plata" : "",
                 savedAmount: seed.0 == .travel ? "250.25" : nil,

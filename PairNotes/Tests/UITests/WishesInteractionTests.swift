@@ -72,14 +72,14 @@ final class WishesInteractionTests: XCTestCase {
         XCTAssertTrue(remaining.label.contains("700,2"), "Savings use exact decimal subtraction in the selected currency")
         XCTAssertTrue(remaining.label.contains("MXN"))
         attach(app, name: "wishes-travel-edited-savings")
-        app.buttons["Cerrar"].tap()
+        closeDetail(app)
         waitForState(app, contains: ["saves=1;", "lastRemaining=700.2;", "lastDate=2030-06-15;"])
 
         reveal(travel, app: app); travel.tap()
         let fulfill = app.buttons["wish.fulfill"]
         reveal(fulfill, app: app); fulfill.tap()
         waitFor(fulfill, predicate: NSPredicate(format: "label CONTAINS %@", "Volver a pendientes"))
-        app.buttons["Cerrar"].tap()
+        closeDetail(app)
         waitForState(app, contains: ["fulfilled=1;", "saves=2;"])
         app.segmentedControls["wishes.status"].buttons["Cumplidos"].tap()
         reveal(travel, app: app); travel.tap()
@@ -112,8 +112,9 @@ final class WishesInteractionTests: XCTestCase {
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
         attach(app, name: "wishes-publication-native-browser")
         done.tap()
+        waitFor(app.webViews.firstMatch, predicate: NSPredicate(format: "exists == false"))
         XCTAssertTrue(app.buttons["wish.edit"].waitForExistence(timeout: 5))
-        app.buttons["Cerrar"].tap()
+        closeDetail(app)
 
         let recipe = app.buttons[cardID(3)]
         reveal(recipe, app: app); recipe.tap()
@@ -135,7 +136,7 @@ final class WishesInteractionTests: XCTestCase {
         attach(app, name: "wishes-recipe-restored-draft-dark")
         app.buttons["wish.form.save.toolbar"].tap()
         XCTAssertTrue(app.buttons["wish.edit"].waitForExistence(timeout: 5))
-        app.buttons["Cerrar"].tap()
+        closeDetail(app)
         waitForState(app, contains: ["saves=1;", "lastCategory=food", "lastCurrency=BRL;"])
     }
 
@@ -158,34 +159,72 @@ final class WishesInteractionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(target.frame.minX, bounds.minX + inset)
         XCTAssertLessThanOrEqual(target.frame.maxX, bounds.maxX - inset)
     }
+    private func closeDetail(_ app: XCUIApplication) {
+        let close = app.buttons["wish.detail.close"]
+        waitFor(close, predicate: NSPredicate(format: "exists == true AND hittable == true AND enabled == true"))
+        close.tap()
+        waitFor(app.buttons["wish.edit"], predicate: NSPredicate(format: "exists == false"))
+    }
+    private func visibleContentFrame(_ app: XCUIApplication) -> CGRect {
+        let frame = app.windows.firstMatch.frame
+        let keyboard = app.keyboards.firstMatch
+        // The Keyboard AX node excludes the input container and predictive bar.
+        let bottom = keyboard.exists ? min(frame.maxY - 34, keyboard.frame.minY - 70) : frame.maxY - 34
+        let top = frame.minY + 140
+        return CGRect(x: frame.minX, y: top, width: frame.width, height: max(0, bottom - top))
+    }
+    private func safelyVisible(_ target: XCUIElement, within bounds: CGRect) -> Bool {
+        guard target.exists, target.isHittable else { return false }
+        let frame = target.frame
+        return frame.minY >= bounds.minY && frame.maxY <= bounds.maxY
+    }
     private func reveal(_ target: XCUIElement, app: XCUIApplication) {
         for _ in 0..<8 {
-            if target.exists && target.isHittable { return }
+            let bounds = visibleContentFrame(app)
+            if safelyVisible(target, within: bounds) { return }
             let window = app.windows.firstMatch
             let frame = window.frame
-            let keyboard = app.keyboards.firstMatch
-            // XCTest's keyboard frame omits the predictive bar above the keys.
-            let startY = min(frame.maxY - 90, keyboard.exists ? keyboard.frame.minY - 90 : frame.maxY - 90)
-            let endY = frame.minY + 140
-            guard startY - endY > 100 else { break }
-            // Keep the whole drag inside the form rather than starting on the keyboard.
-            let origin = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+            let targetFrame = target.exists ? target.frame : nil
+            let upper = bounds.minY + 12
+            let lower = min(frame.maxY - 90, bounds.maxY - 20)
+            guard lower - upper > 100 else { break }
+            let scrollDown = targetFrame.map { $0.minY < bounds.minY } ?? false
+            let overflow = targetFrame.map { scrollDown ? bounds.minY - $0.minY : $0.maxY - bounds.maxY } ?? (lower - upper)
+            let distance = min(lower - upper, max(100, overflow + 32))
+            let startY = scrollDown ? upper : lower
+            let endY = scrollDown ? startY + distance : startY - distance
+            // Follow the target's column and avoid dragging through the grid's middle gap.
+            let x = min(frame.maxX - 48, max(frame.minX + 48, targetFrame?.midX ?? frame.midX))
+            let origin = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+                .withOffset(CGVector(dx: x - frame.minX, dy: 0))
             let start = origin.withOffset(CGVector(dx: 0, dy: startY - frame.minY))
             let end = origin.withOffset(CGVector(dx: 0, dy: endY - frame.minY))
             start.press(forDuration: 0.05, thenDragTo: end)
         }
-        XCTAssertTrue(target.exists && target.isHittable, "Unreachable control: \(target.identifier)")
+        XCTAssertTrue(safelyVisible(target, within: visibleContentFrame(app)), "Unreachable control: \(target.identifier)")
     }
     private func enter(_ text: String, into id: String, app: XCUIApplication) {
         let target = element(id, app: app)
-        reveal(target, app: app); target.tap(); target.typeText(text)
+        reveal(target, app: app); target.tap()
+        waitForKeyboardFocus(target)
+        target.typeText(text)
     }
     private func replace(_ text: String, in id: String, app: XCUIApplication) {
         let target = element(id, app: app)
         reveal(target, app: app)
         let previous = target.value as? String ?? ""
         target.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
+        waitForKeyboardFocus(target)
         target.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: previous.count) + text)
+    }
+    private func waitForKeyboardFocus(_ target: XCUIElement) {
+        // XCTest reports iOS keyboard focus in the element's own diagnostic attributes.
+        // Its public hasFocus property instead represents focus-engine UI focus.
+        let focused = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            target.exists && target.debugDescription.split(separator: "\n").first?.contains("Keyboard Focused") == true
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 5), .completed,
+                       "Typing requires keyboard focus on \(target.identifier)")
     }
     private func waitFor(_ target: XCUIElement, predicate: NSPredicate) {
         let ready = XCTNSPredicateExpectation(predicate: predicate, object: target)

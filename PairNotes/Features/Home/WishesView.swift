@@ -449,7 +449,9 @@ struct WishDetailView: View {
             }.coupleScreenBackground().privacySensitive()
                 .navigationTitle("Antojo").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cerrar") { dismiss() }.disabled(busy) }
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cerrar") { dismiss() }.disabled(busy).accessibilityIdentifier("wish.detail.close")
+                    }
                     ToolbarItem(placement: .primaryAction) { Button("Editar") { editing = true }.disabled(busy).accessibilityIdentifier("wish.edit") }
                 }
                 .interactiveDismissDisabled(busy)
@@ -460,7 +462,9 @@ struct WishDetailView: View {
                         wish = value; onChanged(value); operation = nil; requestID = UUID(); error = nil
                     })
                 }
-                .sheet(item: $browser) { WishWebLinkView(url: $0.url).ignoresSafeArea() }
+                .sheet(item: $browser) { target in
+                    WishWebLinkView(url: target.url, onClose: { browser = nil }).ignoresSafeArea()
+                }
                 .confirmationDialog("¿Eliminar este antojo para los dos?", isPresented: $confirmsDelete, titleVisibility: .visible) {
                     Button("Eliminar antojo", role: .destructive) { delete() }
                 }
@@ -940,8 +944,29 @@ private struct WishBrowserTarget: Identifiable { let id = UUID(); let url: URL }
 
 struct WishWebLinkView: UIViewControllerRepresentable {
     let url: URL
+    let onClose: @MainActor () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onClose: onClose) }
+
     func makeUIViewController(context: Context) -> SFSafariViewController {
-        SFSafariViewController(url: url)
+        let controller = SFSafariViewController(url: url)
+        controller.delegate = context.coordinator
+        return controller
     }
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {
+        context.coordinator.onClose = onClose
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, SFSafariViewControllerDelegate {
+        var onClose: @MainActor () -> Void
+
+        init(onClose: @escaping @MainActor () -> Void) { self.onClose = onClose }
+
+        func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+            // Safari closes its UIKit presentation itself. Clear the matching
+            // SwiftUI sheet state too, so the enclosing detail can close normally.
+            onClose()
+        }
+    }
 }
