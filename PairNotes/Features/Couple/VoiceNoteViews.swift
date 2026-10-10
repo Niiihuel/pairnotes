@@ -4,7 +4,7 @@ import PairNotesCore
 import SwiftUI
 import UIKit
 
-private enum VoiceTime {
+enum VoiceTime {
     static func label(_ value: Double) -> String {
         let seconds = Int(value.isFinite ? min(3_600, max(0, value)) : 0)
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
@@ -124,6 +124,7 @@ struct VoiceNotesView: View {
 struct VoiceWaveformView: View {
     let data: Data
     var progress: Double = 0
+    var height: CGFloat = 36
     @State private var levels: [Double] = []
     var body: some View {
         waveform.opacity(0.35)
@@ -134,7 +135,7 @@ struct VoiceWaveformView: View {
                     }
                 }
             }
-            .frame(height: 36).accessibilityHidden(true)
+            .frame(height: height).accessibilityHidden(true)
             .task(id: data) {
                 let bytes = data
                 let computed = await Task.detached(priority: .utility) { VoiceWaveform.levels(bytes) }.value
@@ -146,9 +147,9 @@ struct VoiceWaveformView: View {
         HStack(alignment: .center, spacing: 3) {
             ForEach(Array(levels.enumerated()), id: \.offset) { _, value in
                 Capsule().fill(Color.accentColor)
-                    .frame(maxWidth: .infinity).frame(height: max(3, 32 * value))
+                    .frame(maxWidth: .infinity).frame(height: max(3, (height - 4) * value))
             }
-        }.frame(height: 36)
+        }.frame(height: height)
     }
 }
 

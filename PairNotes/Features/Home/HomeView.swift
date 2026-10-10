@@ -59,6 +59,22 @@ struct HomeView: View {
                         }.buttonStyle(.plain)
                     }
                     ThinkingOfYouCard(services: services)
+                    NavigationLink {
+                        WishesView(services: services)
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "sparkles").font(.title2).foregroundStyle(theme.accent)
+                                .frame(width: 48, height: 48).background(theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("Antojos").font(.headline)
+                                Text("Viajes, regalitos y planes para los dos.").font(.subheadline).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(theme.card, in: RoundedRectangle(cornerRadius: 24))
+                            .contentShape(RoundedRectangle(cornerRadius: 24))
+                    }.buttonStyle(.plain).accessibilityIdentifier("home.wishes")
                 }
                 ForEach(services.personalization.homeOrder, id: \.self) { section in
                     homeSection(section)

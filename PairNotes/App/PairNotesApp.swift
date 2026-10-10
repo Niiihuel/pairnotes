@@ -8,6 +8,8 @@ struct PairNotesApp: App {
             #if DEBUG && targetEnvironment(simulator)
             if ProcessInfo.processInfo.arguments.contains("-pairnotes-chat-interaction-fixture") {
                 ChatInteractionFixture()
+            } else if ProcessInfo.processInfo.arguments.contains("-pairnotes-wishes-interaction-fixture") {
+                WishInteractionFixture()
             } else { RootView() }
             #else
             RootView()

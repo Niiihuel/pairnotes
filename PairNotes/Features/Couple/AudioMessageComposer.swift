@@ -44,13 +44,13 @@ struct AudioMessageComposer: View {
 
     init(services: AppServices, onSent: @escaping @MainActor (TimeCapsuleLetter) -> Void,
          onCancel: @escaping @MainActor () -> Void = {}, startsRecording: Bool = false,
-         interaction: ChatAudioInteraction? = nil, voice: VoiceNoteController = VoiceNoteController()) {
+         interaction: ChatAudioInteraction? = nil, voice: VoiceNoteController? = nil) {
         self.services = services; self.onSent = onSent; self.onCancel = onCancel
         let control = interaction ?? ChatAudioInteraction()
         ownsInteraction = interaction == nil
         if interaction == nil { control.open(startRecording: startsRecording) }
         self.interaction = control
-        _voice = StateObject(wrappedValue: voice)
+        _voice = StateObject(wrappedValue: voice ?? VoiceNoteController())
         let key = services.privateImageKey("chat-audio-composition")
         scope = key
         let storage = MemoryCompositionStorage(key: key)
@@ -191,7 +191,8 @@ struct AudioMessageComposer: View {
                     .accessibilityLabel(voice.playing ? "Pausar audio" : "Escuchar audio")
                     .accessibilityIdentifier("chat.audio.preview")
                 VStack(spacing: 0) {
-                    VoiceWaveformView(data: data, progress: voice.duration > 0 ? voice.elapsed / voice.duration : 0)
+                    VoiceWaveformView(data: data, progress: voice.duration > 0 ? voice.elapsed / voice.duration : 0,
+                                      height: 28)
                         .frame(height: 28).allowsHitTesting(false)
                         .overlay {
                             Slider(value: Binding(get: { voice.duration > 0 ? voice.elapsed / voice.duration : 0 },
@@ -502,6 +503,15 @@ struct ChatAudioRecordButton: UIViewRepresentable {
         button.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
         button.layer.cornerRadius = 22
         button.clipsToBounds = true
+        let progress = UIActivityIndicatorView(style: .medium)
+        progress.tag = 4101
+        progress.isUserInteractionEnabled = false
+        progress.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(progress)
+        NSLayoutConstraint.activate([
+            progress.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            progress.centerYAnchor.constraint(equalTo: button.centerYAnchor)
+        ])
         button.addTarget(context.coordinator, action: #selector(Coordinator.touchDown), for: .touchDown)
         button.addTarget(context.coordinator, action: #selector(Coordinator.tap), for: .touchUpInside)
         let hold = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.hold(_:)))
@@ -524,10 +534,14 @@ struct ChatAudioRecordButton: UIViewRepresentable {
 
     private func update(_ button: UIButton) {
         let sending = interaction.phase == .locked || interaction.phase == .review
-        button.setImage(UIImage(systemName: sending ? "paperplane.fill" : "mic.fill",
+        button.setImage(interaction.busy ? nil : UIImage(systemName: sending ? "paperplane.fill" : "mic.fill",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)), for: .normal)
         button.backgroundColor = tint
-        button.tintColor = .white
+        button.tintColor = UIColor { $0.userInterfaceStyle == .dark ? .black : .white }
+        if let progress = button.viewWithTag(4101) as? UIActivityIndicatorView {
+            progress.color = button.tintColor
+            if interaction.busy { progress.startAnimating() } else { progress.stopAnimating() }
+        }
         button.accessibilityIdentifier = sending ? "chat.audio.send" : "chat.record"
         button.accessibilityLabel = sending ? "Enviar audio" : "Grabar audio"
         button.accessibilityHint = sending ? "Finaliza la grabación y envía el audio" :

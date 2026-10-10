@@ -461,3 +461,27 @@ declara listos para App Store.
   [Dockerfiles](https://docs.railway.com/builds/dockerfiles),
   [healthchecks](https://docs.railway.com/deployments/healthchecks).
 - [AWS SDK: PutObject](https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/s3/command/PutObjectCommand/).
+
+
+### Antojos compartidos
+
+Antojos pertenece a la pareja y a su `pairEpoch`: ambos miembros pueden crear, editar, cumplir y eliminar tarjetas. No genera mensajes, alertas ni conversiones monetarias. `POST /wishes` devuelve `{wishes, limit: 200}`: es la lista completa de hasta 200 tarjetas activas, ordenada por `createdAt` descendente y, ante empate, `id` descendente. El límite excluye los elementos eliminados. Todas las operaciones JSON usan el sobre habitual `{data: {...}}` y responden `{result: ...}` con una sesión completa de la app; los tokens del widget no dan acceso.
+
+Contrato público de `Wish`: `id` UUID, `pairId`, `pairEpoch`, `authorId` original e inmutable, `title` (1–120 unidades UTF-16), `category` (`travel`, `home`, `food`, `plans`, `gifts`, `other`), `notes` (hasta 1000), `fulfilled` booleano, `priceAmount` y `currencyCode` opcionales juntos, `photo: {id, sha256} | null`, `createdAt`/`updatedAt` en milisegundos y `revision` entero positivo. El servidor nunca devuelve rutas S3 ni URLs públicas.
+
+Cada tarjeta elige su propia moneda ISO 4217; no hay moneda predeterminada. La lista admitida es `Intl.supportedValuesOf('currency')` del runtime Node 22. Los importes son cadenas decimales no negativas con hasta diez dígitos enteros y cuatro decimales, sin exponentes, comas ni ceros iniciales; los ceros decimales finales se normalizan. Se conservan como texto y no se convierten a `Number` ni se suman entre monedas.
+
+Campos adicionales planos: `linkURL` HTTP(S) opcional, máximo 2048 y sin credenciales; `targetDate` opcional `YYYY-MM-DD` validada como día de calendario; `location` hasta 240. Para viajes, `savedAmount` requiere un precio objetivo con moneda y puede superarlo. Para regalos, `recipient` y `occasion` admiten hasta 120 cada uno. Para comidas, `foodKind` es `restaurant`, `recipe` o `null`; las recetas admiten `ingredients` hasta 6000 e `instructions` hasta 10000. Estos límites son UTF-16. Los detalles exclusivos de otra categoría se limpian al cambiarla. Los campos adicionales omitidos se guardan como `null` o texto vacío. Sólo `/saveWish` acepta JSON hasta 64KB, para admitir estos límites en UTF-8; las demás operaciones conservan 32KB. Los enlaces se almacenan; el backend no los visita ni extrae contenido.
+
+- `POST /getWish`: `{pairId, pairEpoch, id}` → `{wish}`.
+- `POST /saveWish`: `{pairId, pairEpoch, id, requestId, expectedRevision, ...campos editables}` → `{wish}`. Crear usa `expectedRevision: 0`; editar usa la revisión leída. Las fotos se conservan y se gestionan por separado.
+- `POST /deleteWish`: `{pairId, pairEpoch, id, requestId, expectedRevision}` → `{}`.
+- `PUT /wishPhoto?pairId=...&pairEpoch=...&id=...&requestId=...&expectedRevision=...`: PNG/JPEG privado hasta 5MB → `{wish}` directamente, sin sobre callable. Reutiliza normalización de imágenes, aplica orientación y elimina metadatos; almacena PNG de hasta 1536px.
+- `GET /wishPhoto?pairId=...&pairEpoch=...&id=...&photoId=...`: devuelve PNG con `Cache-Control: private, no-store`. `photoId` es obligatorio y debe coincidir con la foto actual.
+- `POST /deleteWishPhoto`: `{pairId, pairEpoch, id, requestId, expectedRevision}` → `{wish}`.
+
+Las mutaciones usan un `requestId` UUID que el cliente conserva junto con el payload hasta confirmar. Una revisión desactualizada produce HTTP 409 `wish_revision_conflict`; reutilizar un `requestId` con otro autor, operación, revisión o payload produce 409 `idempotency_conflict`. Un reintento ya confirmado devuelve el estado **actual** y nunca vuelve a aplicar el cambio sobre una edición más reciente; si la tarjeta fue eliminada, devuelve 404 `wish_unavailable`. Repetir la eliminación confirmada devuelve `{}`. Cada mutación nueva incrementa la revisión, incluidas fotos. Los recibos conservan sólo una firma, sin contenido de la tarjeta. Guardar, eliminar y quitar foto comparten un límite de 60 solicitudes por minuto y usuario, incluidos reintentos; cargar fotos usa 12 por minuto.
+
+Las transacciones serializan cambios y comprueban pareja/época. Carga y descarga de fotos vuelven a autorizar después del I/O; una carga perdedora deja su objeto pendiente de limpieza y no sustituye la versión ganadora. Borrar una tarjeta conserva una marca mínima que impide resurrecciones por reintentos tardíos. Cerrar la pareja elimina tarjetas y recibos en la misma transacción y retira las fotos para el recolector privado existente. Una desvinculación bloquea inmediatamente todas las lecturas y cargas en curso.
+
+`test/wishes.test.cjs` verifica el contrato mediante HTTP real, PostgreSQL y MinIO: monedas exactas, categorías y recetas, límites UTF-8, validaciones, concurrencia/idempotencia, revisiones de fotos, autenticación/época, revocación durante I/O y limpieza al desvincular.

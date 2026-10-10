@@ -15,10 +15,12 @@
 		03A8D9F9FD4CD28D0AF61D90 /* ChatReactionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB27F56F64AE8D3797A79E3C /* ChatReactionStore.swift */; };
 		04391163AF4B727894C5432A /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 51C7D873D63E3B5FB4AA6842 /* Foundation.framework */; };
 		04EFD805A274646B6B61CB88 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 63D622475F5207FBC9CC5DB8 /* Foundation.framework */; };
+		07631963BC24D95E6A9B3D5E /* WishesLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E5FBDEE3DAC844F817DEE5 /* WishesLayoutTests.swift */; };
 		082316070D15852F88D5836D /* MonthlyReminderService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A061225091C922828138034 /* MonthlyReminderService.swift */; };
 		08B9B7250A5F1D3AB80389D8 /* PaperCreativeTools.swift in Sources */ = {isa = PBXBuildFile; fileRef = C68B19DEE060E1AB6B62F737 /* PaperCreativeTools.swift */; };
 		0B2E9B917D8209D789F56EFC /* EditorInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8688BACE480A357CB33EB690 /* EditorInteractionTests.swift */; };
 		0DEC0115B0D9DA1B73F96C41 /* PhotoViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793761937193EC6D4C5C9CBB /* PhotoViewer.swift */; };
+		0E3BD1B4B55793C151A34402 /* WishesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A00733E903D24D7DEE56CA8 /* WishesView.swift */; };
 		0F61CF87EDE4A90A1199E917 /* PairNotesCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B25DE4C1C0C616CF87F162ED /* PairNotesCore.framework */; };
 		10FE16011A699A54FFAC018B /* ServiceConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE0F14FACD03AE562D4EC20F /* ServiceConfigurationTests.swift */; };
 		12AEA75BE6E4A1D23A4EA94B /* PairNotesWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB6F33F5AF7D0DF57D4B8FE7 /* PairNotesWidgetBundle.swift */; };
@@ -36,7 +38,9 @@
 		2F249FA988997A1A71D0C37C /* LetterComposerLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 394B9F0C1BDE68EE1B177088 /* LetterComposerLayoutTests.swift */; };
 		31B6D8BF4F60374775F5D89F /* DraftLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47D0DE72CD3C7FB46CDDF48 /* DraftLibraryView.swift */; };
 		31F218F886F6F1BADA75071C /* SharedMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CE9F33F0A958C047B5C0BC /* SharedMemory.swift */; };
+		33503912B4718F9C10B85EFD /* WishInteractionFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18AB6EE63963774C29F11012 /* WishInteractionFixture.swift */; };
 		33D49B32794362B2B9D4950C /* PhotoReactionIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E463DF9B88CD4857AC4B66 /* PhotoReactionIntents.swift */; };
+		33F481F02F38ACE5ACE85544 /* WishesInteractionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92B69CFB539B990095048D47 /* WishesInteractionTests.swift */; };
 		362C1A8DE2C3785B8A54AAAE /* CoupleChatHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE4D0915AF80805E27161C5 /* CoupleChatHistoryTests.swift */; };
 		37B8E44A005ACEC0247FE5DA /* WidgetAccessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E6159B88137BF21592FC1F5 /* WidgetAccessStore.swift */; };
 		38EF6E89BFA2F535DAD2B00B /* PairNotesCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B25DE4C1C0C616CF87F162ED /* PairNotesCore.framework */; };
@@ -118,6 +122,7 @@
 		D5BCB0EC59992EB6321689EE /* ContentDigest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F37D725A6BCF6564D33E8D /* ContentDigest.swift */; };
 		D7776262650E80BE51D59EE9 /* ScrapbookPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC08FD4A214D6C5E699DC121 /* ScrapbookPage.swift */; };
 		D8FA399C29B9EFC83FE7958B /* ChatReactionInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD91CAAECFE7EB36BF6BA7D0 /* ChatReactionInteraction.swift */; };
+		DA818B5F718F35408137F4D6 /* WishService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24639153A7881B79F8EE077B /* WishService.swift */; };
 		DB4D127AF48A87B047DAD355 /* VoiceWaveform.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFACE15E812B2AF8B10A8942 /* VoiceWaveform.swift */; };
 		DDAA047E9BE468E9DE710507 /* ChatMessageComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54FA47E32850D3761A6211E7 /* ChatMessageComposer.swift */; };
 		DEDD3E8A33E872580E1C6B28 /* LetterComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 810B43FB67E2D187E3A04D41 /* LetterComposer.swift */; };
@@ -135,6 +140,7 @@
 		F865CA16F761862CC5F1D7D0 /* CloudNotesService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05E7593B2F6C7038350A3359 /* CloudNotesService.swift */; };
 		F992B53E17F8067A90A57555 /* WidgetProfileAvatarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85328A38EE92B8AA1867FAB5 /* WidgetProfileAvatarTests.swift */; };
 		FAC9D0B6B0C6413BEFB21533 /* ReactionBubbleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4A842B7CD7538A21BB40114 /* ReactionBubbleTests.swift */; };
+		FD15D1739313D140CB8CAB35 /* CoupleWish.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88027B32F666CFBF79F048E6 /* CoupleWish.swift */; };
 		FE27CFB76688184786AE3C5C /* QuickPhotoComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51AAD1DC397D1F4F36DCA323 /* QuickPhotoComposer.swift */; };
 /* End PBXBuildFile section */
 
@@ -210,12 +216,14 @@
 		0E6159B88137BF21592FC1F5 /* WidgetAccessStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetAccessStore.swift; path = PairNotes/Widgets/SharedSnapshot/WidgetAccessStore.swift; sourceTree = "<group>"; };
 		13C4562AA80463903AAA2C49 /* LocationSharingController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LocationSharingController.swift; path = PairNotes/Services/LocationSharingController.swift; sourceTree = "<group>"; };
 		17CE9F33F0A958C047B5C0BC /* SharedMemory.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SharedMemory.swift; path = PairNotes/Core/Domain/SharedMemory.swift; sourceTree = "<group>"; };
+		18AB6EE63963774C29F11012 /* WishInteractionFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WishInteractionFixture.swift; path = PairNotes/App/WishInteractionFixture.swift; sourceTree = "<group>"; };
 		1944EA3B4183DB4530BE5656 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = PairNotes/App/Assets.xcassets; sourceTree = "<group>"; };
 		1E6E8D2520119FF6A7129CA9 /* PrivateImageCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PrivateImageCache.swift; path = PairNotes/Core/Persistence/PrivateImageCache.swift; sourceTree = "<group>"; };
 		1F69254FC515D5F3B7100C67 /* ChatInteractionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ChatInteractionTests.swift; path = PairNotes/Tests/UITests/ChatInteractionTests.swift; sourceTree = "<group>"; };
 		20A57427CCCC7FFA4AFA9F9E /* CoupleSpaceViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CoupleSpaceViews.swift; path = PairNotes/Features/Couple/CoupleSpaceViews.swift; sourceTree = "<group>"; };
 		2228B40AC1415219F0D70467 /* ChatConversationScrollView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ChatConversationScrollView.swift; path = PairNotes/Features/Couple/ChatConversationScrollView.swift; sourceTree = "<group>"; };
 		231DFAA5F216363FBBAE49C4 /* WidgetRemoteClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetRemoteClient.swift; path = PairNotes/Widgets/SharedSnapshot/WidgetRemoteClient.swift; sourceTree = "<group>"; };
+		24639153A7881B79F8EE077B /* WishService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WishService.swift; path = PairNotes/Services/WishService.swift; sourceTree = "<group>"; };
 		25C60602CDB5BB2B05305BA6 /* PhotoLibrarySheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PhotoLibrarySheet.swift; path = PairNotes/Features/Timeline/PhotoLibrarySheet.swift; sourceTree = "<group>"; };
 		264F4C8D47DD22EEE2F0AB37 /* ChatReactionService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ChatReactionService.swift; path = PairNotes/Services/ChatReactionService.swift; sourceTree = "<group>"; };
 		2B894C74C2B1D8A138093675 /* CouplePhotoViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CouplePhotoViews.swift; path = PairNotes/Features/Couple/CouplePhotoViews.swift; sourceTree = "<group>"; };
@@ -234,6 +242,7 @@
 		4017AEFC9D1D7D89F70DD9DC /* WidgetNotePaperTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetNotePaperTests.swift; path = PairNotes/Tests/NativeTests/WidgetNotePaperTests.swift; sourceTree = "<group>"; };
 		4737210C7B9D72257EDC1C3F /* PairPhotoActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PairPhotoActivityAttributes.swift; path = PairNotes/Widgets/SharedSnapshot/PairPhotoActivityAttributes.swift; sourceTree = "<group>"; };
 		48C60001ADA2CD7EFB986C5F /* ChatComposerLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ChatComposerLayoutTests.swift; path = PairNotes/Tests/NativeTests/ChatComposerLayoutTests.swift; sourceTree = "<group>"; };
+		4A00733E903D24D7DEE56CA8 /* WishesView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WishesView.swift; path = PairNotes/Features/Home/WishesView.swift; sourceTree = "<group>"; };
 		51AAD1DC397D1F4F36DCA323 /* QuickPhotoComposer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = QuickPhotoComposer.swift; path = PairNotes/Features/Couple/QuickPhotoComposer.swift; sourceTree = "<group>"; };
 		51C7D873D63E3B5FB4AA6842 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		535CB414541D0E5533EA196B /* WidgetDistanceContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetDistanceContent.swift; path = PairNotes/Widgets/SharedSnapshot/WidgetDistanceContent.swift; sourceTree = "<group>"; };
@@ -265,9 +274,11 @@
 		85328A38EE92B8AA1867FAB5 /* WidgetProfileAvatarTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetProfileAvatarTests.swift; path = PairNotes/Tests/NativeTests/WidgetProfileAvatarTests.swift; sourceTree = "<group>"; };
 		854779E5F0B9E75EB3588832 /* CoupleChatCards.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CoupleChatCards.swift; path = PairNotes/Features/Couple/CoupleChatCards.swift; sourceTree = "<group>"; };
 		8688BACE480A357CB33EB690 /* EditorInteractionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = EditorInteractionTests.swift; path = PairNotes/Tests/UITests/EditorInteractionTests.swift; sourceTree = "<group>"; };
+		88027B32F666CFBF79F048E6 /* CoupleWish.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = CoupleWish.swift; path = PairNotes/Core/Domain/CoupleWish.swift; sourceTree = "<group>"; };
 		8A671A977D7B6DB8F1EEA1CE /* WidgetNotePaper.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetNotePaper.swift; path = PairNotes/Widgets/SharedSnapshot/WidgetNotePaper.swift; sourceTree = "<group>"; };
 		8D0037017CA46317C7DE86B8 /* NoteWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = NoteWidget.swift; path = PairNotes/Widgets/NoteWidget/NoteWidget.swift; sourceTree = "<group>"; };
 		90C0F66992450B0DB7430EAD /* AppServices.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppServices.swift; path = PairNotes/Services/AppServices.swift; sourceTree = "<group>"; };
+		92B69CFB539B990095048D47 /* WishesInteractionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WishesInteractionTests.swift; path = PairNotes/Tests/UITests/WishesInteractionTests.swift; sourceTree = "<group>"; };
 		9674146EDF6DC10AE7F7BEA9 /* PersonalizationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PersonalizationView.swift; path = PairNotes/Features/Couple/PersonalizationView.swift; sourceTree = "<group>"; };
 		9AE147033D7E25C2944104CF /* AffectionViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AffectionViews.swift; path = PairNotes/Features/Couple/AffectionViews.swift; sourceTree = "<group>"; };
 		9C52C05971195800ECE84BBE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = PairNotes/Widgets/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -281,6 +292,7 @@
 		AED09771DC5C95B2CA2188C8 /* Pairing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Pairing.swift; path = PairNotes/Core/Domain/Pairing.swift; sourceTree = "<group>"; };
 		B051FF90353B8FE439A6E86A /* WidgetSnapshotStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetSnapshotStore.swift; path = PairNotes/Core/Persistence/WidgetSnapshotStore.swift; sourceTree = "<group>"; };
 		B1DDA8788D8B4A9DF7E9A5BB /* MessageCompositionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MessageCompositionTests.swift; path = PairNotes/Tests/NativeTests/MessageCompositionTests.swift; sourceTree = "<group>"; };
+		B1E5FBDEE3DAC844F817DEE5 /* WishesLayoutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WishesLayoutTests.swift; path = PairNotes/Tests/NativeTests/WishesLayoutTests.swift; sourceTree = "<group>"; };
 		B25DE4C1C0C616CF87F162ED /* PairNotesCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = PairNotesCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		B43243F9357BC154D804B56A /* DraftCatalogStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DraftCatalogStore.swift; path = PairNotes/Core/Persistence/DraftCatalogStore.swift; sourceTree = "<group>"; };
 		B521C515E9E5F536D4D79D45 /* WidgetLocationSampler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetLocationSampler.swift; path = PairNotes/Widgets/SharedSnapshot/WidgetLocationSampler.swift; sourceTree = "<group>"; };
@@ -493,6 +505,12 @@
 				EB27F56F64AE8D3797A79E3C /* ChatReactionStore.swift */,
 				CCA076B15DBB97858EA8D3F6 /* ChatReactionStoreTests.swift */,
 				AD91CAAECFE7EB36BF6BA7D0 /* ChatReactionInteraction.swift */,
+				18AB6EE63963774C29F11012 /* WishInteractionFixture.swift */,
+				4A00733E903D24D7DEE56CA8 /* WishesView.swift */,
+				24639153A7881B79F8EE077B /* WishService.swift */,
+				88027B32F666CFBF79F048E6 /* CoupleWish.swift */,
+				B1E5FBDEE3DAC844F817DEE5 /* WishesLayoutTests.swift */,
+				92B69CFB539B990095048D47 /* WishesInteractionTests.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -768,6 +786,9 @@
 				031485C0A1BC4FF426B6BE0A /* ChatReactionService.swift in Sources */,
 				03A8D9F9FD4CD28D0AF61D90 /* ChatReactionStore.swift in Sources */,
 				D8FA399C29B9EFC83FE7958B /* ChatReactionInteraction.swift in Sources */,
+				33503912B4718F9C10B85EFD /* WishInteractionFixture.swift in Sources */,
+				0E3BD1B4B55793C151A34402 /* WishesView.swift in Sources */,
+				DA818B5F718F35408137F4D6 /* WishService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -794,6 +815,7 @@
 				7FF2F3874E2328F95BDD3AD0 /* CouplePhoto.swift in Sources */,
 				52047C4E1D4738C1BD60705A /* CoupleConversation.swift in Sources */,
 				625366A95D8E74CA3B8C06DB /* ChatReaction.swift in Sources */,
+				FD15D1739313D140CB8CAB35 /* CoupleWish.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -839,6 +861,7 @@
 				362C1A8DE2C3785B8A54AAAE /* CoupleChatHistoryTests.swift in Sources */,
 				2F249FA988997A1A71D0C37C /* LetterComposerLayoutTests.swift in Sources */,
 				4BFE0151B05A1CDFA0526B2A /* ChatReactionStoreTests.swift in Sources */,
+				07631963BC24D95E6A9B3D5E /* WishesLayoutTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -848,6 +871,7 @@
 			files = (
 				0B2E9B917D8209D789F56EFC /* EditorInteractionTests.swift in Sources */,
 				B0FA6C8D58CD010A67029629 /* ChatInteractionTests.swift in Sources */,
+				33F481F02F38ACE5ACE85544 /* WishesInteractionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

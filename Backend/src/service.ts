@@ -8,6 +8,7 @@ import {CoupleFeatures, publicProfile} from './couple';
 import {revokeLocationDevice} from './location';
 import {PhotoFeatures} from './photos';
 import {ChatReactionFeatures} from './chatReactions';
+import {WishFeatures} from './wishes';
 
 export const roles = ['source', 'final', 'widget', 'thumbnail'] as const;
 type Role = typeof roles[number];
@@ -46,7 +47,13 @@ export class PairNotesService {
   readonly couple = new CoupleFeatures(this);
   readonly photos = new PhotoFeatures(this);
   readonly chatReactions = new ChatReactionFeatures(this);
+  readonly wishFeatures = new WishFeatures(this);
   constructor(readonly db: Database, readonly bucket: AssetStore, readonly now: () => number = Date.now) {}
+  async wishes(caller: Caller, input: Input) {return this.wishFeatures.list(caller, input);}
+  async getWish(caller: Caller, input: Input) {return this.wishFeatures.get(caller, input);}
+  async saveWish(caller: Caller, input: Input) {return this.wishFeatures.save(caller, input);}
+  async deleteWish(caller: Caller, input: Input) {return this.wishFeatures.delete(caller, input);}
+  async deleteWishPhoto(caller: Caller, input: Input) {return this.wishFeatures.removePhoto(caller, input);}
   async sendGesture(caller: Caller, input: Input) {return this.affection.sendGesture(caller, input);}
   async reactions(caller: Caller, input: Input) {return this.affection.reactions(caller, input);}
   async setReaction(caller: Caller, input: Input) {return this.affection.setReaction(caller, input);}
@@ -178,6 +185,7 @@ export class PairNotesService {
         tx.delete(this.db.doc(`pairs/${id}/locationConsent/${uid}`));
       }
       tx.delete(this.db.doc(`pairs/${id}/distance/current`));
+      await this.wishFeatures.closePair(tx, id);
     });
     return {};
   }

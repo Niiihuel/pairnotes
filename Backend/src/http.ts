@@ -75,7 +75,7 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
         request.header('content-type') ?? '', request.header('x-content-sha256') ?? ''));
     } catch (error) {sendError(response, error, false);}
   });
-  for (const route of ['profileAvatar', 'memoryPhoto', 'couplePhoto'] as const) {
+  for (const route of ['profileAvatar', 'memoryPhoto', 'couplePhoto', 'wishPhoto'] as const) {
     app.put(`/${route}`, async (request, response, next) => {
       try {response.locals.caller = await options.auth.authenticate(bearer(request)); next();}
       catch (error) {sendError(response, error, false);}
@@ -86,6 +86,8 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
         response.json(route === 'profileAvatar'
           ? await options.service.couple.profileAvatar(caller, request.body, request.header('content-type') ?? '')
           : route === 'memoryPhoto' ? await options.service.couple.memoryPhoto(caller, {...request.query, pairEpoch: Number(request.query.pairEpoch)},
+            request.body, request.header('content-type') ?? '')
+          : route === 'wishPhoto' ? await options.service.wishFeatures.uploadPhoto(caller, {...request.query, pairEpoch: Number(request.query.pairEpoch), expectedRevision: Number(request.query.expectedRevision)},
             request.body, request.header('content-type') ?? '')
           : await options.service.photos.send(caller, {...request.query, pairEpoch: Number(request.query.pairEpoch)},
             request.body, request.header('content-type') ?? ''));
@@ -112,6 +114,8 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
       } catch (error) {sendError(response, error, false);}
     });
   }
+  // Full recipes may exceed 32KB in UTF-8 while within their UTF-16 text limits.
+  app.use('/saveWish', express.json({limit: '64kb', strict: true}));
   app.use(express.json({limit: '32kb', strict: true}));
   for (const name of ['challenge', 'exchange', 'refresh'] as const) {
     app.post(`/auth/${name}`, async (request, response) => {
@@ -151,6 +155,13 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
         {...request.query, pairEpoch: Number(request.query.pairEpoch)}));
     } catch (error) {sendError(response, error, false);}
   });
+  app.get('/wishPhoto', async (request, response) => {
+    try {
+      const caller = await options.auth.authenticate(bearer(request));
+      response.type('image/png').send(await options.service.wishFeatures.photo(caller,
+        {...request.query, pairEpoch: Number(request.query.pairEpoch)}));
+    } catch (error) {sendError(response, error, false);}
+  });
   app.get('/couplePhoto', async (request, response) => {
     try {
       const identity = await options.auth.authenticate(bearer(request));
@@ -166,7 +177,7 @@ export function createHTTPApp(options: {service: PairNotesService; auth: Authent
     'createUploadSession', 'finalizeNote', 'timeline', 'note', 'latestReceivedNote', 'markNoteViewed', 'registerDevice', 'unregisterDevice', 'issueWidgetSession',
     'getCoupleSpace', 'updatePersonalization', 'restoreMemory', 'updatePairDetails', 'upsertMemory', 'memories', 'deleteMemory', 'deleteMemoryPhoto', 'deleteProfileAvatar',
     'getPhoto', 'photos', 'setPhotoReaction', 'getChatReactions', 'setChatReaction', 'sendGesture', 'reactions', 'setReaction', 'letters', 'letterHistory', 'saveLetterDraft', 'sealLetter', 'openLetter', 'deleteLetterDraft', 'removeLetterAsset',
-    'sendMessage', 'messages', 'setLocationConsent', 'updateLocation'] as const;
+    'wishes', 'getWish', 'saveWish', 'deleteWish', 'deleteWishPhoto', 'sendMessage', 'messages', 'setLocationConsent', 'updateLocation'] as const;
   for (const name of operations) {
     app.post(`/${name}`, async (request, response) => {
       try {
