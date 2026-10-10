@@ -107,6 +107,100 @@ final class WishesLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testMountedEditorCannotWriteThePreviousAccountsDraftAfterSourceChanges() async throws {
+        let lifecycle = WishEditorLifecycleFixtureState()
+        let firstStorage = lifecycle.storage(scope: "account-a", draftID: "new")
+        let secondStorage = lifecycle.storage(scope: "account-b", draftID: "new")
+        defer { firstStorage.clear(); secondStorage.clear() }
+        var first = WishEditorSeedDraft(fields: WishFields(category: .gifts))
+        first.fields.title = "Borrador privado de la cuenta A"
+        var second = WishEditorSeedDraft(fields: WishFields(category: .home))
+        second.fields.title = "Borrador propio de la cuenta B"
+        try firstStorage.saveValue(first)
+        try secondStorage.saveValue(second)
+        let secondPhoto = wishEditorPhoto(.systemTeal)
+        try secondStorage.savePhoto(secondPhoto)
+
+        let appeared = expectation(description: "account A editor mounted")
+        let reinitialized = expectation(description: "same editor identity rebuilt for account B")
+        let disappeared = expectation(description: "production editor disappeared")
+        lifecycle.appeared = appeared
+        lifecycle.reinitialized = reinitialized
+        lifecycle.disappeared = disappeared
+        let mounted = try mountWishEditor(lifecycle)
+        defer { mounted.close() }
+        mounted.render()
+        await fulfillment(of: [appeared], timeout: 3)
+
+        // Rebuild the same SwiftUI identity. Its @State draft still belongs to A,
+        // while init receives closures returning B's current scope/storage key.
+        lifecycle.scope = "account-b"
+        mounted.render()
+        await fulfillment(of: [reinitialized], timeout: 3)
+        XCTAssertTrue(lifecycle.initializedScopes.contains("account-a"))
+        XCTAssertTrue(lifecycle.initializedScopes.contains("account-b"),
+                      "The test must exercise a new initializer without replacing the editor's identity")
+        mounted.removeEditor()
+        await fulfillment(of: [disappeared], timeout: 3)
+        await Task.yield()
+
+        let preservedFirst: WishEditorSeedDraft? = firstStorage.loadValue()
+        let preservedSecond: WishEditorSeedDraft? = secondStorage.loadValue()
+        XCTAssertEqual(preservedFirst, first)
+        XCTAssertEqual(preservedSecond, second,
+                       "onDisappear must never persist A's retained @State under account B's newly computed key")
+        XCTAssertEqual(secondStorage.photo(), secondPhoto)
+        XCTAssertEqual(lifecycle.mutations, 0)
+    }
+
+    @MainActor
+    func testEditingCreatedCardRestoresPendingPhotoAndOriginalRetryFromCreationDraft() async throws {
+        let lifecycle = WishEditorLifecycleFixtureState()
+        let wish = sample(category: .travel, amount: "1500.25", saved: "300.1")
+        let creationStorage = lifecycle.storage(scope: "account-a", draftID: "new")
+        let cardStorage = lifecycle.storage(scope: "account-a", draftID: wish.id)
+        defer { creationStorage.clear(); cardStorage.clear() }
+        let pending = WishEditorSeedDraft(id: wish.id, fields: WishFields(wish), base: wish,
+                                         metadataConfirmed: true, pendingPhoto: true, photoAction: "replace")
+        let photo = wishEditorPhoto(.systemIndigo)
+        try creationStorage.saveValue(pending)
+        try creationStorage.savePhoto(photo)
+
+        let appeared = expectation(description: "card editor recovered pending creation")
+        let disappeared = expectation(description: "recovered editor persisted on disappearance")
+        lifecycle.appeared = appeared
+        lifecycle.disappeared = disappeared
+        let mounted = try mountWishEditor(lifecycle, original: wish)
+        defer { mounted.close() }
+        mounted.render()
+        await fulfillment(of: [appeared], timeout: 3)
+        let screenshot = XCTAttachment(image: mounted.render())
+        screenshot.name = "wishes-editor-recovered-pending-photo"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        // Alter disk after mounting. The existing editor must persist the exact
+        // recovered request snapshot, proving it loaded the creation draft rather
+        // than merely leaving an untouched file behind or constructing a new edit.
+        var sentinel = pending
+        sentinel.fields.title = "A later disk value that must not replace the mounted draft"
+        sentinel.photoRequest = UUID()
+        sentinel.metadataConfirmed = false
+        sentinel.pendingPhoto = false
+        try creationStorage.saveValue(sentinel)
+        mounted.removeEditor()
+        await fulfillment(of: [disappeared], timeout: 3)
+        await Task.yield()
+
+        let restored = try XCTUnwrap(creationStorage.loadValue() as WishEditorSeedDraft?)
+        let duplicate: WishEditorSeedDraft? = cardStorage.loadValue()
+        XCTAssertEqual(restored, pending, "Recovery must retain the confirmed metadata, pending photo and original request IDs")
+        XCTAssertNil(duplicate, "Opening the card must not fork a second draft that loses the pending photo request")
+        XCTAssertEqual(creationStorage.photo(), photo)
+        XCTAssertEqual(lifecycle.mutations, 0, "Reopening for review must not silently save metadata or upload again")
+    }
+
+    @MainActor
     func testRealWishCardsFitNarrowPhonesAndAccessibilityTextInBothAppearances() async throws {
         let services = AppServices()
         guard services.identity == nil else { throw XCTSkip("Requires a clean unauthenticated simulator") }
@@ -171,6 +265,110 @@ final class WishesLayoutTests: XCTestCase {
             category: category, priceAmount: amount, currencyCode: "USD", createdAt: Date(), updatedAt: Date(), revision: 1,
             linkURL: "https://example.com/idea", targetDate: CoupleDate(rawValue: "2028-02-29"),
             savedAmount: saved, recipient: category == .gifts ? "Para los dos" : "")
+    }
+
+    @MainActor
+    private func mountWishEditor(_ lifecycle: WishEditorLifecycleFixtureState,
+                                 original: CoupleWish? = nil) throws -> MountedWishEditor {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.keyWindow
+        let host = UIHostingController(rootView: AnyView(WishEditorLifecycleFixture(lifecycle: lifecycle, original: original)))
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.frame = window.bounds
+        host.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        return MountedWishEditor(window: window, host: host, previous: previous)
+    }
+
+    @MainActor
+    private func wishEditorPhoto(_ color: UIColor) -> Data {
+        UIGraphicsImageRenderer(size: CGSize(width: 48, height: 32)).jpegData(withCompressionQuality: 0.9) { context in
+            color.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 48, height: 32))
+        }
+    }
+}
+
+/// Encodes the private persisted draft contract without exposing production state
+/// or replacing the real editor's recovery/lifecycle implementation in these tests.
+private struct WishEditorSeedDraft: Codable, Equatable {
+    var id = UUID().uuidString.lowercased()
+    var fields: WishFields
+    var base: CoupleWish?
+    var metadataRequest = UUID()
+    var photoRequest = UUID()
+    var metadataConfirmed = false
+    var pendingMetadata = false
+    var pendingPhoto = false
+    var needsReview = false
+    var photoAction = "keep"
+}
+
+@MainActor
+private final class WishEditorLifecycleFixtureState: ObservableObject {
+    @Published var scope = "account-a"
+    let namespace = "wishes-native-lifecycle:" + UUID().uuidString
+    var appeared: XCTestExpectation?
+    var reinitialized: XCTestExpectation?
+    var disappeared: XCTestExpectation?
+    var initializedScopes: [String] = []
+    var mutations = 0
+
+    func storage(scope: String, draftID: String) -> MemoryCompositionStorage {
+        MemoryCompositionStorage(key: namespace + ":" + scope + ":" + draftID)
+    }
+
+    func source() -> WishSource {
+        initializedScopes.append(scope)
+        return WishSource(currentScope: { self.scope }, isAuthorized: { true },
+            draftKey: { self.storage(scope: self.scope, draftID: $0).key }, list: { [] },
+            save: { _, _, _, _ in self.mutations += 1; XCTFail("Mounting an editor must not save remotely"); throw ServiceError.invalidResponse },
+            delete: { _, _ in self.mutations += 1; XCTFail("Mounting an editor must not delete") },
+            uploadPhoto: { _, _, _ in self.mutations += 1; XCTFail("Mounting an editor must not upload"); throw ServiceError.invalidResponse },
+            removePhoto: { _, _ in self.mutations += 1; XCTFail("Mounting an editor must not remove a photo"); throw ServiceError.invalidResponse },
+            photo: { _ in XCTFail("Recovery must use the local staged photo"); return nil })
+    }
+}
+
+private struct WishEditorLifecycleFixture: View {
+    @ObservedObject var lifecycle: WishEditorLifecycleFixtureState
+    let original: CoupleWish?
+
+    var body: some View {
+        WishEditorView(source: lifecycle.source(), original: original,
+                       onSaved: { _ in XCTFail("Mounting an editor must not confirm a remote save") })
+            .onAppear { lifecycle.appeared?.fulfill(); lifecycle.appeared = nil }
+            .onChange(of: lifecycle.scope) { _, _ in lifecycle.reinitialized?.fulfill(); lifecycle.reinitialized = nil }
+            .onDisappear { lifecycle.disappeared?.fulfill(); lifecycle.disappeared = nil }
+    }
+}
+
+@MainActor
+private struct MountedWishEditor {
+    let window: UIWindow
+    let host: UIHostingController<AnyView>
+    let previous: UIWindow?
+
+    @discardableResult
+    func render() -> UIImage {
+        window.layoutIfNeeded()
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        return UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            XCTAssertTrue(window.drawHierarchy(in: window.bounds, afterScreenUpdates: true))
+        }
+    }
+
+    func removeEditor() { host.rootView = AnyView(EmptyView()); _ = render() }
+
+    func close() {
+        host.rootView = AnyView(EmptyView())
+        host.view.layoutIfNeeded()
+        window.isHidden = true
+        window.rootViewController = nil
+        previous?.makeKeyAndVisible()
     }
 }
 

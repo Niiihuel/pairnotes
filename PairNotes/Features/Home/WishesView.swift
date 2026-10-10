@@ -81,10 +81,12 @@ struct WishFields: Codable, Equatable {
         value.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.title.isEmpty, value.title.utf16.count <= 120 else { throw WishFormError("Escribí un título de hasta 120 caracteres.") }
         guard notes.utf16.count <= 1_000 else { throw WishFormError("Las notas pueden tener hasta 1000 caracteres.") }
-        guard location.utf16.count <= 240, recipient.utf16.count <= 120, occasion.utf16.count <= 120 else {
+        guard (!usesLocation || location.utf16.count <= 240),
+              (category != .gifts || (recipient.utf16.count <= 120 && occasion.utf16.count <= 120)) else {
             throw WishFormError("El lugar admite hasta 240 caracteres; el destinatario y la ocasión, hasta 120.")
         }
-        guard ingredients.utf16.count <= 6_000, instructions.utf16.count <= 10_000 else {
+        guard category != .food || foodKind != .recipe ||
+              (ingredients.utf16.count <= 6_000 && instructions.utf16.count <= 10_000) else {
             throw WishFormError("Usá hasta 6000 caracteres para ingredientes y 10000 para la preparación.")
         }
         value.priceText = try CoupleWishPrice.parse(priceText, locale: locale) ?? ""
@@ -144,6 +146,7 @@ struct WishesView: View {
     private let source: WishSource
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.coupleModalControl) private var modalControl
     @State private var values: [CoupleWish] = []
     @State private var loadedScope: String?
     @State private var loading = false
@@ -154,6 +157,7 @@ struct WishesView: View {
     @State private var creating = false
     @State private var selected: CoupleWish?
     @State private var version: UInt64 = 0
+    @State private var modalOwner = UUID()
 
     init(services: AppServices, source: WishSource? = nil) {
         self.services = services; self.source = source ?? .live(services)
@@ -191,12 +195,12 @@ struct WishesView: View {
                     } description: {
                         Text(category == nil ? "Guardá una idea que les ilusione, con foto, detalles y su moneda." : "Todavía no hay antojos en esta categoría.")
                     } actions: {
-                        if !showsFulfilled { Button("Nuevo antojo", systemImage: "plus") { creating = true }.buttonStyle(.borderedProminent) }
+                        if !showsFulfilled { Button("Nuevo antojo", systemImage: "plus", action: create).buttonStyle(.borderedProminent) }
                     }
                 } else {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: dynamicTypeSize.isAccessibilitySize ? 1 : 2), spacing: 16) {
                         ForEach(visibleValues) { wish in
-                            Button { selected = wish } label: {
+                            Button { modalControl.onPresented(modalOwner); selected = wish } label: {
                                 WishCard(wish: wish, source: source)
                             }.buttonStyle(.plain).accessibilityIdentifier("wish.card.\(wish.id)")
                         }
@@ -214,7 +218,7 @@ struct WishesView: View {
         .navigationTitle("Antojos").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button("Nuevo antojo", systemImage: "plus") { creating = true }
+                Button("Nuevo antojo", systemImage: "plus", action: create)
                     .disabled(!source.isAuthorized()).accessibilityIdentifier("wishes.add")
             }
         }
@@ -229,15 +233,27 @@ struct WishesView: View {
             }
         }
         .onChange(of: scope) { _, _ in selected = nil; creating = false }
-        .sheet(isPresented: $creating) {
+        .onChange(of: modalControl.dismissalVersion) { _, _ in selected = nil; creating = false }
+        .sheet(isPresented: $creating, onDismiss: sheetDismissed) {
             WishEditorView(source: source, initialCategory: category ?? .other, onSaved: accept)
                 .environment(\.coupleAppTheme, theme)
         }
-        .sheet(item: $selected, onDismiss: { Task { await load() } }) { wish in
+        .sheet(item: $selected, onDismiss: sheetDismissed) { wish in
             WishDetailView(wish: wish, source: source, onChanged: accept, onDeleted: { id in
                 version &+= 1; values.removeAll { $0.id == id }
             }).environment(\.coupleAppTheme, theme)
         }
+    }
+
+    private func create() {
+        guard source.isAuthorized() else { return }
+        modalControl.onPresented(modalOwner)
+        creating = true
+    }
+
+    private func sheetDismissed() {
+        modalControl.onDismissed(modalOwner)
+        Task { await load() }
     }
 
     private var categoryFilters: some View {
@@ -534,12 +550,17 @@ private struct WishEditorDraft: Codable {
     var photoAction = "keep"
 }
 
+private struct WishEditorContext {
+    let scope: String
+    let storage: MemoryCompositionStorage
+}
+
 struct WishEditorView: View {
     let source: WishSource
     let original: CoupleWish?
     let onSaved: (CoupleWish) -> Void
-    private let storage: MemoryCompositionStorage
-    private let scope: String
+    @State private var context: WishEditorContext
+    private var storage: MemoryCompositionStorage { context.storage }
     @Environment(\.dismiss) private var dismiss
     @Environment(\.coupleAppTheme) private var theme
     @State private var draft: WishEditorDraft
@@ -560,10 +581,17 @@ struct WishEditorView: View {
     init(source: WishSource, original: CoupleWish? = nil, initialCategory: CoupleWishCategory = .other,
          onSaved: @escaping (CoupleWish) -> Void) {
         self.source = source; self.original = original; self.onSaved = onSaved
-        scope = source.currentScope()
-        let storage = MemoryCompositionStorage(key: source.draftKey(original?.id ?? "new"))
-        self.storage = storage
-        let recovered: WishEditorDraft? = storage.loadValue()
+        var storage = MemoryCompositionStorage(key: source.draftKey(original?.id ?? "new"))
+        var recovered: WishEditorDraft? = storage.loadValue()
+        if recovered == nil, let original {
+            // Metadata may be confirmed before a create's photo finishes.
+            // Opening that card resumes the original pending request and image.
+            let creation = MemoryCompositionStorage(key: source.draftKey("new"))
+            if let pending: WishEditorDraft = creation.loadValue(), pending.id == original.id {
+                storage = creation; recovered = pending
+            }
+        }
+        _context = State(initialValue: WishEditorContext(scope: source.currentScope(), storage: storage))
         var initial = recovered ?? WishEditorDraft(id: original?.id ?? UUID().uuidString.lowercased(),
             fields: original.map(WishFields.init) ?? WishFields(category: initialCategory), base: original)
         if !initial.pendingMetadata && !initial.pendingPhoto { initial.fields.localizeNumbers(to: .current) }
@@ -574,7 +602,7 @@ struct WishEditorView: View {
         _conflict = State(initialValue: initial.needsReview)
     }
 
-    private var current: Bool { source.isAuthorized() && scope == source.currentScope() }
+    private var current: Bool { source.isAuthorized() && context.scope == source.currentScope() }
     private var fieldsLocked: Bool { saving || draft.pendingMetadata || draft.pendingPhoto }
     private var ready: Bool { current && !saving && !preparingPhoto && !conflict && (try? draft.fields.validated()) != nil }
     private var validationHint: String? {
@@ -644,6 +672,9 @@ struct WishEditorView: View {
                     Button("Cargar versión compartida", role: .destructive) { reload() }
                 }
         }
+        .opacity(current ? 1 : 0)
+        .allowsHitTesting(current)
+        .accessibilityHidden(!current)
     }
 
     private var photoSection: some View {
